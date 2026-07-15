@@ -44,11 +44,11 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  branches       Branch[]
-  users          User[]
-  roles          Role[]
-  auditEvents    AuditEvent[]
-  settings       ApplicationSetting[]
+  branches        Branch[]
+  users           User[]
+  roles           Role[]
+  auditEvents     AuditEvent[]
+  settings        ApplicationSetting[]
   numberSequences NumberSequence[]
 
   @@map("organizations")
@@ -62,40 +62,45 @@ model Branch {
   addressLine    String?  @map("address_line") @db.VarChar(300)
   city           String   @default("Lahore") @db.VarChar(100)
   phone          String?  @db.VarChar(20)
+  isDefault      Boolean  @default(false) @map("is_default")
   isActive       Boolean  @default(true) @map("is_active")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
-  stockLocations StockLocation[]
-  scopeAccess    UserScopeAccess[]
-  auditEvents    AuditEvent[]
-  sessions       Session[]
+  stockLocations  StockLocation[]
+  scopeAccess     UserScopeAccess[]
+  auditEvents     AuditEvent[]
+  sessions        Session[]
   numberSequences NumberSequence[]
+  settings        ApplicationSetting[]
 
   @@unique([organizationId, code])
+  @@unique([id, organizationId])
   @@index([organizationId, isActive])
   @@map("branches")
 }
 
 model StockLocation {
-  id        String            @id @default(uuid()) @db.Uuid
-  branchId  String            @map("branch_id") @db.Uuid
-  code      String            @db.VarChar(20)
-  name      String            @db.VarChar(200)
-  kind      StockLocationKind @default(store)
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  branchId       String            @map("branch_id") @db.Uuid
+  code           String            @db.VarChar(20)
+  name           String            @db.VarChar(200)
+  kind           StockLocationKind @default(store)
   /// Exactly one location per branch is the default receiving/selling location.
-  isDefault Boolean           @default(false) @map("is_default")
-  isActive  Boolean           @default(true) @map("is_active")
-  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  isDefault      Boolean           @default(false) @map("is_default")
+  isActive       Boolean           @default(true) @map("is_active")
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  branch      Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  branch      Branch            @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
   scopeAccess UserScopeAccess[]
 
-  @@unique([branchId, code])
-  @@index([branchId, isActive])
+  @@unique([organizationId, branchId, code])
+  @@unique([id, organizationId, branchId])
+  @@index([organizationId, branchId, isActive])
   @@map("stock_locations")
 }
 
@@ -112,35 +117,38 @@ enum StockLocationKind {
 // =============================================================================
 
 model User {
-  id             String    @id @default(uuid()) @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
   /// Normalized to lowercase before write; unique per organization.
-  email          String    @db.VarChar(255)
+  email              String    @db.VarChar(255)
   /// Argon2id hash (ASM-012). NEVER logged, never returned by any endpoint.
-  passwordHash   String    @map("password_hash") @db.VarChar(255)
-  fullName       String    @map("full_name") @db.VarChar(200)
+  passwordHash       String    @map("password_hash") @db.VarChar(255)
+  fullName           String    @map("full_name") @db.VarChar(200)
   /// E.164, e.g. +923001234567 (shared/src/phone.ts).
-  phone          String?   @db.VarChar(20)
+  phone              String?   @db.VarChar(20)
   /// Deactivation revokes access immediately; users are never hard-deleted
   /// because they are referenced by posted records and audit history.
-  isActive       Boolean   @default(true) @map("is_active")
+  isActive           Boolean   @default(true) @map("is_active")
   /// Forces a password change on next login (invited or reset users).
-  mustChangePassword Boolean @default(false) @map("must_change_password")
-  lastLoginAt    DateTime? @map("last_login_at") @db.Timestamptz(3)
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  lastLoginAt        DateTime? @map("last_login_at") @db.Timestamptz(3)
   /// Consecutive failed attempts; reset on success. Feeds lockout.
-  failedLoginCount Int     @default(0) @map("failed_login_count")
-  lockedUntil    DateTime? @map("locked_until") @db.Timestamptz(3)
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  failedLoginCount   Int       @default(0) @map("failed_login_count")
+  lockedUntil        DateTime? @map("locked_until") @db.Timestamptz(3)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
-  userRoles   UserRole[]
-  scopeAccess UserScopeAccess[]
-  sessions    Session[]
-  auditEvents AuditEvent[]
+  userRoles         UserRole[]           @relation("UserRoleMember")
+  assignedUserRoles UserRole[]           @relation("UserRoleAssigner")
+  scopeAccess       UserScopeAccess[]
+  sessions          Session[]
+  auditEvents       AuditEvent[]
+  updatedSettings   ApplicationSetting[] @relation("SettingUpdater")
 
   @@unique([organizationId, email])
+  @@unique([id, organizationId])
   @@index([organizationId, isActive])
   @@map("users")
 }
@@ -163,6 +171,7 @@ model Role {
   rolePermissions RolePermission[]
 
   @@unique([organizationId, code])
+  @@unique([id, organizationId])
   @@map("roles")
 }
 
@@ -184,17 +193,19 @@ model Permission {
 }
 
 model UserRole {
-  id         String   @id @default(uuid()) @db.Uuid
-  userId     String   @map("user_id") @db.Uuid
-  roleId     String   @map("role_id") @db.Uuid
-  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz(3)
-  assignedBy String?  @map("assigned_by") @db.Uuid
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  roleId         String   @map("role_id") @db.Uuid
+  assignedAt     DateTime @default(now()) @map("assigned_at") @db.Timestamptz(3)
+  assignedBy     String?  @map("assigned_by_user_id") @db.Uuid
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  user     User  @relation("UserRoleMember", fields: [userId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  role     Role  @relation(fields: [roleId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  assigner User? @relation("UserRoleAssigner", fields: [assignedBy, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([userId, roleId])
-  @@index([roleId])
+  @@unique([organizationId, userId, roleId])
+  @@index([organizationId, roleId])
   @@map("user_roles")
 }
 
@@ -216,18 +227,20 @@ model RolePermission {
 /// A user with NO rows here is scoped to their organization's default branch;
 /// resolution lives in the scope guard, never in the client.
 model UserScopeAccess {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
-  branchId  String?  @map("branch_id") @db.Uuid
-  locationId String? @map("location_id") @db.Uuid
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  branchId       String   @map("branch_id") @db.Uuid
+  /// Null grants the whole branch; non-null narrows the grant to one location.
+  locationId     String?  @map("location_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  branch   Branch?        @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  location StockLocation? @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  user     User           @relation(fields: [userId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  branch   Branch         @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  location StockLocation? @relation(fields: [locationId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Cascade)
 
-  @@unique([userId, branchId, locationId])
-  @@index([userId])
+  @@unique([organizationId, userId, branchId, locationId])
+  @@index([organizationId, userId])
   @@map("user_scope_access")
 }
 
@@ -242,25 +255,26 @@ model UserScopeAccess {
 /// deactivation to be meaningful, which a stateless token cannot guarantee until
 /// it expires.
 model Session {
-  id           String    @id @default(uuid()) @db.Uuid
-  userId       String    @map("user_id") @db.Uuid
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
   /// SHA-256 of the opaque cookie value. The raw token is never stored, so a
   /// database leak does not hand over live sessions.
-  tokenHash    String    @unique @map("token_hash") @db.VarChar(64)
+  tokenHash      String    @unique @map("token_hash") @db.VarChar(64)
   /// Active branch for this session; the launch UI exposes no branch selector.
-  branchId     String?   @map("branch_id") @db.Uuid
-  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(3)
-  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)
+  branchId       String    @map("branch_id") @db.Uuid
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(3)
   /// Truncated/normalized; retained for the login audit trail (13_ §8).
-  ipAddress    String?   @map("ip_address") @db.VarChar(45)
-  userAgent    String?   @map("user_agent") @db.VarChar(400)
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  lastSeenAt   DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  ipAddress      String?   @map("ip_address") @db.VarChar(45)
+  userAgent      String?   @map("user_agent") @db.VarChar(400)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt     DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
 
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  user   User   @relation(fields: [userId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@index([userId])
+  @@index([organizationId, userId])
   @@index([expiresAt])
   @@map("sessions")
 }
@@ -268,15 +282,15 @@ model Session {
 /// Login attempt log, separate from AuditEvent because it is written on failure
 /// for users that may not exist, and drives rate limiting/lockout (13_ §8).
 model LoginAttempt {
-  id           String   @id @default(uuid()) @db.Uuid
+  id            String   @id @default(uuid()) @db.Uuid
   /// Raw submitted identifier, lowercased. Not an FK: failures include unknown users.
-  email        String   @db.VarChar(255)
-  succeeded    Boolean
-  failureReason String? @map("failure_reason") @db.VarChar(100)
-  ipAddress    String?  @map("ip_address") @db.VarChar(45)
-  userAgent    String?  @map("user_agent") @db.VarChar(400)
-  requestId    String?  @map("request_id") @db.VarChar(128)
-  attemptedAt  DateTime @default(now()) @map("attempted_at") @db.Timestamptz(3)
+  email         String   @db.VarChar(255)
+  succeeded     Boolean
+  failureReason String?  @map("failure_reason") @db.VarChar(100)
+  ipAddress     String?  @map("ip_address") @db.VarChar(45)
+  userAgent     String?  @map("user_agent") @db.VarChar(400)
+  requestId     String?  @map("request_id") @db.VarChar(128)
+  attemptedAt   DateTime @default(now()) @map("attempted_at") @db.Timestamptz(3)
 
   @@index([email, attemptedAt])
   @@index([ipAddress, attemptedAt])
@@ -292,28 +306,31 @@ model LoginAttempt {
 /// Never updated or deleted by application code. Payloads hold safe snapshots
 /// only — never secrets, tokens, or full sensitive documents (04_DATA_MODEL §10).
 model AuditEvent {
-  id             String   @id @default(uuid()) @db.Uuid
-  occurredAt     DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
-  organizationId String   @map("organization_id") @db.Uuid
-  branchId       String?  @map("branch_id") @db.Uuid
+  id             String           @id @default(uuid()) @db.Uuid
+  occurredAt     DateTime         @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  organizationId String           @map("organization_id") @db.Uuid
+  branchId       String?          @map("branch_id") @db.Uuid
   /// Null for system/unauthenticated actions (e.g. a failed login).
-  actorUserId    String?  @map("actor_user_id") @db.Uuid
+  actorUserId    String?          @map("actor_user_id") @db.Uuid
   /// Dotted action, e.g. "sale.posted", "inventory.adjusted".
-  action         String   @db.VarChar(100)
-  entityType     String   @map("entity_type") @db.VarChar(60)
-  entityId       String?  @map("entity_id") @db.VarChar(64)
+  action         String           @db.VarChar(100)
+  entityType     String           @map("entity_type") @db.VarChar(60)
+  entityId       String?          @map("entity_id") @db.VarChar(64)
   /// Safe before/after snapshots. Redacted at the writer, not here.
-  beforeSnapshot Json?    @map("before_snapshot")
-  afterSnapshot  Json?    @map("after_snapshot")
+  beforeSnapshot Json?            @map("before_snapshot")
+  afterSnapshot  Json?            @map("after_snapshot")
+  beforeHash     String?          @map("before_hash") @db.Char(64)
+  afterHash      String?          @map("after_hash") @db.Char(64)
   /// Mandatory for overrides and sensitive actions (13_ §23.22).
-  reason         String?  @db.VarChar(500)
-  requestId      String?  @map("request_id") @db.VarChar(128)
-  ipAddress      String?  @map("ip_address") @db.VarChar(45)
+  reason         String?          @db.VarChar(500)
+  requestId      String?          @map("request_id") @db.VarChar(128)
+  ipAddress      String?          @map("ip_address") @db.VarChar(45)
+  userAgent      String?          @map("user_agent") @db.VarChar(400)
   sensitivity    AuditSensitivity @default(normal)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  actor        User?        @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+  branch       Branch?      @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  actor        User?        @relation(fields: [actorUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@index([organizationId, occurredAt])
   @@index([entityType, entityId])
@@ -336,22 +353,35 @@ enum AuditSensitivity {
 /// Runtime configuration the owner can change without a deploy
 /// (05_RULES.md §9: "no hidden magic numbers; configuration is named and versioned").
 model ApplicationSetting {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  /// Null means organization default; a branch row overrides that default.
+  branchId       String?          @map("branch_id") @db.Uuid
   /// Dotted key, e.g. "sales.min_margin_percent".
-  key            String   @db.VarChar(120)
+  key            String           @db.VarChar(120)
   value          Json
-  description    String?  @db.VarChar(300)
+  valueType      SettingValueType @default(json) @map("value_type")
+  description    String?          @db.VarChar(300)
   /// Optimistic concurrency for concurrent settings edits.
-  version        Int      @default(1)
-  updatedBy      String?  @map("updated_by") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version        Int              @default(1)
+  updatedBy      String?          @map("updated_by") @db.Uuid
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch       Branch?      @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  updater      User?        @relation("SettingUpdater", fields: [updatedBy, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([organizationId, key])
+  @@unique([organizationId, branchId, key])
   @@map("application_settings")
+}
+
+enum SettingValueType {
+  boolean
+  integer
+  money_minor
+  string
+  json
 }
 
 /// Gapless human-facing document numbers (ASM-018).
@@ -366,8 +396,8 @@ model NumberSequence {
   /// shared/src/constants.ts SEQUENCE_KEYS, e.g. "sale_invoice".
   key            String   @db.VarChar(60)
   prefix         String   @default("") @db.VarChar(20)
-  /// Last issued value. Next = nextValue + 1, allocated under lock.
-  nextValue      Int      @default(0) @map("next_value")
+  /// Next value to issue, allocated and incremented under a row lock.
+  nextValue      Int      @default(1) @map("next_value")
   padding        Int      @default(6)
   /// Optional period segment (e.g. "2026") that resets numbering per year.
   periodKey      String?  @map("period_key") @db.VarChar(10)
@@ -375,7 +405,7 @@ model NumberSequence {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch       Branch?      @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   @@unique([organizationId, branchId, key, periodKey])
   @@map("number_sequences")

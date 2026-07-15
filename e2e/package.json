@@ -1,0 +1,24 @@
+{
+  "name": "@mobileshop/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cross-application Playwright tests for MobileShop OS.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "test": "playwright test",
+    "test:auth": "playwright test tests/auth-workspace.spec.ts",
+    "test:smoke": "playwright test tests/health.spec.ts",
+    "test:headed": "playwright test --headed",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@playwright/test": "1.55.0",
+    "@types/node": "26.1.1",
+    "eslint": "9.39.5",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.64.0"
+  }
+}

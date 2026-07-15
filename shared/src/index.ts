@@ -8,12 +8,13 @@
  * value that is a secret.
  */
 
-export * from './money';
-export * from './imei';
-export * from './phone';
-export * from './enums';
-export * from './permissions';
-export * from './errors';
-export * from './datetime';
-export * from './fee-rules';
-export * from './constants';
+export * from "./money";
+export * from "./imei";
+export * from "./phone";
+export * from "./enums";
+export * from "./permissions";
+export * from "./errors";
+export * from "./datetime";
+export * from "./fee-rules";
+export * from "./constants";
+export * from "./auth";

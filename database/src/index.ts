@@ -10,10 +10,10 @@
  * "Do not connect the frontend directly to PostgreSQL").
  */
 
-import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '../generated/client';
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "../generated/client";
 
-export * from '../generated/client';
+export * from "../generated/client";
 
 export interface DatabaseClientOptions {
   /** PostgreSQL connection string. Required; never defaulted to a live database. */
@@ -24,9 +24,11 @@ export interface DatabaseClientOptions {
   readonly logQueries?: boolean;
 }
 
-export function createPrismaClient(options: DatabaseClientOptions): PrismaClient {
+export function createPrismaClient(
+  options: DatabaseClientOptions,
+): PrismaClient {
   if (!options.connectionString) {
-    throw new Error('createPrismaClient requires a connectionString');
+    throw new Error("createPrismaClient requires a connectionString");
   }
 
   const adapter = new PrismaPg({
@@ -36,6 +38,9 @@ export function createPrismaClient(options: DatabaseClientOptions): PrismaClient
 
   return new PrismaClient({
     adapter,
-    log: options.logQueries === true ? ['query', 'warn', 'error'] : ['warn', 'error'],
+    log:
+      options.logQueries === true
+        ? ["query", "warn", "error"]
+        : ["warn", "error"],
   });
 }

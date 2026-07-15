@@ -1,0 +1,288 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { hash as hashArgon2, argon2id } from "argon2";
+import { parse } from "dotenv";
+import {
+  ALL_PERMISSIONS,
+  DEFAULT_ROLE_PERMISSIONS,
+  LIMITS,
+  LoginInputSchema,
+  ROLES,
+  type RoleCode,
+} from "@mobileshop/shared";
+import { createPrismaClient } from "../src";
+
+const seedEnvironmentPath = process.cwd().toLowerCase().endsWith("database")
+  ? resolve(process.cwd(), "../.env")
+  : resolve(process.cwd(), ".env");
+const seedFileEnvironment = existsSync(seedEnvironmentPath)
+  ? parse(readFileSync(seedEnvironmentPath))
+  : {};
+
+function seedValue(name: string): string | undefined {
+  return process.env[name] ?? seedFileEnvironment[name];
+}
+
+const SEED_IDS = Object.freeze({
+  organization: "10000000-0000-4000-8000-000000000001",
+  branch: "10000000-0000-4000-8000-000000000002",
+  location: "10000000-0000-4000-8000-000000000003",
+});
+
+const ROLE_DETAILS: Readonly<
+  Record<RoleCode, { readonly name: string; readonly description: string }>
+> = {
+  [ROLES.OWNER]: {
+    name: "Owner / Super Admin",
+    description:
+      "Full business, security, financial, configuration and audit access.",
+  },
+  [ROLES.MANAGER]: {
+    name: "Manager / Admin",
+    description:
+      "Operational management without unrestricted owner/security override.",
+  },
+  [ROLES.SALESPERSON]: {
+    name: "Salesperson",
+    description: "Sales, demand, reservations and product/stock lookup.",
+  },
+  [ROLES.CASHIER]: {
+    name: "Cashier",
+    description:
+      "Payments, external money services and assigned cash sessions.",
+  },
+  [ROLES.PURCHASER]: {
+    name: "Purchaser / Inventory Staff",
+    description:
+      "Suppliers, purchasing, receiving, stock counts and adjustments.",
+  },
+  [ROLES.ACCOUNTANT]: {
+    name: "Accountant / Read-only Finance",
+    description:
+      "Financial visibility, expenses and exports without operational posting.",
+  },
+  [ROLES.TECHNICIAN]: {
+    name: "Technician",
+    description: "Restricted read access for assigned technical work.",
+  },
+};
+
+function required(name: string): string {
+  const value = seedValue(name)?.trim();
+  if (!value) throw new Error(`Missing required seed setting: ${name}`);
+  return value;
+}
+
+function validateBootstrapPassword(password: string): void {
+  if (
+    password.length < LIMITS.MIN_PASSWORD_LENGTH ||
+    password.length > LIMITS.MAX_PASSWORD_LENGTH ||
+    password.includes("CHANGE_ME")
+  ) {
+    throw new Error(
+      `SEED_OWNER_PASSWORD must be ${LIMITS.MIN_PASSWORD_LENGTH}-${LIMITS.MAX_PASSWORD_LENGTH} characters and not a placeholder`,
+    );
+  }
+}
+
+async function seed(): Promise<void> {
+  const environment = seedValue("NODE_ENV");
+  if (environment !== "development" && environment !== "test") {
+    throw new Error(
+      "The bootstrap seed requires NODE_ENV=development or NODE_ENV=test",
+    );
+  }
+
+  const connectionString = required("DATABASE_URL");
+  const ownerPassword = required("SEED_OWNER_PASSWORD");
+  validateBootstrapPassword(ownerPassword);
+  const ownerCredentials = LoginInputSchema.parse({
+    email: required("SEED_OWNER_EMAIL"),
+    password: ownerPassword,
+  });
+  const ownerPasswordHash = await hashArgon2(ownerCredentials.password, {
+    type: argon2id,
+  });
+  const prisma = createPrismaClient({ connectionString, logQueries: false });
+
+  try {
+    await prisma.$transaction(
+      async (tx) => {
+        const organization = await tx.organization.upsert({
+          where: { id: SEED_IDS.organization },
+          create: {
+            id: SEED_IDS.organization,
+            name: "MobileShop",
+            currency: "PKR",
+            timezone: "Asia/Karachi",
+          },
+          update: {},
+        });
+
+        const branch = await tx.branch.upsert({
+          where: {
+            organizationId_code: {
+              organizationId: organization.id,
+              code: "MAIN",
+            },
+          },
+          create: {
+            id: SEED_IDS.branch,
+            organizationId: organization.id,
+            code: "MAIN",
+            name: "Main Branch",
+            city: "Lahore",
+            isDefault: true,
+          },
+          update: {},
+        });
+
+        await tx.stockLocation.upsert({
+          where: {
+            organizationId_branchId_code: {
+              organizationId: organization.id,
+              branchId: branch.id,
+              code: "SHOP",
+            },
+          },
+          create: {
+            id: SEED_IDS.location,
+            organizationId: organization.id,
+            branchId: branch.id,
+            code: "SHOP",
+            name: "Shop Floor",
+            kind: "store",
+            isDefault: true,
+          },
+          update: {},
+        });
+
+        const permissionByKey = new Map<string, string>();
+        for (const key of ALL_PERMISSIONS) {
+          const [resource, action] = key.split(".");
+          if (!resource || !action)
+            throw new Error(`Invalid permission key: ${key}`);
+          const permission = await tx.permission.upsert({
+            where: { key },
+            create: { key, resource, action },
+            update: { resource, action },
+          });
+          permissionByKey.set(key, permission.id);
+        }
+
+        const roleByCode = new Map<RoleCode, string>();
+        for (const roleCode of Object.values(ROLES)) {
+          const details = ROLE_DETAILS[roleCode];
+          const existing = await tx.role.findUnique({
+            where: {
+              organizationId_code: {
+                organizationId: organization.id,
+                code: roleCode,
+              },
+            },
+            select: { id: true },
+          });
+          const role =
+            existing ??
+            (await tx.role.create({
+              data: {
+                organizationId: organization.id,
+                code: roleCode,
+                name: details.name,
+                description: details.description,
+                isSystem: true,
+              },
+              select: { id: true },
+            }));
+          roleByCode.set(roleCode, role.id);
+
+          // Default grants are installed only with a new system role. Re-running
+          // the seed must never overwrite permission edits made by an owner.
+          if (existing === null) {
+            for (const permissionKey of DEFAULT_ROLE_PERMISSIONS[roleCode]) {
+              const permissionId = permissionByKey.get(permissionKey);
+              if (!permissionId) {
+                throw new Error(`Missing permission row for ${permissionKey}`);
+              }
+              await tx.rolePermission.create({
+                data: { roleId: role.id, permissionId },
+              });
+            }
+          }
+        }
+
+        const existingOwner = await tx.user.findUnique({
+          where: {
+            organizationId_email: {
+              organizationId: organization.id,
+              email: ownerCredentials.email,
+            },
+          },
+        });
+        const owner =
+          existingOwner ??
+          (await tx.user.create({
+            data: {
+              organizationId: organization.id,
+              email: ownerCredentials.email,
+              passwordHash: ownerPasswordHash,
+              fullName: "Shop Owner",
+              mustChangePassword: false,
+            },
+          }));
+
+        const ownerRoleId = roleByCode.get(ROLES.OWNER);
+        if (!ownerRoleId) throw new Error("Owner role was not seeded");
+        await tx.userRole.upsert({
+          where: {
+            organizationId_userId_roleId: {
+              organizationId: organization.id,
+              userId: owner.id,
+              roleId: ownerRoleId,
+            },
+          },
+          create: {
+            organizationId: organization.id,
+            userId: owner.id,
+            roleId: ownerRoleId,
+            assignedBy: owner.id,
+          },
+          update: {},
+        });
+
+        const ownerScope = await tx.userScopeAccess.findFirst({
+          where: {
+            organizationId: organization.id,
+            userId: owner.id,
+            branchId: branch.id,
+            locationId: null,
+          },
+          select: { id: true },
+        });
+        if (ownerScope === null) {
+          await tx.userScopeAccess.create({
+            data: {
+              organizationId: organization.id,
+              userId: owner.id,
+              branchId: branch.id,
+              locationId: null,
+            },
+          });
+        }
+      },
+      { timeout: 30_000 },
+    );
+
+    // Safe output only. Never print the email, password, hash or connection URL.
+    console.log("Development baseline seed completed.");
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+seed().catch(() => {
+  console.error(
+    "Database seed failed. Review the non-secret seed configuration and database status.",
+  );
+  process.exitCode = 1;
+});

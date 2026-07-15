@@ -1,0 +1,198 @@
+@import "tailwindcss";
+
+/*
+ * Tailwind v4 tokens mapped directly to the approved prototype palette.
+ * Components consume semantic utilities such as bg-app, text-ink-muted and
+ * border-line, so a future brand adjustment remains centralized here.
+ */
+@theme inline {
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-app: var(--app-background);
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-ink: var(--sidebar-ink);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-ink: var(--ink);
+  --color-ink-subtle: var(--ink-subtle);
+  --color-ink-muted: var(--ink-muted);
+  --color-line: var(--line);
+  --color-line-subtle: var(--line-subtle);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --radius-card: var(--radius-card);
+  --radius-control: var(--radius-control);
+  --shadow-card: var(--shadow-card);
+  --shadow-overlay: var(--shadow-overlay);
+}
+
+:root {
+  --accent: #3b56d9;
+  --accent-strong: #2f45b8;
+  --accent-soft: #eef1fe;
+  --accent-ink: #1e2a7a;
+
+  --positive: #147a4b;
+  --positive-soft: #e5f4ec;
+  --negative: #c0392b;
+  --negative-soft: #fcecea;
+  --warning: #9a6419;
+  --warning-soft: #fdf3e0;
+  --info: #2b6cb0;
+  --info-soft: #e8f1fb;
+
+  --app-background: #f4f5f8;
+  --surface: #ffffff;
+  --surface-subtle: #fafbfd;
+  --sidebar: #10162b;
+  --sidebar-ink: #aeb6d0;
+  --sidebar-muted: #7e86a8;
+  --sidebar-hover: #1d2647;
+
+  --ink: #1a1f2e;
+  --ink-subtle: #4a5266;
+  --ink-muted: #6d7488;
+  --line: #e4e7ee;
+  --line-subtle: #eef0f5;
+
+  --radius-card: 0.75rem;
+  --radius-control: 0.5rem;
+  --shadow-card: 0 1px 2px rgb(16 22 43 / 6%), 0 1px 3px rgb(16 22 43 / 5%);
+  --shadow-overlay: 0 12px 40px rgb(16 22 43 / 20%);
+  --font-sans:
+    "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, Helvetica,
+    Arial, sans-serif;
+  --font-mono: "SFMono-Regular", "Cascadia Mono", Consolas, monospace;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --accent: #6d84f2;
+  --accent-strong: #8598f5;
+  --accent-soft: #1e2547;
+  --accent-ink: #b9c4fb;
+
+  --positive: #47c78a;
+  --positive-soft: #16311f;
+  --negative: #f47563;
+  --negative-soft: #3a1c18;
+  --warning: #e2b25a;
+  --warning-soft: #382b12;
+  --info: #6cb0ee;
+  --info-soft: #12283e;
+
+  --app-background: #0c1020;
+  --surface: #141a2e;
+  --surface-subtle: #171e34;
+  --sidebar: #090d1c;
+  --sidebar-ink: #9aa3c4;
+  --sidebar-muted: #747ca0;
+  --sidebar-hover: #1b233f;
+
+  --ink: #eaedf6;
+  --ink-subtle: #b6bdd2;
+  --ink-muted: #8f96aa;
+  --line: #303952;
+  --line-subtle: #222a40;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-overlay: 0 16px 48px rgb(0 0 0 / 60%);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --accent: #6d84f2;
+    --accent-strong: #8598f5;
+    --accent-soft: #1e2547;
+    --accent-ink: #b9c4fb;
+    --positive: #47c78a;
+    --positive-soft: #16311f;
+    --negative: #f47563;
+    --negative-soft: #3a1c18;
+    --warning: #e2b25a;
+    --warning-soft: #382b12;
+    --info: #6cb0ee;
+    --info-soft: #12283e;
+    --app-background: #0c1020;
+    --surface: #141a2e;
+    --surface-subtle: #171e34;
+    --sidebar: #090d1c;
+    --sidebar-ink: #9aa3c4;
+    --sidebar-muted: #747ca0;
+    --sidebar-hover: #1b233f;
+    --ink: #eaedf6;
+    --ink-subtle: #b6bdd2;
+    --ink-muted: #8f96aa;
+    --line: #303952;
+    --line-subtle: #222a40;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 40%);
+    --shadow-overlay: 0 16px 48px rgb(0 0 0 / 60%);
+    color-scheme: dark;
+  }
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    min-width: 20rem;
+    background: var(--app-background);
+  }
+
+  body {
+    min-height: 100vh;
+    margin: 0;
+    background: var(--app-background);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

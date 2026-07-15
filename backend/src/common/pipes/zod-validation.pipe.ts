@@ -1,6 +1,6 @@
-import { Injectable, type PipeTransform } from '@nestjs/common';
-import type { ZodType } from 'zod';
-import { DomainError, ERROR_CODES } from '@mobileshop/shared';
+import { Injectable, type PipeTransform } from "@nestjs/common";
+import type { ZodType } from "zod";
+import { DomainError, ERROR_CODES } from "@mobileshop/shared";
 
 /**
  * Validates request input against a Zod schema.
@@ -19,7 +19,10 @@ import { DomainError, ERROR_CODES } from '@mobileshop/shared';
  *   create(@Body(new ZodValidationPipe(CreateCustomerSchema)) body: CreateCustomerInput) {}
  */
 @Injectable()
-export class ZodValidationPipe<TOutput> implements PipeTransform<unknown, TOutput> {
+export class ZodValidationPipe<TOutput> implements PipeTransform<
+  unknown,
+  TOutput
+> {
   constructor(private readonly schema: ZodType<TOutput>) {}
 
   transform(value: unknown): TOutput {
@@ -29,11 +32,15 @@ export class ZodValidationPipe<TOutput> implements PipeTransform<unknown, TOutpu
     // Field-level detail keyed by dotted path, matching ApiErrorBody.details.
     const details: Record<string, string[]> = {};
     for (const issue of result.error.issues) {
-      const path = issue.path.join('.') || '(root)';
+      const path = issue.path.join(".") || "(root)";
       (details[path] ??= []).push(issue.message);
     }
 
-    throw new DomainError(ERROR_CODES.VALIDATION_FAILED, 'Request validation failed', { details });
+    throw new DomainError(
+      ERROR_CODES.VALIDATION_FAILED,
+      "Request validation failed",
+      { details },
+    );
   }
 }
 

@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, typecheck, test, build, and smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_superuser_password_not_for_reuse
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      CI: "true"
+      NODE_ENV: test
+      DATABASE_URL: postgresql://mobileshop_app:ci_runtime_password_not_for_reuse@127.0.0.1:5432/mobileshop_test?schema=public
+      TEST_DATABASE_URL: postgresql://mobileshop_app:ci_runtime_password_not_for_reuse@127.0.0.1:5432/mobileshop_test?schema=public
+      MIGRATION_DATABASE_URL: postgresql://mobileshop_migrator:ci_migration_password_not_for_reuse@127.0.0.1:5432/mobileshop_test?schema=public
+      TEST_MIGRATION_DATABASE_URL: postgresql://mobileshop_migrator:ci_migration_password_not_for_reuse@127.0.0.1:5432/mobileshop_test?schema=public
+      SHADOW_DATABASE_URL: postgresql://mobileshop_migrator:ci_migration_password_not_for_reuse@127.0.0.1:5432/mobileshop_shadow?schema=public
+      MOBILESHOP_APP_DB_PASSWORD: ci_runtime_password_not_for_reuse
+      MOBILESHOP_MIGRATOR_DB_PASSWORD: ci_migration_password_not_for_reuse
+      SESSION_SECRET: ci_only_session_secret_64_characters_long_do_not_reuse_outside_ci_1234
+      SESSION_COOKIE_SECURE: "false"
+      LOG_PRETTY: "false"
+      E2E_API_BASE_URL: http://127.0.0.1:4000/api/v1
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Provision least-privilege database roles
+        env:
+          PGPASSWORD: ci_superuser_password_not_for_reuse
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+          psql --host 127.0.0.1 --username postgres --dbname postgres --file scripts/provision-database.sql
+
+      - name: Validate Prisma schema
+        run: |
+          pnpm --filter @mobileshop/database validate
+          pnpm db:generate
+
+      - name: Apply migrations to clean CI database
+        run: |
+          pnpm db:migrate:deploy
+          pnpm --filter @mobileshop/database migrate:status
+
+      - name: Check formatting
+        run: |
+          pnpm format:check
+          pnpm exec prettier --check docker-compose.yml .github/workflows/ci.yml infrastructure/README.md
+
+      - name: Lint applications and E2E tests
+        run: pnpm lint
+
+      - name: Typecheck workspace
+        run: pnpm typecheck
+
+      - name: Run unit and integration tests
+        run: |
+          pnpm test
+          pnpm test:integration
+
+      - name: Build production applications
+        run: pnpm build
+
+      - name: Start production API build
+        env:
+          NODE_ENV: production
+          SESSION_COOKIE_SECURE: "true"
+        run: |
+          env \
+            -u MIGRATION_DATABASE_URL \
+            -u TEST_MIGRATION_DATABASE_URL \
+            -u SHADOW_DATABASE_URL \
+            -u TEST_DATABASE_URL \
+            -u MOBILESHOP_APP_DB_PASSWORD \
+            -u MOBILESHOP_MIGRATOR_DB_PASSWORD \
+            node backend/dist/main.js > "$RUNNER_TEMP/backend.log" 2>&1 &
+          echo "BACKEND_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for API liveness
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4000/api/v1/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/backend.log"
+          exit 1
+
+      - name: Run cross-application health smoke test
+        run: pnpm --filter @mobileshop/e2e test:smoke
+
+      - name: Upload smoke diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-diagnostics
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/backend.log
+            e2e/playwright-report/
+            e2e/test-results/
+          retention-days: 7
+
+      - name: Stop API
+        if: always()
+        run: |
+          if [ -n "${BACKEND_PID:-}" ] && kill -0 "$BACKEND_PID" 2>/dev/null; then
+            kill "$BACKEND_PID"
+          fi

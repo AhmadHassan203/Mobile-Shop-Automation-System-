@@ -1,7 +1,7 @@
-import { Injectable, type NestMiddleware } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
-import type { NextFunction, Request, Response } from 'express';
-import { REQUEST_ID_HEADER } from '@mobileshop/shared';
+import { Injectable, type NestMiddleware } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import type { NextFunction, Request, Response } from "express";
+import { REQUEST_ID_HEADER } from "@mobileshop/shared";
 
 /**
  * Assign a correlation ID to every request (13_ §4, 05_RULES.md §9).
@@ -20,7 +20,9 @@ export class RequestIdMiddleware implements NestMiddleware {
 
   use(req: Request, res: Response, next: NextFunction): void {
     const inbound = req.header(REQUEST_ID_HEADER);
-    const requestId = RequestIdMiddleware.isAcceptable(inbound) ? inbound : randomUUID();
+    const requestId = RequestIdMiddleware.isAcceptable(inbound)
+      ? inbound
+      : randomUUID();
 
     req.requestId = requestId;
     res.setHeader(REQUEST_ID_HEADER, requestId);

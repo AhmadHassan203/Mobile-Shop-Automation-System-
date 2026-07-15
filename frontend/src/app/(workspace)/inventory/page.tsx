@@ -7,7 +7,8 @@ import {
 
 export const metadata: Metadata = {
   title: "Product catalog | MobileShop OS",
-  description: "Search and create sellable product definitions.",
+  description:
+    "Search, create and maintain sellable product definitions, categories, brands and models.",
 };
 
 export default function InventoryPage() {

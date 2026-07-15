@@ -131,6 +131,9 @@ model Category {
   name             String   @db.VarChar(200)
   slug             String   @db.VarChar(220)
   isActive         Boolean  @default(true) @map("is_active")
+  /// Optimistic concurrency token. A self-parent check and a cycle-rejecting
+  /// trigger guard the tree in SQL (0006); neither is expressible here.
+  version          Int      @default(1)
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -151,6 +154,8 @@ model Brand {
   name           String   @db.VarChar(200)
   slug           String   @db.VarChar(220)
   isActive       Boolean  @default(true) @map("is_active")
+  /// Optimistic concurrency token (0006).
+  version        Int      @default(1)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -171,6 +176,8 @@ model ProductModel {
   name           String   @db.VarChar(200)
   canonicalName  String   @map("canonical_name") @db.VarChar(200)
   isActive       Boolean  @default(true) @map("is_active")
+  /// Optimistic concurrency token (0006).
+  version        Int      @default(1)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -233,12 +240,17 @@ model ProductAlias {
   alias            String   @db.VarChar(200)
   normalizedAlias  String   @map("normalized_alias") @db.VarChar(200)
   source           String?  @db.VarChar(40)
+  /// Aliases are retired, never deleted (the 0005 hard-delete trigger still
+  /// applies). Uniqueness of `normalized_alias` is therefore a partial unique
+  /// index `WHERE is_active` (0006) so a retired alias frees its value. Prisma
+  /// cannot express a partial index, so it is intentionally absent below and
+  /// enforced only in SQL.
+  isActive         Boolean  @default(true) @map("is_active")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   productVariant ProductVariant @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([organizationId, normalizedAlias])
   @@index([organizationId, productVariantId])
   @@map("product_aliases")
 }
@@ -252,12 +264,16 @@ model ProductBarcode {
   /// the barcode value only and does not invent a barcode taxonomy.
   barcodeType      String?  @map("barcode_type") @db.VarChar(30)
   isPrimary        Boolean  @default(false) @map("is_primary")
+  /// Barcodes are retired, never deleted. As with aliases, uniqueness of
+  /// `barcode` is a partial unique index `WHERE is_active` (0006) and so cannot
+  /// be declared here. SQL additionally checks that a retired barcode is never
+  /// left flagged primary.
+  isActive         Boolean  @default(true) @map("is_active")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   productVariant ProductVariant @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([organizationId, barcode])
   @@index([organizationId, productVariantId])
   @@map("product_barcodes")
 }

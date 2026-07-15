@@ -1,0 +1,33 @@
+{
+  "name": "mobile-shop-automation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MobileShop OS — production point-of-sale, inventory, purchasing, demand and business-intelligence system for a Lahore mobile shop.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "packageManager": "pnpm@10.30.3",
+  "scripts": {
+    "build": "pnpm -r --filter ./shared --filter ./database --filter ./backend --filter ./frontend build",
+    "dev": "pnpm --parallel --filter ./backend --filter ./frontend dev",
+    "lint": "pnpm -r --filter ./shared --filter ./backend --filter ./frontend lint",
+    "format:check": "prettier --check \"{shared,backend,frontend,database,e2e}/**/*.{ts,tsx,js,json,md}\"",
+    "format": "prettier --write \"{shared,backend,frontend,database,e2e}/**/*.{ts,tsx,js,json,md}\"",
+    "typecheck": "pnpm -r --filter ./shared --filter ./database --filter ./backend --filter ./frontend typecheck",
+    "test": "pnpm -r --filter ./shared --filter ./backend test",
+    "test:unit": "pnpm -r --filter ./shared --filter ./backend test:unit",
+    "test:integration": "pnpm --filter ./backend test:integration",
+    "test:e2e": "pnpm --filter ./e2e test",
+    "db:generate": "pnpm --filter ./database generate",
+    "db:migrate": "pnpm --filter ./database migrate",
+    "db:migrate:deploy": "pnpm --filter ./database migrate:deploy",
+    "db:reset": "pnpm --filter ./database reset",
+    "db:seed": "pnpm --filter ./database seed",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build"
+  },
+  "devDependencies": {
+    "prettier": "3.9.5",
+    "typescript": "5.9.3"
+  }
+}

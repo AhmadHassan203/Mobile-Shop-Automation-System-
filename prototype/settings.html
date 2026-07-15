@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings · MobileShop OS</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <style>
+    /* Read-only field (values the system sets for you) — built on shared tokens */
+    .ro {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      width: 100%; padding: 9px 11px; border: 1px dashed var(--line); border-radius: 8px;
+      background: var(--surface-2); color: var(--ink-2); font-size: 13.5px;
+    }
+    .ro .badge { flex: 0 0 auto; }
+    /* Compact inline inputs used inside the editable-looking tables */
+    .in-sm { width: 108px; padding: 6px 9px; font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
+    .in-w  { width: 84px;  padding: 6px 9px; font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
+    .rangecell { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .rangecell .rs { color: var(--ink-3); font-size: 12px; }
+    .sec-note { color: var(--ink-3); font-size: 12px; }
+    table.data td .badge { vertical-align: middle; }
+    .perm-matrix .kv { padding: 8px 0; }
+  </style>
+</head>
+<body data-page="settings">
+  <div class="layout">
+    <aside id="sidebar"></aside>
+    <div class="main">
+      <header id="topbar"></header>
+      <main class="content">
+
+        <div class="page-head">
+          <div>
+            <h1>Settings</h1>
+            <div class="subtitle">Configure Al-Madina Mobiles — shop profile, roles, price bands, the reorder engine and data safety. Posted transactions are immutable; every change here is written to the audit trail.</div>
+          </div>
+          <div class="actions">
+            <a class="btn btn-ghost" href="reports.html" id="btn-audit"></a>
+            <button class="btn btn-primary" id="btn-save" onclick="Shell.toast('Settings saved — change recorded in the audit trail', true)"></button>
+          </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs" id="tabs">
+          <div class="tab active" data-tab="profile"  onclick="switchTab('profile')">Shop profile</div>
+          <div class="tab"        data-tab="roles"    onclick="switchTab('roles')">Roles &amp; permissions</div>
+          <div class="tab"        data-tab="bands"    onclick="switchTab('bands')">Price bands</div>
+          <div class="tab"        data-tab="reorder"  onclick="switchTab('reorder')">Reorder engine</div>
+          <div class="tab"        data-tab="policies" onclick="switchTab('policies')">Policies &amp; backup</div>
+        </div>
+
+        <!-- ============ SHOP PROFILE ============ -->
+        <div class="tab-panel active" id="panel-profile">
+          <div class="grid cols-3" style="align-items:start">
+            <div style="grid-column: span 2">
+              <div class="card">
+                <div class="card-head"><h3>Shop profile</h3><span class="hint">Used on invoices, reports and receipts</span></div>
+                <div class="card-pad">
+                  <div class="field-row">
+                    <div class="field">
+                      <label>Shop name</label>
+                      <input class="input" id="pfName" value="Al-Madina Mobiles">
+                    </div>
+                    <div class="field">
+                      <label>Owner</label>
+                      <input class="input" id="pfOwner" value="Haseeb Shahid">
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label>Branch / address</label>
+                    <input class="input" id="pfBranch" value="Hall Road, Lahore">
+                    <div class="help">Single branch in this release. The data model already supports multiple branches.</div>
+                  </div>
+                  <div class="field-row">
+                    <div class="field">
+                      <label>Timezone</label>
+                      <select class="input" id="pfTz">
+                        <option selected>Asia/Karachi (PKT, UTC+5)</option>
+                        <option>Asia/Dubai (UTC+4)</option>
+                        <option>Asia/Riyadh (UTC+3)</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label>Reporting currency</label>
+                      <select class="input" id="pfCur">
+                        <option selected>PKR — Pakistani Rupee (Rs)</option>
+                        <option>USD — US Dollar</option>
+                        <option>AED — UAE Dirham</option>
+                      </select>
+                      <div class="help">All money is recorded and reported in PKR. Import costs are converted on entry.</div>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label>Business date</label>
+                    <div class="ro">
+                      <span id="pfDate">13 Jul 2026</span>
+                      <span class="badge info"><span class="dot-i"></span>Set automatically</span>
+                    </div>
+                    <div class="help">Advances when you complete the <a href="closing.html">daily closing</a>. It is never edited by hand so the day's numbers stay reconciled.</div>
+                  </div>
+                  <div class="row" style="margin-top:6px">
+                    <button class="btn btn-primary" onclick="Shell.toast('Shop profile saved', true)">Save profile</button>
+                    <span class="sec-note">Changes appear on new invoices only — issued invoices are never rewritten.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="stack g16">
+              <div class="card">
+                <div class="card-head"><h3>Cash session</h3></div>
+                <div class="card-pad">
+                  <div class="kv"><span class="k">State</span><span class="v"><span class="badge pos"><span class="dot-i"></span>Open</span></span></div>
+                  <div class="kv"><span class="k">Opened</span><span class="v" id="csOpened">10:12 AM</span></div>
+                  <div class="kv"><span class="k">Opening float</span><span class="v" id="csFloat"></span></div>
+                  <a class="btn btn-block" href="closing.html" style="margin-top:12px">Go to daily closing →</a>
+                </div>
+              </div>
+              <div class="callout info">
+                <div>Settings shape how the system <b>behaves</b> going forward. They never alter a transaction that has already been posted.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ ROLES & PERMISSIONS ============ -->
+        <div class="tab-panel" id="panel-roles">
+          <div class="callout info" id="rolesCallout" style="margin-bottom:16px">
+            <div>The first release runs everything as <b>Owner</b>. The other roles are <b>modeled from day one</b> — permissions are defined and enforced in the data layer now, so staff logins can be switched on later without reworking the system. Click a role to see exactly what it can and cannot do.</div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h3>Roles</h3>
+              <span class="hint">Least-privilege by design · click a row for the full permission set</span>
+            </div>
+            <div class="table-wrap">
+              <table class="data" id="rolesTable">
+                <thead><tr>
+                  <th>Role</th><th>What they can do</th><th class="num">Full grants</th><th>Status in v1</th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ PRICE BANDS ============ -->
+        <div class="tab-panel" id="panel-bands">
+          <div class="callout info" style="margin-bottom:16px">
+            <div>Price bands group the catalog into tiers so demand, margin and buying can be read at a glance. Every phone is tagged into a band by its selling price. <b>Reviewed quarterly</b> as the rupee and import costs move.</div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h3>Price bands</h3>
+              <span class="hint">Last reviewed 01 Apr 2026 · next review 01 Oct 2026</span>
+            </div>
+            <div class="table-wrap">
+              <table class="data" id="bandsTable">
+                <thead><tr>
+                  <th>Band</th><th>Range (Rs)</th><th class="num">Phones in band</th><th>What it's for</th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="card-pad" style="border-top:1px solid var(--line-2)">
+              <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
+                <span class="sec-note">Editing a boundary re-tags affected products the next time inventory is valued — the change is audited.</span>
+                <button class="btn btn-primary btn-sm" onclick="Shell.toast('Price bands updated — products will be re-tagged on next valuation', true)">Save bands</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ REORDER ENGINE ============ -->
+        <div class="tab-panel" id="panel-reorder">
+          <div class="grid cols-3" style="align-items:start">
+            <div style="grid-column: span 2" class="stack g16">
+              <div class="card">
+                <div class="card-head">
+                  <h3>Reorder engine</h3>
+                  <span class="badge accent mono" id="formulaBadge">v2026.04</span>
+                </div>
+                <div class="card-pad">
+                  <div class="field-row">
+                    <div class="field">
+                      <label>Safety stock (days)</label>
+                      <input class="input" id="cfgSafety" value="4">
+                      <div class="help">Extra cover held against supplier delay before a stockout.</div>
+                    </div>
+                    <div class="field">
+                      <label>Review period (days)</label>
+                      <input class="input" id="cfgReview" value="7">
+                      <div class="help">How often demand and cover are re-evaluated.</div>
+                    </div>
+                  </div>
+                  <div class="field-row">
+                    <div class="field">
+                      <label>Service level</label>
+                      <select class="input" id="cfgService">
+                        <option>85% — leaner stock, more stockouts</option>
+                        <option selected>90% — balanced (recommended)</option>
+                        <option>95% — rarely out of stock, more capital tied up</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label>Liquidity buffer (%)</label>
+                      <input class="input" id="cfgBuffer" value="12">
+                      <div class="help" id="bufferHelp"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>Demand conversion weights</h3>
+                  <span class="hint">How raw requests become "qualified" demand</span>
+                </div>
+                <div class="card-pad" style="padding-bottom:8px">
+                  <p class="small muted" style="margin-bottom:12px">Not every request is a lost sale. Recorded <a href="demand.html">demand</a> is weighted by intent before it feeds the buying plan, so the engine buys for real buyers — not browsers.</p>
+                </div>
+                <div class="table-wrap">
+                  <table class="data" id="weightsTable">
+                    <thead><tr><th>Customer intent</th><th class="num">Weight</th><th>Meaning</th></tr></thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+                <div class="card-pad" style="border-top:1px solid var(--line-2)">
+                  <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
+                    <span class="sec-note">Formulas are <b>versioned</b>. Saving supersedes the current version and is audited — recommendations re-score, nothing posted changes.</span>
+                    <button class="btn btn-primary btn-sm" onclick="Shell.open('saveCfg')">Save &amp; re-score</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="stack g16">
+              <div class="card">
+                <div class="card-head"><h3>Current formula</h3></div>
+                <div class="card-pad">
+                  <div class="kv"><span class="k">Version</span><span class="v mono">v2026.04</span></div>
+                  <div class="kv"><span class="k">Effective</span><span class="v">01 Apr 2026</span></div>
+                  <div class="kv"><span class="k">Author</span><span class="v">Haseeb Shahid</span></div>
+                  <div class="kv"><span class="k">Method</span><span class="v">Deterministic</span></div>
+                  <div class="divider"></div>
+                  <div class="small muted">Every recommendation shows its own reasons and confidence — no black box.</div>
+                  <a class="btn btn-block" href="intelligence.html" style="margin-top:12px">Open buying plan →</a>
+                </div>
+              </div>
+              <div class="callout warn">
+                <div>The engine <b>recommends</b>; it never buys on its own. A person approves every purchase order.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ POLICIES & BACKUP ============ -->
+        <div class="tab-panel" id="panel-policies">
+          <div class="grid cols-2" style="align-items:start">
+            <div class="stack g16">
+              <div class="card">
+                <div class="card-head"><h3>Warranty policies</h3></div>
+                <div class="table-wrap">
+                  <table class="data" id="warrantyTable">
+                    <thead><tr><th>Type</th><th>Applies to</th><th>Default cover</th><th>Honored by</th></tr></thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+                <div class="card-pad" style="border-top:1px solid var(--line-2)">
+                  <div class="field" style="margin-bottom:0;max-width:280px">
+                    <label>Change-of-mind return window (days)</label>
+                    <input class="input" id="cfgReturn" value="3">
+                    <div class="help">Unwanted, unopened items only. Faulty units follow the <a href="returns.html">returns &amp; warranty</a> flow regardless of this window.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="stack g16">
+              <div class="card">
+                <div class="card-head"><h3>Data &amp; backup</h3></div>
+                <div class="card-pad">
+                  <div class="field">
+                    <label>Backup schedule</label>
+                    <select class="input" id="cfgBackup">
+                      <option selected>Daily · 11:30 PM (after closing)</option>
+                      <option>Every 6 hours</option>
+                      <option>Hourly</option>
+                    </select>
+                  </div>
+                  <div class="kv"><span class="k">Last backup</span><span class="v">Today · 11:30 PM (scheduled)</span></div>
+                  <div class="kv"><span class="k">Destinations</span><span class="v">Local disk + encrypted cloud</span></div>
+                  <div class="kv"><span class="k">Retention</span><span class="v">30 daily · 12 monthly</span></div>
+                  <div class="row" style="margin-top:14px;flex-wrap:wrap">
+                    <button class="btn btn-primary" onclick="runBackup()">Run backup now</button>
+                    <button class="btn" onclick="testRestore()">Test restore</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="callout pos">
+                <div><b>Posted transactions are immutable.</b> A sale, purchase or payment is never edited or deleted — corrections are made with a reversing entry. Every critical action is written to an append-only audit trail with who, what and when.</div>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <h3>Recent audit activity</h3>
+                  <a class="btn btn-sm btn-ghost" href="reports.html">Full audit report →</a>
+                </div>
+                <div class="card-pad stack g10" id="auditList"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- ============ Role permission drawer ============ -->
+  <div class="overlay" id="roleDrawer">
+    <div class="drawer">
+      <div class="drawer-head">
+        <h3 id="roleTitle">Role</h3>
+        <div class="x-close" onclick="Shell.close('roleDrawer')">✕</div>
+      </div>
+      <div class="drawer-body" id="roleBody"></div>
+      <div class="drawer-foot">
+        <button class="btn btn-ghost" onclick="Shell.close('roleDrawer')">Close</button>
+        <button class="btn btn-primary" id="roleAction" onclick="Shell.toast('Role permissions are modeled in v1 — staff logins arrive in a later release', true)">Enable logins</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Save reorder config — impact modal ============ -->
+  <div class="overlay center" id="saveCfg">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>Save reorder configuration</h3>
+        <div class="x-close" onclick="Shell.close('saveCfg')">✕</div>
+      </div>
+      <div class="modal-body">
+        <p class="small muted" style="margin-bottom:10px">Saving does not touch a single posted transaction. Here is exactly what changes:</p>
+        <div class="impact">
+          <b>When you save this configuration:</b>
+          <ul>
+            <li>Creates formula version <b class="mono">v2026.07</b>, superseding <span class="mono">v2026.04</span></li>
+            <li>Re-scores <b id="recCount">7</b> active reorder recommendations on the next run</li>
+            <li>Applies to the <a href="intelligence.html">Intelligence buying plan</a> only — no invoice, sale or ledger entry is altered</li>
+            <li>Records the change (who &amp; when) in the audit trail — Haseeb Shahid · today</li>
+          </ul>
+        </div>
+        <div class="callout warn" style="margin-top:12px">
+          <div>Older formula versions stay on file, so any past recommendation can still be explained against the rules that produced it.</div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" onclick="Shell.close('saveCfg')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveConfig()">Save &amp; version formula</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/data.js"></script>
+  <script src="assets/shell.js"></script>
+  <script>
+    // ---- Page-head buttons ----------------------------------------------
+    document.getElementById("btn-audit").innerHTML = Shell.svg("reports") + " Audit trail";
+    document.getElementById("btn-save").innerHTML = Shell.svg("check") + " Save all changes";
+
+    // ---- Profile values from shared shop context -------------------------
+    document.getElementById("pfName").value  = DB.SHOP.name;
+    document.getElementById("pfBranch").value = DB.SHOP.branch;
+    document.getElementById("pfOwner").value = DB.SHOP.owner;
+    document.getElementById("pfDate").textContent = DB.SHOP.businessDate;
+    document.getElementById("csOpened").textContent = DB.SHOP.cashSession.openedAt;
+    document.getElementById("csFloat").textContent = fmt.pkr(DB.SHOP.cashSession.openingFloat);
+
+    // ---- Tabs ------------------------------------------------------------
+    var TABS = ["profile", "roles", "bands", "reorder", "policies"];
+    function switchTab(key) {
+      document.querySelectorAll("#tabs .tab").forEach(function (t) {
+        t.classList.toggle("active", t.getAttribute("data-tab") === key);
+      });
+      TABS.forEach(function (k) {
+        document.getElementById("panel-" + k).classList.toggle("active", k === key);
+      });
+    }
+
+    // ---- Roles & permissions ---------------------------------------------
+    var CATS = ["Sell (POS)", "See cost & margin", "Give discounts", "Refunds & returns",
+      "Purchasing & suppliers", "Inventory adjustments", "Cash session & drawer",
+      "Finance & reports", "Settings & roles", "Audit trail"];
+
+    // levels: Full / Limited / View / None (text always carries the status)
+    var ROLES = [
+      { key: "owner", name: "Owner / Super Admin", v1: true,
+        summary: "Full control — sell, buy, price, refund, see finance, edit settings and read the audit trail.",
+        perms: ["Full","Full","Full","Full","Full","Full","Full","Full","Full","View"] },
+      { key: "manager", name: "Manager", v1: false,
+        summary: "Runs the shop day-to-day: approves POs, discounts, returns and closing — cannot change settings or roles.",
+        perms: ["Full","Full","Limited","Full","Full","Full","Full","View","None","View"] },
+      { key: "sales", name: "Salesperson", v1: false,
+        summary: "Sells, records demand, reserves stock and looks up customers — no cost prices, no refunds.",
+        perms: ["Full","None","Limited","None","None","None","None","None","None","None"] },
+      { key: "purchaser", name: "Purchaser", v1: false,
+        summary: "Creates and receives purchase orders and manages suppliers and intake — no selling.",
+        perms: ["None","Full","None","None","Full","Full","None","View","None","View"] },
+      { key: "cashier", name: "Cashier", v1: false,
+        summary: "Takes payments and runs the cash drawer and session — discounts capped at a limit.",
+        perms: ["Limited","None","Limited","None","None","None","Full","None","None","None"] },
+      { key: "tech", name: "Technician", v1: false,
+        summary: "Handles repairs and inspections and updates job status — no pricing, no sales.",
+        perms: ["None","None","None","Limited","None","Limited","None","None","None","None"] },
+      { key: "accountant", name: "Accountant / Read-only", v1: false,
+        summary: "Views finance, reports and audit and exports them — cannot change any record.",
+        perms: ["None","View","None","None","View","None","None","View","None","View"] }
+    ];
+
+    function levelBadge(lv) {
+      var tone = lv === "Full" ? "pos" : lv === "Limited" ? "warn" : lv === "View" ? "info" : "plain";
+      return '<span class="badge ' + tone + '">' + lv + '</span>';
+    }
+    function statusBadge(v1) {
+      return v1
+        ? '<span class="badge pos"><span class="dot-i"></span>Active</span>'
+        : '<span class="badge plain"><span class="dot-i"></span>Modeled</span>';
+    }
+    function initials(name) {
+      return name.replace(/\/.*$/, "").trim().split(" ").map(function (w) { return w[0]; }).join("").slice(0, 2).toUpperCase();
+    }
+
+    document.querySelector("#rolesTable tbody").innerHTML = ROLES.map(function (r) {
+      var fulls = r.perms.filter(function (p) { return p === "Full"; }).length;
+      return '<tr class="row-link" onclick="openRole(\'' + r.key + '\')">'
+        + '<td><div class="row" style="gap:9px"><span class="avatar-sm">' + initials(r.name) + '</span><span class="strong">' + r.name + '</span></div></td>'
+        + '<td class="muted" style="max-width:520px">' + r.summary + '</td>'
+        + '<td class="num strong">' + fulls + '</td>'
+        + '<td>' + statusBadge(r.v1) + '</td>'
+        + '</tr>';
+    }).join("");
+
+    function openRole(key) {
+      var r = ROLES.find(function (x) { return x.key === key; });
+      if (!r) return;
+      var rows = CATS.map(function (c, i) {
+        return '<div class="kv"><span class="k">' + c + '</span><span class="v">' + levelBadge(r.perms[i]) + '</span></div>';
+      }).join("");
+      var note = r.v1
+        ? '<div class="callout pos" style="margin-bottom:14px">' + Shell.svg("check") + '<div>This role is <b>active</b> in the current release.</div></div>'
+        : '<div class="callout info" style="margin-bottom:14px">' + Shell.svg("customers") + '<div>Permissions are <b>modeled and enforced</b> in the data layer. Logins for this role turn on in a later release — no rework needed.</div></div>';
+
+      document.getElementById("roleTitle").textContent = r.name;
+      document.getElementById("roleBody").innerHTML = ''
+        + '<div class="row wrap" style="margin-bottom:12px">' + statusBadge(r.v1)
+        +   '<span class="badge accent">' + r.perms.filter(function (p) { return p === "Full"; }).length + ' full grants</span>'
+        +   '<span class="badge info">' + r.perms.filter(function (p) { return p === "View"; }).length + ' view-only</span>'
+        + '</div>'
+        + '<p class="small muted" style="margin-bottom:14px">' + r.summary + '</p>'
+        + note
+        + '<div class="small muted" style="font-weight:600;margin-bottom:2px">Permission set</div>'
+        + '<div class="perm-matrix">' + rows + '</div>'
+        + '<div class="divider"></div>'
+        + '<div class="small muted">Audit is <b>view-only for everyone</b> — the trail is append-only and cannot be edited, even by the Owner.</div>';
+
+      var act = document.getElementById("roleAction");
+      act.style.display = r.v1 ? "none" : "";
+      Shell.open("roleDrawer");
+    }
+
+    // ---- Price bands (counts derived from the live catalog) --------------
+    var BANDS = [
+      { key: "Entry",     from: 0,      to: 35000,  desc: "First smartphone, backup &amp; student phones" },
+      { key: "Value",     from: 35001,  to: 60000,  desc: "Mainstream Android — the volume tier" },
+      { key: "Mid",       from: 60001,  to: 100000, desc: "Upper-Android &amp; last-gen flagships" },
+      { key: "Upper-mid", from: 100001, to: 180000, desc: "Premium Android &amp; flagship-lite" },
+      { key: "Premium",   from: 180001, to: null,   desc: "iPhone Pro &amp; flagships — high capital, high margin" }
+    ];
+    function bandRange(b) {
+      if (b.from === 0) return '<span class="rs">≤ Rs</span><input class="input in-sm" value="' + b.to.toLocaleString("en-PK") + '">';
+      if (b.to === null) return '<span class="rs">&gt; Rs</span><input class="input in-sm" value="' + b.from.toLocaleString("en-PK") + '">';
+      return '<span class="rs">Rs</span><input class="input in-sm" value="' + b.from.toLocaleString("en-PK") + '">'
+        + '<span class="rs">–</span><input class="input in-sm" value="' + b.to.toLocaleString("en-PK") + '">';
+    }
+    var phones = DB.variants.filter(function (v) { return v.serialized; });
+    document.querySelector("#bandsTable tbody").innerHTML = BANDS.map(function (b) {
+      var n = phones.filter(function (v) {
+        return v.price >= b.from && (b.to === null || v.price <= b.to);
+      }).length;
+      var cntCell = n
+        ? '<a href="inventory.html" onclick="event.stopPropagation()">' + n + '</a>'
+        : '<span class="muted">0</span>';
+      return '<tr class="row-link" onclick="location.href=\'inventory.html\'">'
+        + '<td><span class="badge accent">' + b.key + '</span></td>'
+        + '<td><span class="rangecell">' + bandRange(b) + '</span></td>'
+        + '<td class="num strong">' + cntCell + '</td>'
+        + '<td class="muted">' + b.desc + '</td>'
+        + '</tr>';
+    }).join("");
+
+    // ---- Reorder engine: liquidity buffer derived from the budget --------
+    var bufferPct = Math.round(DB.budget.liquidityBuffer / DB.budget.total * 100);
+    document.getElementById("cfgBuffer").value = bufferPct;
+    document.getElementById("bufferHelp").innerHTML =
+      "Cash held back from buying. Now " + fmt.pkr(DB.budget.liquidityBuffer) + " of a "
+      + fmt.pkr(DB.budget.total) + " budget — see the <a href=\"intelligence.html\">buying plan</a>.";
+
+    var WEIGHTS = [
+      { label: "Ready to buy — we were out of stock", w: "1.00", note: "Counts as a full lost sale" },
+      { label: "Quotation sent, following up",        w: "0.70", note: "Strong intent, not yet closed" },
+      { label: "Interested but price too high",       w: "0.25", note: "Would need a price move to convert" },
+      { label: "Casual enquiry / browsing",           w: "0.15", note: "Weak signal — barely counts" }
+    ];
+    document.querySelector("#weightsTable tbody").innerHTML = WEIGHTS.map(function (row) {
+      return '<tr>'
+        + '<td>' + row.label + '</td>'
+        + '<td class="num"><input class="input in-w" value="' + row.w + '"></td>'
+        + '<td class="muted">' + row.note + '</td>'
+        + '</tr>';
+    }).join("");
+
+    document.getElementById("recCount").textContent = DB.recommendations.length;
+
+    function saveConfig() {
+      document.getElementById("formulaBadge").textContent = "v2026.07";
+      Shell.close("saveCfg");
+      Shell.toast("Reorder formula saved as v2026.07 — " + DB.recommendations.length + " recommendations will re-score", true);
+    }
+
+    // ---- Warranty policies -----------------------------------------------
+    var WARR = [
+      { type: "Official", applies: "New PTA-approved phones", cover: "12 months", by: "Brand service center", tone: "pos" },
+      { type: "Local",    applies: "Grey / non-PTA imports",  cover: "3 months",  by: "Local distributor",    tone: "warn" },
+      { type: "Shop",     applies: "Used &amp; repaired devices", cover: "7 days (checking)", by: "Al-Madina Mobiles", tone: "info" },
+      { type: "None",     applies: "As-is / clearance",       cover: "No cover",  by: "—",                    tone: "plain" }
+    ];
+    document.querySelector("#warrantyTable tbody").innerHTML = WARR.map(function (w) {
+      return '<tr>'
+        + '<td><span class="badge ' + w.tone + '">' + w.type + '</span></td>'
+        + '<td>' + w.applies + '</td>'
+        + '<td class="strong">' + w.cover + '</td>'
+        + '<td class="muted">' + w.by + '</td>'
+        + '</tr>';
+    }).join("");
+
+    // ---- Backup actions --------------------------------------------------
+    function runBackup() {
+      Shell.toast("Backing up…", false);
+      setTimeout(function () { Shell.toast("Backup complete — local + encrypted cloud copy verified", true); }, 900);
+    }
+    function testRestore() {
+      Shell.toast("Restoring latest snapshot to sandbox…", false);
+      setTimeout(function () { Shell.toast("Test restore passed — snapshot is readable and consistent", true); }, 1100);
+    }
+
+    // ---- Recent audit (from shared seed) ---------------------------------
+    document.getElementById("auditList").innerHTML = DB.audit.map(function (a) {
+      return '<div class="spread">'
+        + '<div style="min-width:0"><div class="small strong">' + a.action + ' · <span class="mono">' + a.entity + '</span></div>'
+        + '<div class="tiny muted">' + a.detail + '</div></div>'
+        + '<div class="tiny muted nowrap" style="text-align:right">' + a.actor + '<br>' + a.time + '</div>'
+        + '</div>';
+    }).join("");
+  </script>
+</body>
+</html>

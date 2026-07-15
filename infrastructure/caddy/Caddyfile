@@ -1,0 +1,32 @@
+{
+	auto_https off
+	admin off
+}
+:8080 {
+	encode zstd gzip
+
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), geolocation=(), microphone=()"
+	}
+
+	# A proxy-only liveness endpoint; it does not imply that either application
+	# upstream is ready.
+	handle /proxy-health {
+		respond "ok" 200
+	}
+
+	handle /api/* {
+		reverse_proxy host.docker.internal:4000 {
+			health_uri /api/v1/health/ready
+			health_interval 30s
+			health_timeout 3s
+		}
+	}
+
+	handle {
+		reverse_proxy host.docker.internal:3000
+	}
+}

@@ -13,11 +13,7 @@ export const IMEI_LENGTH = 15;
 export const IMEISV_LENGTH = 16;
 
 export type ImeiValidationCode =
-  | 'EMPTY'
-  | 'NON_DIGIT'
-  | 'BAD_LENGTH'
-  | 'CHECKSUM_FAILED'
-  | 'ALL_SAME_DIGIT';
+  "EMPTY" | "NON_DIGIT" | "BAD_LENGTH" | "CHECKSUM_FAILED" | "ALL_SAME_DIGIT";
 
 export interface ImeiValidationResult {
   readonly valid: boolean;
@@ -35,7 +31,7 @@ export interface ImeiValidationResult {
  */
 export function normalizeImei(raw: string | null | undefined): string | null {
   if (raw === null || raw === undefined) return null;
-  const digits = raw.replace(/\D+/g, '');
+  const digits = raw.replace(/\D+/g, "");
   return digits.length === 0 ? null : digits;
 }
 
@@ -47,7 +43,7 @@ export function normalizeImei(raw: string | null | undefined): string | null {
  */
 export function normalizeSerial(raw: string | null | undefined): string | null {
   if (raw === null || raw === undefined) return null;
-  const cleaned = raw.replace(/[^0-9A-Za-z]+/g, '').toUpperCase();
+  const cleaned = raw.replace(/[^0-9A-Za-z]+/g, "").toUpperCase();
   return cleaned.length === 0 ? null : cleaned;
 }
 
@@ -77,13 +73,13 @@ export function luhnChecksumValid(digits: string): boolean {
 /** Compute the Luhn check digit for the first 14 digits of an IMEI. */
 export function computeImeiCheckDigit(first14: string): number {
   if (first14.length !== 14 || /\D/.test(first14)) {
-    throw new Error('computeImeiCheckDigit expects exactly 14 digits');
+    throw new Error("computeImeiCheckDigit expects exactly 14 digits");
   }
   let total = 0;
   let double = true; // position 15 is the check digit, so digit 14 is doubled
   for (let i = first14.length - 1; i >= 0; i -= 1) {
     const char = first14[i];
-    if (char === undefined) throw new Error('Unexpected undefined digit');
+    if (char === undefined) throw new Error("Unexpected undefined digit");
     let value = char.charCodeAt(0) - 48;
     if (double) {
       value *= 2;
@@ -112,26 +108,33 @@ export function validateImei(
 
   const normalized = normalizeImei(raw);
   if (normalized === null) {
-    return { valid: false, normalized: null, code: 'EMPTY', message: 'IMEI is empty' };
+    return {
+      valid: false,
+      normalized: null,
+      code: "EMPTY",
+      message: "IMEI is empty",
+    };
   }
 
-  const original = String(raw ?? '');
+  const original = String(raw ?? "");
   if (/[A-Za-z]/.test(original)) {
     return {
       valid: false,
       normalized,
-      code: 'NON_DIGIT',
-      message: 'IMEI must contain digits only',
+      code: "NON_DIGIT",
+      message: "IMEI must contain digits only",
     };
   }
 
-  const allowedLengths = allowImeiSv ? [IMEI_LENGTH, IMEISV_LENGTH] : [IMEI_LENGTH];
+  const allowedLengths = allowImeiSv
+    ? [IMEI_LENGTH, IMEISV_LENGTH]
+    : [IMEI_LENGTH];
   if (!allowedLengths.includes(normalized.length)) {
     return {
       valid: false,
       normalized,
-      code: 'BAD_LENGTH',
-      message: `IMEI must be ${allowedLengths.join(' or ')} digits, received ${normalized.length}`,
+      code: "BAD_LENGTH",
+      message: `IMEI must be ${allowedLengths.join(" or ")} digits, received ${normalized.length}`,
     };
   }
 
@@ -140,17 +143,21 @@ export function validateImei(
     return {
       valid: false,
       normalized,
-      code: 'ALL_SAME_DIGIT',
-      message: 'IMEI cannot be a single repeated digit',
+      code: "ALL_SAME_DIGIT",
+      message: "IMEI cannot be a single repeated digit",
     };
   }
 
-  if (requireChecksum && normalized.length === IMEI_LENGTH && !luhnChecksumValid(normalized)) {
+  if (
+    requireChecksum &&
+    normalized.length === IMEI_LENGTH &&
+    !luhnChecksumValid(normalized)
+  ) {
     return {
       valid: false,
       normalized,
-      code: 'CHECKSUM_FAILED',
-      message: 'IMEI checksum (Luhn) failed',
+      code: "CHECKSUM_FAILED",
+      message: "IMEI checksum (Luhn) failed",
     };
   }
 
@@ -162,7 +169,7 @@ export interface BulkImeiRow {
   readonly raw: string;
   readonly normalized: string | null;
   readonly valid: boolean;
-  readonly code?: ImeiValidationCode | 'DUPLICATE_IN_BATCH';
+  readonly code?: ImeiValidationCode | "DUPLICATE_IN_BATCH";
   readonly message?: string;
 }
 
@@ -206,7 +213,7 @@ export function parseBulkImeiInput(
           raw,
           normalized: result.normalized,
           valid: false,
-          code: 'DUPLICATE_IN_BATCH',
+          code: "DUPLICATE_IN_BATCH",
           message: `Duplicate of line ${firstSeenAt}`,
         });
         return;
@@ -228,7 +235,9 @@ export function parseBulkImeiInput(
 
   return {
     rows,
-    validNormalized: rows.filter((r) => r.valid && r.normalized !== null).map((r) => r.normalized as string),
+    validNormalized: rows
+      .filter((r) => r.valid && r.normalized !== null)
+      .map((r) => r.normalized as string),
     duplicatesInBatch: [...duplicates],
     hasErrors: rows.some((r) => !r.valid),
   };
@@ -237,8 +246,8 @@ export function parseBulkImeiInput(
 /** Mask an IMEI for display in low-trust contexts: 356938035643809 -> 35693******3809 */
 export function maskImei(imei: string): string {
   const normalized = normalizeImei(imei);
-  if (normalized === null || normalized.length < 9) return '***';
+  if (normalized === null || normalized.length < 9) return "***";
   const head = normalized.slice(0, 5);
   const tail = normalized.slice(-4);
-  return `${head}${'*'.repeat(normalized.length - 9)}${tail}`;
+  return `${head}${"*".repeat(normalized.length - 9)}${tail}`;
 }

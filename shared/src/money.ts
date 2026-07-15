@@ -8,14 +8,15 @@
  */
 
 /** Integer minor units (e.g. paisa). Branded so a raw number cannot be passed by mistake. */
-export type Minor = number & { readonly __brand: 'MinorUnits' };
+export type Minor = number & { readonly __brand: "MinorUnits" };
 
-export const CURRENCY_PKR = 'PKR' as const;
+export const CURRENCY_PKR = "PKR" as const;
 
 /** Minor units per major unit, keyed by ISO-4217 code. PKR: 1 rupee = 100 paisa. */
-export const CURRENCY_MINOR_EXPONENT: Readonly<Record<string, number>> = Object.freeze({
-  PKR: 2,
-});
+export const CURRENCY_MINOR_EXPONENT: Readonly<Record<string, number>> =
+  Object.freeze({
+    PKR: 2,
+  });
 
 /** Largest integer that is exactly representable; guards against silent precision loss. */
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
@@ -23,21 +24,25 @@ const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 export class MoneyError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'MoneyError';
+    this.name = "MoneyError";
   }
 }
 
 function assertSafeInteger(value: number, label: string): void {
   if (!Number.isInteger(value)) {
-    throw new MoneyError(`${label} must be an integer number of minor units, received ${value}`);
+    throw new MoneyError(
+      `${label} must be an integer number of minor units, received ${value}`,
+    );
   }
   if (!Number.isSafeInteger(value)) {
-    throw new MoneyError(`${label} exceeds the safe integer range (${MAX_SAFE})`);
+    throw new MoneyError(
+      `${label} exceeds the safe integer range (${MAX_SAFE})`,
+    );
   }
 }
 
 /** Assert-and-brand a raw integer as minor units. */
-export function toMinor(value: number, label = 'amount'): Minor {
+export function toMinor(value: number, label = "amount"): Minor {
   assertSafeInteger(value, label);
   return value as Minor;
 }
@@ -53,15 +58,18 @@ export function zero(): Minor {
  * permitted for ergonomics but is rejected when it carries more decimal places
  * than the currency supports, since such a value has already lost precision.
  */
-export function fromMajor(value: string | number, currency: string = CURRENCY_PKR): Minor {
+export function fromMajor(
+  value: string | number,
+  currency: string = CURRENCY_PKR,
+): Minor {
   const exponent = CURRENCY_MINOR_EXPONENT[currency];
   if (exponent === undefined) {
     throw new MoneyError(`Unknown currency: ${currency}`);
   }
 
-  const text = typeof value === 'number' ? String(value) : value.trim();
-  if (text === '') {
-    throw new MoneyError('Empty money value');
+  const text = typeof value === "number" ? String(value) : value.trim();
+  if (text === "") {
+    throw new MoneyError("Empty money value");
   }
 
   const match = /^(-)?(\d+)(?:\.(\d+))?$/.exec(text);
@@ -69,29 +77,34 @@ export function fromMajor(value: string | number, currency: string = CURRENCY_PK
     throw new MoneyError(`Invalid money value: ${text}`);
   }
 
-  const [, sign, whole = '0', fraction = ''] = match;
+  const [, sign, whole = "0", fraction = ""] = match;
   if (fraction.length > exponent) {
     throw new MoneyError(
       `Money value ${text} has more than ${exponent} decimal places for ${currency}`,
     );
   }
 
-  const padded = fraction.padEnd(exponent, '0');
+  const padded = fraction.padEnd(exponent, "0");
   const combined = `${whole}${padded}`;
   const magnitude = Number(combined);
   assertSafeInteger(magnitude, `money value ${text}`);
 
-  return ((sign === '-' ? -magnitude : magnitude) as Minor);
+  return (sign === "-" ? -magnitude : magnitude) as Minor;
 }
 
 /** Render minor units as a plain decimal string ("123456" -> "1234.56"). No grouping, no symbol. */
-export function toMajorString(amount: Minor, currency: string = CURRENCY_PKR): string {
+export function toMajorString(
+  amount: Minor,
+  currency: string = CURRENCY_PKR,
+): string {
   const exponent = CURRENCY_MINOR_EXPONENT[currency];
   if (exponent === undefined) {
     throw new MoneyError(`Unknown currency: ${currency}`);
   }
   const negative = amount < 0;
-  const digits = Math.abs(amount).toString().padStart(exponent + 1, '0');
+  const digits = Math.abs(amount)
+    .toString()
+    .padStart(exponent + 1, "0");
   const whole = digits.slice(0, digits.length - exponent);
   const fraction = digits.slice(digits.length - exponent);
   const body = exponent === 0 ? whole : `${whole}.${fraction}`;
@@ -100,13 +113,13 @@ export function toMajorString(amount: Minor, currency: string = CURRENCY_PKR): s
 
 export function add(a: Minor, b: Minor): Minor {
   const sum = a + b;
-  assertSafeInteger(sum, 'sum');
+  assertSafeInteger(sum, "sum");
   return sum as Minor;
 }
 
 export function subtract(a: Minor, b: Minor): Minor {
   const difference = a - b;
-  assertSafeInteger(difference, 'difference');
+  assertSafeInteger(difference, "difference");
   return difference as Minor;
 }
 
@@ -134,30 +147,33 @@ export function multiplyByQuantity(amount: Minor, quantity: number): Minor {
     throw new MoneyError(`Quantity must be an integer, received ${quantity}`);
   }
   const product = amount * quantity;
-  assertSafeInteger(product, 'product');
+  assertSafeInteger(product, "product");
   return product as Minor;
 }
 
-export type RoundingMode = 'half_up' | 'half_even' | 'up' | 'down';
+export type RoundingMode = "half_up" | "half_even" | "up" | "down";
 
 /**
  * Round a non-integer intermediate to whole minor units.
  * `half_up` is the default: it matches how a Pakistani shop counter rounds cash
  * and is what staff expect to see on a receipt.
  */
-export function roundToMinor(value: number, mode: RoundingMode = 'half_up'): Minor {
+export function roundToMinor(
+  value: number,
+  mode: RoundingMode = "half_up",
+): Minor {
   if (!Number.isFinite(value)) {
     throw new MoneyError(`Cannot round non-finite value: ${value}`);
   }
   let rounded: number;
   switch (mode) {
-    case 'up':
+    case "up":
       rounded = Math.ceil(value);
       break;
-    case 'down':
+    case "down":
       rounded = Math.floor(value);
       break;
-    case 'half_even': {
+    case "half_even": {
       const floor = Math.floor(value);
       const diff = value - floor;
       if (diff > 0.5) rounded = floor + 1;
@@ -165,14 +181,14 @@ export function roundToMinor(value: number, mode: RoundingMode = 'half_up'): Min
       else rounded = floor % 2 === 0 ? floor : floor + 1;
       break;
     }
-    case 'half_up':
+    case "half_up":
     default:
       // Math.round is asymmetric for negatives (-0.5 -> -0). Round the magnitude
       // and restore the sign so -2.5 becomes -3, matching "half away from zero".
       rounded = Math.sign(value) * Math.round(Math.abs(value));
       break;
   }
-  return toMinor(rounded, 'rounded value');
+  return toMinor(rounded, "rounded value");
 }
 
 /**
@@ -182,7 +198,7 @@ export function roundToMinor(value: number, mode: RoundingMode = 'half_up'): Min
 export function percentOf(
   amount: Minor,
   percent: number,
-  mode: RoundingMode = 'half_up',
+  mode: RoundingMode = "half_up",
 ): Minor {
   if (!Number.isFinite(percent)) {
     throw new MoneyError(`Percent must be finite, received ${percent}`);
@@ -198,17 +214,20 @@ export function percentOf(
  * leftover minor units to the entries with the largest fractional remainders.
  * The returned shares always sum exactly to `amount`.
  */
-export function allocateByWeights(amount: Minor, weights: readonly number[]): Minor[] {
+export function allocateByWeights(
+  amount: Minor,
+  weights: readonly number[],
+): Minor[] {
   if (weights.length === 0) {
-    throw new MoneyError('Cannot allocate across zero weights');
+    throw new MoneyError("Cannot allocate across zero weights");
   }
   if (weights.some((w) => !Number.isFinite(w) || w < 0)) {
-    throw new MoneyError('Allocation weights must be finite and non-negative');
+    throw new MoneyError("Allocation weights must be finite and non-negative");
   }
 
   const totalWeight = weights.reduce((acc, w) => acc + w, 0);
   if (totalWeight <= 0) {
-    throw new MoneyError('Allocation weights must sum to a positive value');
+    throw new MoneyError("Allocation weights must sum to a positive value");
   }
 
   const sign = amount < 0 ? -1 : 1;
@@ -230,7 +249,7 @@ export function allocateByWeights(amount: Minor, weights: readonly number[]): Mi
     remainder -= 1;
   }
 
-  return shares.map((v) => toMinor(sign * v, 'allocated share'));
+  return shares.map((v) => toMinor(sign * v, "allocated share"));
 }
 
 /** Split evenly across `parts`, distributing any remainder one paisa at a time. */
@@ -247,13 +266,18 @@ export function formatMoney(
   currency: string = CURRENCY_PKR,
   options: { withSymbol?: boolean; locale?: string } = {},
 ): string {
-  const { withSymbol = true, locale = 'en-PK' } = options;
+  const { withSymbol = true, locale = "en-PK" } = options;
   const exponent = CURRENCY_MINOR_EXPONENT[currency] ?? 2;
   const major = toMajorString(amount, currency);
-  const negative = major.startsWith('-');
-  const [whole = '0', fraction] = (negative ? major.slice(1) : major).split('.');
+  const negative = major.startsWith("-");
+  const [whole = "0", fraction] = (negative ? major.slice(1) : major).split(
+    ".",
+  );
   const grouped = Number(whole).toLocaleString(locale, { useGrouping: true });
-  const body = exponent === 0 ? grouped : `${grouped}.${fraction ?? ''.padEnd(exponent, '0')}`;
+  const body =
+    exponent === 0
+      ? grouped
+      : `${grouped}.${fraction ?? "".padEnd(exponent, "0")}`;
   const signed = negative ? `-${body}` : body;
   return withSymbol ? `${currency} ${signed}` : signed;
 }

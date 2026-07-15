@@ -1,39 +1,32 @@
 -- =============================================================================
--- MobileShop OS — database provisioning
+-- MobileShop OS — local database provisioning
 -- =============================================================================
--- Creates a LEAST-PRIVILEGE application role and the development/test databases.
+-- Creates separate DDL and runtime roles plus isolated development, test and
+-- Prisma shadow databases. Idempotent; it never drops a database.
 --
--- 13_ §27 requires a least-privilege database account. The application must never
--- connect as the postgres superuser: a SQL-injection or application bug should not
--- be able to drop a database, read other databases, or write to disk.
---
--- Run as a superuser ONCE per machine:
---   psql -U postgres -h localhost -v app_password='<strong-password>' -f scripts/provision-database.sql
---
--- Then put the matching URLs in the root .env (never in Git):
---   DATABASE_URL=postgresql://mobileshop_app:<password>@localhost:5432/mobileshop_dev?schema=public
---   TEST_DATABASE_URL=postgresql://mobileshop_app:<password>@localhost:5432/mobileshop_test?schema=public
---
--- Idempotent. NEVER drops an existing database (13_ §23.24).
+-- Passwords are read from environment variables instead of psql -v arguments,
+-- keeping them out of shell history and process listings:
+--   MOBILESHOP_APP_DB_PASSWORD
+--   MOBILESHOP_MIGRATOR_DB_PASSWORD
 -- =============================================================================
 
 \set ON_ERROR_STOP on
+\getenv app_password MOBILESHOP_APP_DB_PASSWORD
+\getenv migrator_password MOBILESHOP_MIGRATOR_DB_PASSWORD
 
--- Fail fast rather than creating a passwordless role.
 \if :{?app_password}
 \else
-  \echo 'ERROR: app_password is required.'
-  \echo 'Usage: psql -U postgres -v app_password=''<strong-password>'' -f scripts/provision-database.sql'
+  \echo 'ERROR: MOBILESHOP_APP_DB_PASSWORD is required.'
   \quit 1
 \endif
 
--- --- Application role --------------------------------------------------------
--- NOSUPERUSER / NOCREATEDB / NOCREATEROLE: the app may use its own databases and
--- nothing else.
---
--- Built with format(%L) and executed via \gexec so the password is safely quoted
--- and never appears in a string this script concatenates by hand. psql expands
--- :'app_password' into a quoted literal before the statement is sent.
+\if :{?migrator_password}
+\else
+  \echo 'ERROR: MOBILESHOP_MIGRATOR_DB_PASSWORD is required.'
+  \quit 1
+\endif
+
+-- Runtime role: data access only. It must never own a database or schema.
 SELECT format(
   'CREATE ROLE mobileshop_app WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L',
   :'app_password'
@@ -41,38 +34,110 @@ SELECT format(
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mobileshop_app')
 \gexec
 
--- Ensure the password matches what the caller supplied, whether the role is new or pre-existing.
-SELECT format('ALTER ROLE mobileshop_app WITH PASSWORD %L', :'app_password')
+SELECT format(
+  'ALTER ROLE mobileshop_app WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L',
+  :'app_password'
+)
 \gexec
 
--- --- Databases ---------------------------------------------------------------
--- CREATE DATABASE cannot run inside a transaction block, so \gexec emits each
--- statement only when the database is absent.
-SELECT 'CREATE DATABASE mobileshop_dev OWNER mobileshop_app ENCODING ''UTF8'''
+-- Migration role: owns schema objects but still cannot create roles/databases or
+-- bypass row-level security. The backend never receives this credential.
+SELECT format(
+  'CREATE ROLE mobileshop_migrator WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L',
+  :'migrator_password'
+)
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mobileshop_migrator')
+\gexec
+
+SELECT format(
+  'ALTER ROLE mobileshop_migrator WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L',
+  :'migrator_password'
+)
+\gexec
+
+-- CREATE DATABASE cannot run inside a transaction, so \gexec conditionally
+-- emits one statement per absent database.
+SELECT 'CREATE DATABASE mobileshop_dev OWNER mobileshop_migrator ENCODING ''UTF8'''
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'mobileshop_dev')
 \gexec
 
-SELECT 'CREATE DATABASE mobileshop_test OWNER mobileshop_app ENCODING ''UTF8'''
+SELECT 'CREATE DATABASE mobileshop_test OWNER mobileshop_migrator ENCODING ''UTF8'''
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'mobileshop_test')
 \gexec
 
--- --- Privileges --------------------------------------------------------------
--- The role owns both databases (Prisma Migrate must create and alter tables) but
--- holds no rights over any other database on the server.
-GRANT ALL PRIVILEGES ON DATABASE mobileshop_dev TO mobileshop_app;
-GRANT ALL PRIVILEGES ON DATABASE mobileshop_test TO mobileshop_app;
+SELECT 'CREATE DATABASE mobileshop_shadow OWNER mobileshop_migrator ENCODING ''UTF8'''
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'mobileshop_shadow')
+\gexec
 
--- Drop the implicit PUBLIC connect right so only intended roles can attach.
-REVOKE CONNECT ON DATABASE mobileshop_dev FROM PUBLIC;
-REVOKE CONNECT ON DATABASE mobileshop_test FROM PUBLIC;
+-- Repair ownership left by older versions of this script. Runtime credentials
+-- must not be able to alter/drop the database or its schema.
+ALTER DATABASE mobileshop_dev OWNER TO mobileshop_migrator;
+ALTER DATABASE mobileshop_test OWNER TO mobileshop_migrator;
+ALTER DATABASE mobileshop_shadow OWNER TO mobileshop_migrator;
+
+REVOKE ALL PRIVILEGES ON DATABASE mobileshop_dev FROM PUBLIC, mobileshop_app;
+REVOKE ALL PRIVILEGES ON DATABASE mobileshop_test FROM PUBLIC, mobileshop_app;
+REVOKE ALL PRIVILEGES ON DATABASE mobileshop_shadow FROM PUBLIC, mobileshop_app;
 GRANT CONNECT ON DATABASE mobileshop_dev TO mobileshop_app;
 GRANT CONNECT ON DATABASE mobileshop_test TO mobileshop_app;
 
+-- The migrator owns all three databases. The dedicated shadow database may be
+-- reset by Prisma; the integration-test database is never used as shadow.
+\connect mobileshop_dev
+REVOKE CREATE ON SCHEMA public FROM PUBLIC, mobileshop_app;
+GRANT USAGE ON SCHEMA public TO mobileshop_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO mobileshop_app;
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO mobileshop_app;
+SELECT format('GRANT USAGE ON TYPE %I.%I TO mobileshop_app', n.nspname, t.typname)
+FROM pg_type AS t
+JOIN pg_namespace AS n ON n.oid = t.typnamespace
+WHERE n.nspname = 'public' AND t.typtype IN ('e', 'd')
+\gexec
+ALTER DEFAULT PRIVILEGES FOR ROLE mobileshop_migrator IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO mobileshop_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE mobileshop_migrator IN SCHEMA public
+  GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO mobileshop_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE mobileshop_migrator IN SCHEMA public
+  GRANT USAGE ON TYPES TO mobileshop_app;
+SELECT 'REVOKE UPDATE, DELETE, TRUNCATE ON TABLE audit_events FROM mobileshop_app'
+WHERE to_regclass('public.audit_events') IS NOT NULL
+\gexec
+SELECT 'REVOKE UPDATE, DELETE, TRUNCATE ON TABLE login_attempts FROM mobileshop_app'
+WHERE to_regclass('public.login_attempts') IS NOT NULL
+\gexec
+SELECT 'REVOKE DELETE, TRUNCATE ON TABLE users FROM mobileshop_app'
+WHERE to_regclass('public.users') IS NOT NULL
+\gexec
+
+\connect mobileshop_test
+REVOKE CREATE ON SCHEMA public FROM PUBLIC, mobileshop_app;
+GRANT USAGE ON SCHEMA public TO mobileshop_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO mobileshop_app;
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO mobileshop_app;
+SELECT format('GRANT USAGE ON TYPE %I.%I TO mobileshop_app', n.nspname, t.typname)
+FROM pg_type AS t
+JOIN pg_namespace AS n ON n.oid = t.typnamespace
+WHERE n.nspname = 'public' AND t.typtype IN ('e', 'd')
+\gexec
+ALTER DEFAULT PRIVILEGES FOR ROLE mobileshop_migrator IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO mobileshop_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE mobileshop_migrator IN SCHEMA public
+  GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO mobileshop_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE mobileshop_migrator IN SCHEMA public
+  GRANT USAGE ON TYPES TO mobileshop_app;
+SELECT 'REVOKE UPDATE, DELETE, TRUNCATE ON TABLE audit_events FROM mobileshop_app'
+WHERE to_regclass('public.audit_events') IS NOT NULL
+\gexec
+SELECT 'REVOKE UPDATE, DELETE, TRUNCATE ON TABLE login_attempts FROM mobileshop_app'
+WHERE to_regclass('public.login_attempts') IS NOT NULL
+\gexec
+SELECT 'REVOKE DELETE, TRUNCATE ON TABLE users FROM mobileshop_app'
+WHERE to_regclass('public.users') IS NOT NULL
+\gexec
+
+\connect postgres
 \echo ''
 \echo 'Provisioning complete.'
-\echo '  role      : mobileshop_app (NOSUPERUSER, NOCREATEDB, NOCREATEROLE)'
-\echo '  databases : mobileshop_dev, mobileshop_test'
-\echo ''
-\echo 'Next: put DATABASE_URL and TEST_DATABASE_URL in the root .env, then run:'
-\echo '  pnpm db:migrate'
-\echo '  pnpm db:seed'
+\echo '  runtime role : mobileshop_app (DML only; dev/test)'
+\echo '  schema role  : mobileshop_migrator (DDL; dev/test/shadow)'
+\echo '  databases    : mobileshop_dev, mobileshop_test, mobileshop_shadow'

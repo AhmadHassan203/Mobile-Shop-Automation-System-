@@ -23,8 +23,8 @@ import {
   subtract,
   toMinor,
   zero,
-} from './money';
-import type { FeeCalculationMode } from './enums';
+} from "./money";
+import type { FeeCalculationMode } from "./enums";
 
 /**
  * A resolved fee rule snapshot.
@@ -60,7 +60,7 @@ export interface FeeCalculationResult {
 export class FeeRuleError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'FeeRuleError';
+    this.name = "FeeRuleError";
   }
 }
 
@@ -86,7 +86,8 @@ export const DEFAULT_WITHDRAWAL_FEE_PER_BLOCK_MINOR = 2_000 as Minor;
  * therefore reproduces approved behavior. It remains a seeded rule value that is
  * changeable per provider without a code change (see docs/ASSUMPTIONS.md ASM-003).
  */
-export const DEFAULT_PARTIAL_BLOCK_MODE: FeeCalculationMode = 'per_started_block';
+export const DEFAULT_PARTIAL_BLOCK_MODE: FeeCalculationMode =
+  "per_started_block";
 
 /**
  * Prototype fee-mode names mapped to production modes.
@@ -95,16 +96,20 @@ export const DEFAULT_PARTIAL_BLOCK_MODE: FeeCalculationMode = 'per_started_block
  * the prototype's "PROPORTIONAL" is a percentage of the principal, NOT a pro-rated
  * block, so it maps to `percentage`. `proportional_block` is genuinely new.
  */
-export const PROTOTYPE_FEE_MODE_MAP: Readonly<Record<string, FeeCalculationMode>> = Object.freeze({
-  SLAB: 'per_started_block',
-  PROPORTIONAL: 'percentage',
-  FLAT: 'fixed',
+export const PROTOTYPE_FEE_MODE_MAP: Readonly<
+  Record<string, FeeCalculationMode>
+> = Object.freeze({
+  SLAB: "per_started_block",
+  PROPORTIONAL: "percentage",
+  FLAT: "fixed",
 });
 
 function requirePositiveBlock(rule: FeeRule): Minor {
   const block = rule.blockAmountMinor;
   if (block === undefined || block <= 0) {
-    throw new FeeRuleError(`Fee mode "${rule.mode}" requires a positive blockAmountMinor`);
+    throw new FeeRuleError(
+      `Fee mode "${rule.mode}" requires a positive blockAmountMinor`,
+    );
   }
   return block;
 }
@@ -112,7 +117,9 @@ function requirePositiveBlock(rule: FeeRule): Minor {
 function requireFeePerBlock(rule: FeeRule): Minor {
   const fee = rule.feePerBlockMinor;
   if (fee === undefined || fee < 0) {
-    throw new FeeRuleError(`Fee mode "${rule.mode}" requires a non-negative feePerBlockMinor`);
+    throw new FeeRuleError(
+      `Fee mode "${rule.mode}" requires a non-negative feePerBlockMinor`,
+    );
   }
   return fee;
 }
@@ -122,50 +129,56 @@ function requireFeePerBlock(rule: FeeRule): Minor {
  *
  * `principalMinor` must be >= 0. Rounding defaults to half_up.
  */
-export function calculateFee(principalMinor: Minor, rule: FeeRule): FeeCalculationResult {
+export function calculateFee(
+  principalMinor: Minor,
+  rule: FeeRule,
+): FeeCalculationResult {
   if (principalMinor < 0) {
     throw new FeeRuleError(`Principal cannot be negative: ${principalMinor}`);
   }
 
-  const rounding: RoundingMode = rule.rounding ?? 'half_up';
+  const rounding: RoundingMode = rule.rounding ?? "half_up";
   let rawFee: Minor;
   let blocksCharged: number | null = null;
   let explanation: string;
 
   switch (rule.mode) {
-    case 'fixed': {
+    case "fixed": {
       rawFee = requireFeePerBlock(rule);
       explanation = `Flat fee of ${formatMinorForExplanation(rawFee)}`;
       break;
     }
 
-    case 'per_started_block': {
+    case "per_started_block": {
       const block = requirePositiveBlock(rule);
       const feePerBlock = requireFeePerBlock(rule);
-      blocksCharged = principalMinor === 0 ? 0 : Math.ceil(principalMinor / block);
-      rawFee = toMinor(blocksCharged * feePerBlock, 'fee');
+      blocksCharged =
+        principalMinor === 0 ? 0 : Math.ceil(principalMinor / block);
+      rawFee = toMinor(blocksCharged * feePerBlock, "fee");
       explanation =
-        `${blocksCharged} started block${blocksCharged === 1 ? '' : 's'}` +
+        `${blocksCharged} started block${blocksCharged === 1 ? "" : "s"}` +
         ` x ${formatMinorForExplanation(feePerBlock)} per ${formatMinorForExplanation(block)}`;
       break;
     }
 
-    case 'proportional_block': {
+    case "proportional_block": {
       const block = requirePositiveBlock(rule);
       const feePerBlock = requireFeePerBlock(rule);
       const exactBlocks = principalMinor / block;
       blocksCharged = exactBlocks;
       rawFee = roundToMinor(exactBlocks * feePerBlock, rounding);
       explanation =
-        `${exactBlocks.toFixed(3)} block${exactBlocks === 1 ? '' : 's'} (pro-rata)` +
+        `${exactBlocks.toFixed(3)} block${exactBlocks === 1 ? "" : "s"} (pro-rata)` +
         ` x ${formatMinorForExplanation(feePerBlock)} per ${formatMinorForExplanation(block)}`;
       break;
     }
 
-    case 'percentage': {
+    case "percentage": {
       const rate = rule.percentageRate;
       if (rate === undefined || !Number.isFinite(rate) || rate < 0) {
-        throw new FeeRuleError('Fee mode "percentage" requires a non-negative percentageRate');
+        throw new FeeRuleError(
+          'Fee mode "percentage" requires a non-negative percentageRate',
+        );
       }
       rawFee = roundToMinor((principalMinor * rate) / 100, rounding);
       explanation = `${rate}% of ${formatMinorForExplanation(principalMinor)}`;
@@ -193,7 +206,14 @@ export function calculateFee(principalMinor: Minor, rule: FeeRule): FeeCalculati
     explanation += `; capped at maximum fee ${formatMinorForExplanation(rule.maxFeeMinor)}`;
   }
 
-  return { feeMinor, rawFeeMinor: rawFee, blocksCharged, clampedByMin, clampedByMax, explanation };
+  return {
+    feeMinor,
+    rawFeeMinor: rawFee,
+    blocksCharged,
+    clampedByMin,
+    clampedByMax,
+    explanation,
+  };
 }
 
 /**
@@ -212,7 +232,10 @@ export function calculateServiceProfit(input: {
 }): Minor {
   const providerCharge = input.providerChargeMinor ?? zero();
   const otherExpense = input.otherDirectExpenseMinor ?? zero();
-  return subtract(subtract(input.customerFeeMinor, providerCharge), otherExpense);
+  return subtract(
+    subtract(input.customerFeeMinor, providerCharge),
+    otherExpense,
+  );
 }
 
 /**
@@ -238,8 +261,8 @@ export function calculateCashImpactMagnitude(input: {
 /** Local formatter — avoids importing display code into the calculation path. */
 function formatMinorForExplanation(amount: Minor): string {
   const negative = amount < 0;
-  const digits = Math.abs(amount).toString().padStart(3, '0');
+  const digits = Math.abs(amount).toString().padStart(3, "0");
   const whole = digits.slice(0, digits.length - 2);
   const fraction = digits.slice(digits.length - 2);
-  return `${negative ? '-' : ''}PKR ${Number(whole).toLocaleString('en-PK')}.${fraction}`;
+  return `${negative ? "-" : ""}PKR ${Number(whole).toLocaleString("en-PK")}.${fraction}`;
 }

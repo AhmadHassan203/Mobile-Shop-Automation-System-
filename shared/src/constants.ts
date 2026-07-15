@@ -7,16 +7,16 @@
  * these are only the structural defaults and hard limits.
  */
 
-export const APP_NAME = 'MobileShop OS';
+export const APP_NAME = "MobileShop OS";
 
 /** API version prefix. Bump only for a breaking contract change (13_ §20). */
-export const API_VERSION = 'v1';
+export const API_VERSION = "v1";
 
 /** Header carrying the correlation/request ID through every layer and log line. */
-export const REQUEST_ID_HEADER = 'x-request-id';
+export const REQUEST_ID_HEADER = "x-request-id";
 
 /** Header carrying a client-generated key that makes a write safely retryable (13_ §12). */
-export const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
+export const IDEMPOTENCY_KEY_HEADER = "idempotency-key";
 
 /** Pagination defaults and hard cap — the cap prevents a client from asking for the whole table. */
 export const PAGINATION = Object.freeze({
@@ -26,7 +26,7 @@ export const PAGINATION = Object.freeze({
 });
 
 /** Deterministic reorder engine version. Stored on every run (13_ §18). */
-export const RECOMMENDATION_ALGORITHM_VERSION = 'v1.0.0';
+export const RECOMMENDATION_ALGORITHM_VERSION = "v1.0.0";
 
 /**
  * Recency weights for average daily sales (09_ANALYTICS §3).
@@ -91,12 +91,12 @@ export const PERFORMANCE_TARGETS = Object.freeze({
 
 /** Number sequence keys for human-facing document numbers (13_ §19). */
 export const SEQUENCE_KEYS = Object.freeze({
-  SALE_INVOICE: 'sale_invoice',
-  PURCHASE_ORDER: 'purchase_order',
-  GOODS_RECEIPT: 'goods_receipt',
-  RETURN: 'return',
-  EXTERNAL_TRANSACTION: 'external_transaction',
-  EXPENSE: 'expense',
-  CASH_SESSION: 'cash_session',
-  STOCK_ADJUSTMENT: 'stock_adjustment',
+  SALE_INVOICE: "sale_invoice",
+  PURCHASE_ORDER: "purchase_order",
+  GOODS_RECEIPT: "goods_receipt",
+  RETURN: "return",
+  EXTERNAL_TRANSACTION: "external_transaction",
+  EXPENSE: "expense",
+  CASH_SESSION: "cash_session",
+  STOCK_ADJUSTMENT: "stock_adjustment",
 });

@@ -1,6 +1,6 @@
-import { defineConfig } from 'vitest/config';
-import swc from 'unplugin-swc';
-import { resolve } from 'node:path';
+import { defineConfig } from "vitest/config";
+import swc from "unplugin-swc";
+import { resolve } from "node:path";
 
 /**
  * Environment for tests.
@@ -13,13 +13,15 @@ import { resolve } from 'node:path';
  * recreate; it must never reference development or production data.
  */
 const TEST_ENV = {
-  TZ: 'UTC',
-  NODE_ENV: 'test',
+  TZ: "UTC",
+  NODE_ENV: "test",
   DATABASE_URL:
-    process.env.TEST_DATABASE_URL ?? 'postgresql://mobileshop_app:test@localhost:5432/mobileshop_test',
-  SESSION_SECRET: 'test-session-secret-not-used-outside-tests-0123456789',
-  LOG_LEVEL: 'silent',
-  LOG_PRETTY: 'false',
+    process.env.TEST_DATABASE_URL ??
+    "postgresql://mobileshop_app:test@localhost:5432/mobileshop_test",
+  SESSION_SECRET: "test-session-secret-not-used-outside-tests-0123456789",
+  API_RATE_LIMIT_MAX_REQUESTS: "20",
+  LOG_LEVEL: "silent",
+  LOG_PRETTY: "false",
 };
 
 /**
@@ -33,34 +35,34 @@ export default defineConfig({
   oxc: false,
   plugins: [
     swc.vite({
-      module: { type: 'es6' },
+      module: { type: "es6" },
       jsc: {
-        target: 'es2022',
-        parser: { syntax: 'typescript', decorators: true },
+        target: "es2022",
+        parser: { syntax: "typescript", decorators: true },
         transform: { decoratorMetadata: true, legacyDecorator: true },
       },
     }),
   ],
   resolve: {
-    alias: { '@': resolve(__dirname, './src') },
+    alias: { "@": resolve(__dirname, "./src") },
   },
   test: {
     globals: true,
-    environment: 'node',
+    environment: "node",
     projects: [
       {
         extends: true,
         test: {
-          name: 'unit',
-          include: ['src/**/*.spec.ts'],
+          name: "unit",
+          include: ["src/**/*.spec.ts"],
           env: TEST_ENV,
         },
       },
       {
         extends: true,
         test: {
-          name: 'integration',
-          include: ['test/**/*.e2e-spec.ts'],
+          name: "integration",
+          include: ["test/**/*.e2e-spec.ts"],
           env: TEST_ENV,
           // Integration tests share a database; running them in one process
           // avoids cross-file interference on the same tables.

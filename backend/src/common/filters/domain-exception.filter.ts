@@ -5,10 +5,15 @@ import {
   HttpException,
   HttpStatus,
   Logger,
-} from '@nestjs/common';
-import type { Request, Response } from 'express';
-import { ZodError } from 'zod';
-import { type ApiErrorBody, DomainError, ERROR_CODES, type ErrorCode } from '@mobileshop/shared';
+} from "@nestjs/common";
+import type { Request, Response } from "express";
+import { ZodError } from "zod";
+import {
+  type ApiErrorBody,
+  DomainError,
+  ERROR_CODES,
+  type ErrorCode,
+} from "@mobileshop/shared";
 
 /**
  * Translates every thrown error into the stable `ApiErrorBody` contract.
@@ -31,17 +36,31 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
     const requestId = request.requestId;
 
-    const { status, body, logLevel, cause } = this.translate(exception, requestId);
+    const { status, body, logLevel, cause } = this.translate(
+      exception,
+      requestId,
+    );
 
     // 5xx means we broke; 4xx means the caller did. Only the former is an alarm.
-    if (logLevel === 'error') {
+    if (logLevel === "error") {
       this.logger.error(
-        { requestId, code: body.code, method: request.method, path: request.url, err: cause },
+        {
+          requestId,
+          code: body.code,
+          method: request.method,
+          path: request.url,
+          err: cause,
+        },
         `Unhandled error: ${body.code}`,
       );
     } else {
       this.logger.warn(
-        { requestId, code: body.code, method: request.method, path: request.url },
+        {
+          requestId,
+          code: body.code,
+          method: request.method,
+          path: request.url,
+        },
         `Request rejected: ${body.code}`,
       );
     }
@@ -52,7 +71,12 @@ export class DomainExceptionFilter implements ExceptionFilter {
   private translate(
     exception: unknown,
     requestId: string,
-  ): { status: number; body: ApiErrorBody; logLevel: 'warn' | 'error'; cause?: unknown } {
+  ): {
+    status: number;
+    body: ApiErrorBody;
+    logLevel: "warn" | "error";
+    cause?: unknown;
+  } {
     const timestamp = new Date().toISOString();
 
     // 1. Domain errors already carry a stable code and status.
@@ -66,7 +90,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
           requestId,
           timestamp,
         },
-        logLevel: exception.status >= 500 ? 'error' : 'warn',
+        logLevel: exception.status >= 500 ? "error" : "warn",
         cause: exception,
       };
     }
@@ -75,19 +99,19 @@ export class DomainExceptionFilter implements ExceptionFilter {
     if (exception instanceof ZodError) {
       const details: Record<string, string[]> = {};
       for (const issue of exception.issues) {
-        const path = issue.path.join('.') || '(root)';
+        const path = issue.path.join(".") || "(root)";
         (details[path] ??= []).push(issue.message);
       }
       return {
         status: HttpStatus.UNPROCESSABLE_ENTITY,
         body: {
           code: ERROR_CODES.VALIDATION_FAILED,
-          message: 'Request validation failed',
+          message: "Request validation failed",
           details,
           requestId,
           timestamp,
         },
-        logLevel: 'warn',
+        logLevel: "warn",
       };
     }
 
@@ -102,7 +126,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
           requestId,
           timestamp,
         },
-        logLevel: status >= 500 ? 'error' : 'warn',
+        logLevel: status >= 500 ? "error" : "warn",
         cause: exception,
       };
     }
@@ -112,30 +136,33 @@ export class DomainExceptionFilter implements ExceptionFilter {
       status: HttpStatus.INTERNAL_SERVER_ERROR,
       body: {
         code: ERROR_CODES.INTERNAL_ERROR,
-        message: 'An unexpected error occurred',
+        message: "An unexpected error occurred",
         requestId,
         timestamp,
       },
-      logLevel: 'error',
+      logLevel: "error",
       cause: exception,
     };
   }
 
   /** Framework HTTP statuses mapped to our stable codes. */
-  private static readonly CODE_BY_STATUS: Readonly<Record<number, ErrorCode>> = {
-    [HttpStatus.BAD_REQUEST]: ERROR_CODES.VALIDATION_FAILED,
-    [HttpStatus.UNAUTHORIZED]: ERROR_CODES.AUTH_REQUIRED,
-    [HttpStatus.FORBIDDEN]: ERROR_CODES.FORBIDDEN_PERMISSION,
-    [HttpStatus.NOT_FOUND]: ERROR_CODES.NOT_FOUND,
-    [HttpStatus.CONFLICT]: ERROR_CODES.CONFLICT,
-    [HttpStatus.UNPROCESSABLE_ENTITY]: ERROR_CODES.VALIDATION_FAILED,
-    [HttpStatus.TOO_MANY_REQUESTS]: ERROR_CODES.RATE_LIMITED,
-  };
+  private static readonly CODE_BY_STATUS: Readonly<Record<number, ErrorCode>> =
+    {
+      [HttpStatus.BAD_REQUEST]: ERROR_CODES.VALIDATION_FAILED,
+      [HttpStatus.UNAUTHORIZED]: ERROR_CODES.AUTH_REQUIRED,
+      [HttpStatus.FORBIDDEN]: ERROR_CODES.FORBIDDEN_PERMISSION,
+      [HttpStatus.NOT_FOUND]: ERROR_CODES.NOT_FOUND,
+      [HttpStatus.CONFLICT]: ERROR_CODES.CONFLICT,
+      [HttpStatus.UNPROCESSABLE_ENTITY]: ERROR_CODES.VALIDATION_FAILED,
+      [HttpStatus.TOO_MANY_REQUESTS]: ERROR_CODES.RATE_LIMITED,
+    };
 
   private codeForStatus(status: number): ErrorCode {
     return (
       DomainExceptionFilter.CODE_BY_STATUS[status] ??
-      (status >= 500 ? ERROR_CODES.INTERNAL_ERROR : ERROR_CODES.VALIDATION_FAILED)
+      (status >= 500
+        ? ERROR_CODES.INTERNAL_ERROR
+        : ERROR_CODES.VALIDATION_FAILED)
     );
   }
 
@@ -144,14 +171,19 @@ export class DomainExceptionFilter implements ExceptionFilter {
    * 5xx messages are replaced: framework internals must not leak to a user.
    */
   private messageFrom(exception: HttpException): string {
-    if (exception.getStatus() >= 500) return 'An unexpected error occurred';
+    if (exception.getStatus() >= 500) return "An unexpected error occurred";
 
     const response = exception.getResponse();
-    if (typeof response === 'string') return response;
-    if (typeof response === 'object' && response !== null && 'message' in response) {
+    if (typeof response === "string") return response;
+    if (
+      typeof response === "object" &&
+      response !== null &&
+      "message" in response
+    ) {
       const { message } = response;
-      if (typeof message === 'string') return message;
-      if (Array.isArray(message)) return message.map((entry) => String(entry)).join('; ');
+      if (typeof message === "string") return message;
+      if (Array.isArray(message))
+        return message.map((entry) => String(entry)).join("; ");
     }
     return exception.message;
   }

@@ -3,8 +3,17 @@
   "compilerOptions": {
     // Only the build pins rootDir: it must emit dist/main.js, not dist/src/main.js.
     // The typecheck config omits it so that test/ can be included.
-    "rootDir": "./src"
+    "rootDir": "./src",
+    // Nest deletes dist before compiling. Keeping tsbuildinfo outside dist can
+    // make a repeated build delete the output and then incorrectly skip emit.
+    "incremental": false
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts", "**/*.e2e-spec.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "**/*.spec.ts",
+    "**/*.e2e-spec.ts"
+  ]
 }

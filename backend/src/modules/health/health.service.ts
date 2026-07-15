@@ -1,11 +1,12 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { API_VERSION, APP_NAME } from '@mobileshop/shared';
-import { AppConfig } from '@/config/app-config.module';
+import { HttpException, HttpStatus, Inject, Injectable } from "@nestjs/common";
+import { API_VERSION, APP_NAME } from "@mobileshop/shared";
+import { AppConfig } from "../../config/app-config.module";
+import { MANDATORY_DATABASE_HEALTH_INDICATOR } from "./health.tokens";
 
-export type DependencyStatus = 'up' | 'down' | 'not_configured';
+export type DependencyStatus = "up" | "down" | "not_configured";
 
 export interface LivenessReport {
-  readonly status: 'ok';
+  readonly status: "ok";
   readonly name: string;
   readonly apiVersion: string;
   readonly uptimeSeconds: number;
@@ -13,7 +14,7 @@ export interface LivenessReport {
 }
 
 export interface HealthReport {
-  readonly status: 'ok' | 'degraded';
+  readonly status: "ok" | "degraded";
   readonly timestamp: string;
   readonly dependencies: Readonly<Record<string, DependencyStatus>>;
 }
@@ -31,17 +32,29 @@ export interface HealthIndicator {
 @Injectable()
 export class HealthService {
   private readonly startedAt = Date.now();
-  private readonly indicators: HealthIndicator[] = [];
+  private readonly indicators = new Map<string, HealthIndicator>();
 
-  constructor(private readonly config: AppConfig) {}
+  constructor(
+    private readonly config: AppConfig,
+    @Inject(MANDATORY_DATABASE_HEALTH_INDICATOR) database: HealthIndicator,
+  ) {
+    // PostgreSQL is mandatory. A constructed HealthService can therefore never
+    // report ready merely because no dependency happened to register itself.
+    this.indicators.set(database.name, database);
+  }
 
   register(indicator: HealthIndicator): void {
-    this.indicators.push(indicator);
+    if (this.indicators.has(indicator.name)) {
+      throw new Error(
+        `Health indicator "${indicator.name}" is already registered`,
+      );
+    }
+    this.indicators.set(indicator.name, indicator);
   }
 
   liveness(): LivenessReport {
     return {
-      status: 'ok',
+      status: "ok",
       name: APP_NAME,
       apiVersion: API_VERSION,
       uptimeSeconds: Math.floor((Date.now() - this.startedAt) / 1000),
@@ -51,22 +64,22 @@ export class HealthService {
 
   async readiness(): Promise<HealthReport> {
     const results = await Promise.all(
-      this.indicators.map(async (indicator) => {
+      [...this.indicators.values()].map(async (indicator) => {
         try {
           return [indicator.name, await indicator.check()] as const;
         } catch {
           // A throwing check is a down dependency, not a crashed probe.
-          const down: DependencyStatus = 'down';
+          const down: DependencyStatus = "down";
           return [indicator.name, down] as const;
         }
       }),
     );
 
     const dependencies = Object.fromEntries(results);
-    const degraded = results.some(([, status]) => status === 'down');
+    const degraded = results.some(([, status]) => status === "down");
 
     const report: HealthReport = {
-      status: degraded ? 'degraded' : 'ok',
+      status: degraded ? "degraded" : "ok",
       timestamp: new Date().toISOString(),
       dependencies,
     };
@@ -80,6 +93,6 @@ export class HealthService {
 
   /** Exposed for the startup banner; never returned to an unauthenticated caller. */
   get environment(): string {
-    return this.config.get('NODE_ENV');
+    return this.config.get("NODE_ENV");
   }
 }

@@ -2,7 +2,7 @@
 
 **Status: PLAN ONLY. No migration has been generated, and none has been applied.**
 
-At the time of writing, `database/` does not exist in the repository, `docs/` contained no files, and there is no `schema.prisma`. Nothing in this document describes working software. Every table below is **Not started**. The only production code that exists and is verified is `shared/` (money, imei, phone, enums, permissions, errors, datetime, fee-rules, constants — 153 unit tests passing, lint 0, typecheck 0).
+At the time of writing, `database/` does not exist in the repository, there is no `schema.prisma`, and Prisma is not installed in any workspace package. Nothing in this document describes working software. Every table below is **Not started**. The only production code that exists and is verified is `shared/` (money, imei, phone, enums, permissions, errors, datetime, fee-rules, constants — 153 unit tests passing, lint 0, typecheck 0).
 
 The blocker preventing schema work from proceeding to a real migration is recorded in [§9](#9-migration-and-seed-strategy).
 
@@ -67,7 +67,7 @@ Reference/lookup tables (`permissions`, `number_sequences` definitions) are the 
 | Human-facing numbers | Separate column (`invoice_number`, `po_number`), allocated from `number_sequences` (§5.5). Never the PK. |
 | Timestamps | `created_at`/`updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`. Stored UTC-consistent, displayed `Asia/Karachi` (`05_RULES.md` §9). |
 | Business day | `business_date DATE` where a report groups by shop day, computed via `shared/src/datetime.ts` `toBusinessDate()`. A timestamp alone cannot answer "what happened today" correctly across the UTC+05:00 boundary. |
-| Controlled vocabularies | **Native PostgreSQL enums**, generated 1:1 from `shared/src/enums.ts`. That file already states "Values are snake_case and are persisted, so renaming one is a migration" — PG enum semantics match that contract exactly. Configurable vocabularies (service types, expense categories) are **lookup tables**, not enums. |
+| Controlled vocabularies | **Native PostgreSQL enums**, generated 1:1 from `shared/src/enums.ts`. That file already states "Values are snake_case and are persisted, so renaming one is a migration" — PG enum semantics match that contract exactly. Configurable vocabularies (service types, expense categories) are **lookup tables**, not enums. **Gap:** several enum-typed columns in §2 have no vocabulary in `enums.ts` yet — `ownership_state` (required by `04` §4), `identifier_type`, `equity_type`, `payment_source`, `barcode_type`, `location_kind`, `check_type`, `severity`, `task_type`, `account_type`/`account_subtype`. Each must be added to `enums.ts` *before* the migration that uses it, or the 1:1 rule is already broken on day one. `rounding` is the exception: its vocabulary is `RoundingMode` in `shared/src/money.ts`, not `enums.ts`. |
 | Soft delete | Master data: `is_active BOOLEAN` / `deleted_at TIMESTAMPTZ` (`04_DATA_MODEL.md` §11, `05_RULES.md` §2 "Inactive products remain visible in historical records"). Posted records: never deleted. |
 | Delete behavior | `ON DELETE RESTRICT` everywhere by default. `CASCADE` only on pure join tables (§6.4). |
 | Optimistic concurrency | `version INTEGER NOT NULL DEFAULT 0` on mutable drafts only (§7.2). |
@@ -90,7 +90,7 @@ Every entity in `13_` §19 is covered. Slice numbers refer to `13_` §25.
 | `stock_locations` | Stock placement within a branch. Prototype `units[].location`: "Store — Display", "Store — Safe", "Store — Counter", "Intake — Quarantine". | `id`, `organization_id`, `branch_id`, `code`, `name`, `location_kind`, `is_default`, `is_active` | `UNIQUE(organization_id, branch_id, code)`; partial `UNIQUE(branch_id) WHERE is_default`; FK branch RESTRICT | 1 |
 | `users` | Login identity. | `id`, `organization_id`, `email`, `phone_e164`, `full_name`, `password_hash`, `is_active`, `last_login_at`, `failed_login_count`, `locked_until` | `UNIQUE(organization_id, lower(email))`; `password_hash` is argon2 0.44.0, never logged (`05_RULES.md` §9) | 1 |
 | `roles` | 7 role codes from `shared/src/permissions.ts` `ROLES`. | `id`, `organization_id`, `code`, `name`, `is_system` | `UNIQUE(organization_id, code)` | 1 |
-| `permissions` | Permission key registry — the ~70 keys in `PERMISSIONS`. Global, not org-scoped. | `id`, `key`, `resource`, `action`, `description` | `UNIQUE(key)` | 1 |
+| `permissions` | Permission key registry — the 73 keys in `PERMISSIONS`. Global, not org-scoped. | `id`, `key`, `resource`, `action`, `description` | `UNIQUE(key)` | 1 |
 | `role_permissions` | Grants. Seeded from `DEFAULT_ROLE_PERMISSIONS`. | `role_id`, `permission_id` | `PK(role_id, permission_id)`; FK both **CASCADE** | 1 |
 | `user_roles` | Role assignment. | `user_id`, `role_id`, `assigned_by_user_id`, `assigned_at` | `PK(user_id, role_id)`; FK user/role **CASCADE** | 1 |
 | `user_scope_access` | Which branches/locations a user may touch. Enforces `13_` §23.21 "Cross-scope data access is blocked". | `id`, `user_id`, `branch_id`, `location_id` (nullable = whole branch) | `UNIQUE(user_id, branch_id, location_id)`; FK CASCADE on user | 1 |
@@ -127,7 +127,7 @@ Every entity in `13_` §19 is covered. Slice numbers refer to `13_` §25.
 
 #### 2.3.1 `serialized_inventory_units`
 
-Follows `04_DATA_MODEL.md` §4 field-for-field, with one deviation (identifiers moved out, D-1).
+Follows `04_DATA_MODEL.md` §4, with two changes: identifiers (`imei1`/`imei2`/`serial_number`) move to `device_identifiers` (D-1), and `barcode` is dropped — a barcode identifies a *variant*, not a physical device, so it lives on `product_barcodes` (§5.3). `supplier_id` and `current_sale_line_id` are additions, noted below.
 
 | Column | Type | Note |
 |---|---|---|
@@ -412,12 +412,12 @@ All 63 §19 entities are mapped. Tables added beyond §19: `user_sessions`, `pri
 | 2 | `0002_catalog` | categories, brands, product_models, product_variants, product_aliases, product_barcodes, price_lists, price_entries, customers |
 | 3 | `0003_inventory` | serialized_inventory_units, device_identifiers, stock_batches, inventory_movements, stock_balances, reservations, stock_counts, stock_count_lines, stock_adjustments, device_checks, integration_attempts |
 | 4 | `0004_purchasing` | suppliers, supplier_contacts, supplier_products, supplier_price_history, supplier_quotes, purchase_orders, purchase_order_lines, goods_receipts, goods_receipt_lines, purchase_returns, purchase_return_lines, payables, supplier_payments, supplier_payment_allocations, documents |
-| 5 | `0005_sales` | sales, sale_lines, payments, payment_allocations, idempotency_records |
+| 5 | `0005_sales` | financial_accounts (see the forward-reference note below), sales, sale_lines, payments, payment_allocations, idempotency_records |
 | 6 | `0006_returns` | returns, return_lines, refunds |
 | 7 | `0007_external_services` | external_service_providers, external_service_types, external_fee_rules (+ exclusion constraint), external_transactions, provider_float_movements |
 | 8 | `0008_cash_and_expenses` | cash_sessions, cash_reconciliations, cash_movements, expense_categories, expenses |
 | 9 | `0009_demand` | customer_demand_requests, demand_request_items, customer_addresses, customer_consents, quotations, quotation_lines |
-| 10 | `0010_finance` | financial_accounts, financial_entries, receivables, owner_equity_movements |
+| 10 | `0010_finance` | financial_entries, receivables, owner_equity_movements (`financial_accounts` already created in `0005`) |
 | 11 | `0011_intelligence` | daily_product_metrics, recommendation_runs, purchase_recommendations, recommendation_decisions, recommendation_evaluations |
 | 12 | `0012_command_center` | notifications, tasks, outbox_events |
 | 14 | `0014_advanced_modules` | used_device_intakes, seller_declarations, warranty_claims, repair_jobs, repair_parts, repair_status_history, compatibility_rules, customer_identity_documents |
@@ -590,7 +590,7 @@ Stated plainly, because these are the gaps a reader should know about:
 |---|---|---|
 | `13_` §23.14 payment + receivable = sale total | Spans three tables; PostgreSQL has no multi-table `CHECK`. A trigger could, but a trigger firing mid-transaction on partially-inserted rows is fragile and order-dependent | Recalculated server-side inside the posting transaction; `13_` §24 "payment mismatch rejection" integration test |
 | Σ debits = Σ credits per `entry_group_id` | Same reason | Asserted in the posting service; integration test; nightly reconciliation job that raises a data-quality exception (`13_` §17) |
-| `05_RULES.md` §3 serialized state transitions | A `CHECK` sees only the new row, not the old value. A trigger could compare `OLD`/`NEW` | `isTransitionAllowed()` from `shared/src/enums.ts` — already implemented and unit-tested — called inside the transaction while holding the row lock. `13_` §5 "State transitions must be explicit and tested" |
+| `05_RULES.md` §3 serialized state transitions | A `CHECK` sees only the new row, not the old value. A trigger could compare `OLD`/`NEW` | `isTransitionAllowed()` from `shared/src/enums.ts` — already implemented and unit-tested — called inside the transaction while holding the row lock. `05_RULES.md` §3 "State transitions must be explicit and tested" |
 | Received qty within tolerance | Tolerance is configurable per `application_settings`; a `CHECK` cannot read another table | Service validation + `13_` §24 "partial receiving" test |
 | `05_RULES.md` §4 minimum margin / discount threshold | Configurable thresholds | Service + `PRICING_OVERRIDE_MIN_MARGIN` / `SALES_DISCOUNT_OVERRIDE` permission checks |
 | `13_` §23.20 authorization | Not a data constraint | NestJS guards; `user_scope_access` supplies the scope |
@@ -709,7 +709,7 @@ Nothing in `04_DATA_MODEL.md` §2 is dropped. `Role`, `Permission`, `UserRole`, 
 | `13_` §24 migrate-from-clean-database test | Requires a database to create and drop |
 | `13_` §31 steps 3–6 | Requires Docker Compose PostgreSQL |
 
-Compounding it: **Docker is not installed**, so the `13_` §31.3 path ("start PostgreSQL and required services through Docker Compose") is unavailable. PostgreSQL 18.4 *is* running locally on port 5432 and `psql` exists at `D:\PostgreSQL16\bin\psql.exe`, so a local database is reachable **the moment credentials exist** — Docker is not on the critical path.
+Compounding it: **Docker is not installed**, so the `13_` §31.3 path ("start PostgreSQL and required services through Docker Compose") is unavailable. PostgreSQL 18.4 *is* running locally on port 5432 (service `postgresql-x64-18`) and `psql` exists at `D:\postgresql\bin\psql.exe`, so a local database is reachable **the moment credentials exist** — Docker is not on the critical path.
 
 **Current state: `database/` does not exist. `schema.prisma` does not exist. Zero migrations authored, zero applied, zero seeds run.**
 
@@ -724,7 +724,7 @@ Schema work is not blocked; only *applying* it is. Without any connection:
 - Hand-write the raw-SQL blocks Prisma cannot model: the §6.3 exclusion constraint, the §7.3 append-only triggers, `CHECK` constraints beyond Prisma's expressiveness, and partial/trigram indexes. These live in `database/prisma/migrations/*/migration.sql` alongside the generated DDL.
 - Write seed scripts and fixtures (they run later).
 
-Whether Prisma 7.8.0's `migrate diff` flags match the above verbatim is **UNKNOWN — to be confirmed against the installed CLI**, not from memory.
+Caveat: **Prisma is not installed yet.** There is no `prisma` or `@prisma/client` entry in any workspace package or in `pnpm-lock.yaml`, and the `database/` workspace package that would carry the dependency does not exist. `pnpm-workspace.yaml` already lists `database`, so installing it is a one-step change — but nothing above has been executed. Whether Prisma's `migrate diff` flags match the commands written here is **UNKNOWN — to be confirmed against the CLI once it is installed**, not from memory.
 
 ### 9.3 Unblocking requirements
 
@@ -757,8 +757,10 @@ Deterministic and re-runnable (`13_` §4 "deterministic seed scripts"), sourced 
 
 | Result | Count |
 |---|---|
-| Luhn-valid | **1 of 16** (only `356789012345672`) |
-| Luhn-invalid | **15 of 16** |
+| Luhn-valid | **1 of 22** (only `356789012345672`) |
+| Luhn-invalid | **21 of 22** |
+
+(22 distinct IMEI values across 25 occurrences — `units[].imei1`/`imei2`, `sales[].items[].imei`, `returns[].imei`, `usedIntakes[].imei`.)
 
 `352094561230417`, `352094561230511`, `356789012345671`, `354001234567891`, `353012786541239`, `358900112233445` and the rest all **fail** the checksum that `validateImei()` enforces. Copying prototype IMEIs into seeds would fail validation on insert. Seeds therefore build each IMEI as a 14-digit synthetic body plus `computeImeiCheckDigit()`, keeping the prototype's TAC prefixes for realism. This is a genuine prototype→production gap: the prototype never validates IMEIs because it has no backend.
 
@@ -776,7 +778,7 @@ Rows follow `13_` §26: Lahore shop, six role users (owner/manager/salesperson/c
 
 ### 9.6 Opening stock import
 
-`13_` §13 (Slice 13) requires an opening-stock import template and dry run. Opening stock enters through `stock_adjustments` with `reason='opening_balance'` and matching `inventory_movements`, never by direct `INSERT` into `stock_balances` — the same rule as every other stock change (`13_` §23.7: "Every stock change creates a movement"). The dry run validates IMEI uniqueness and Luhn across the whole file **before** any write.
+`13_` §25 (Slice 13 — launch hardening) requires an opening-stock import template and dry run. Opening stock enters through `stock_adjustments` with `reason='opening_balance'` and matching `inventory_movements`, never by direct `INSERT` into `stock_balances` — the same rule as every other stock change (`13_` §23.7: "Every stock change creates a movement"). The dry run validates IMEI uniqueness and Luhn across the whole file **before** any write.
 
 ---
 
@@ -786,7 +788,7 @@ Recorded rather than guessed. Each needs a product-owner decision and belongs in
 
 | # | Question | Impact | Current state |
 |---|---|---|---|
-| 1 | Is tax included in or excluded from `sales.total_minor`? `13_` §17 requires reports to state which; `13_` §16's `sales_gross_profit = net_sales_revenue - COGS` does not say whether net sales is pre- or post-tax. | The `CHECK (gross_profit_minor = total_minor - cogs_minor)` in §2.6.1 is wrong if tax is inclusive. | **UNKNOWN — not determinable from the repository.** `data.js` `finance.pnl` has no tax line at all. Tax columns are modeled as `tax_minor` defaulting to 0 pending the decision. |
+| 1 | Is tax included in or excluded from `sales.total_minor`? `05_RULES.md` §7 requires reports to state which; `13_` §16's `sales_gross_profit = net_sales_revenue - COGS` does not say whether net sales is pre- or post-tax. | The `CHECK (gross_profit_minor = total_minor - cogs_minor)` in §2.6.1 is wrong if tax is inclusive. | **UNKNOWN — not determinable from the repository.** `data.js` `finance.pnl` has no tax line at all. Tax columns are modeled as `tax_minor` defaulting to 0 pending the decision. |
 | 2 | May two customers share one phone number (family handset)? | Decides whether §5.4's unique index is correct or must become non-unique with a merge workflow. | **UNKNOWN.** Unique partial index planned; `data.js` `customers[]` has no duplicate numbers, which is not evidence either way. |
 | 3 | Receiving over-quantity tolerance (`05_RULES.md` §5 "permitted tolerance"). | The `purchase_order_lines` received-quantity check. | **UNKNOWN — no percentage anywhere in the blueprint.** Modeled as an `application_settings` key, service-enforced (§6.5). |
 | 4 | Landed-cost allocation method (`05_RULES.md` §5 "documented"; `13_` §11 "landed-cost allocation"). | Whether `goods_receipt_lines.allocated_landed_cost_minor` is by value, by quantity, or by weight. `allocateByWeights()` already exists in `shared/src/money.ts` and handles the remainder distribution. | **UNKNOWN — method not specified.** Modeled as `goods_receipts.landed_cost_method` so the choice is data, and the chosen method is snapshotted per receipt. |
@@ -810,4 +812,4 @@ Recorded rather than guessed. Each needs a product-owner decision and belongs in
 | `shared/` package | Built and verified: 153 unit tests pass, lint 0, typecheck 0 |
 | This document | Plan only |
 
-Next executable step: author `database/prisma/schema.prisma` for Slice 1 and render its SQL with `prisma migrate diff --from-empty`, which needs no connection — then stop at the credential blocker before `migrate deploy`.
+Next executable step: create the `database/` workspace package and install Prisma (it is not installed yet — §9.2), author `database/prisma/schema.prisma` for Slice 1, then render its SQL with `prisma migrate diff --from-empty`, which needs no connection — then stop at the credential blocker before `migrate deploy`.

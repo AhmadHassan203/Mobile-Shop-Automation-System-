@@ -1,0 +1,382 @@
+// =============================================================================
+// MobileShop OS — Prisma schema
+// =============================================================================
+// All database work lives in database/ (13_ §19).
+//
+// Conventions applied throughout:
+//   * Money is ALWAYS an integer number of minor units (paisa), named *_minor.
+//     Never Float, never Decimal-for-money. (05_RULES.md §7, 13_ §23.11)
+//   * Timestamps are stored UTC (@db.Timestamptz); Asia/Karachi is a display and
+//     business-day concern handled in shared/src/datetime.ts. (05_RULES.md §9)
+//   * organization_id / branch_id / location_id exist from day one even though
+//     launch is single-branch, so multi-branch needs no data migration. (13_ §8)
+//   * Constraints are enforced in the DATABASE, not only in the API. (13_ §4)
+//   * Posted records are immutable; corrections use controlled workflows. (13_ §23.9)
+//
+// Slice 1 defines access, audit and system tables. Later slices add catalog,
+// inventory, purchasing, sales, external services, cash and finance.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+// Prisma 7 removed `url` from the datasource block. The connection string for
+// Migrate now lives in prisma.config.ts, and the runtime client receives a
+// driver adapter (@prisma/adapter-pg) instead. See database/README.md.
+datasource db {
+  provider = "postgresql"
+}
+
+// =============================================================================
+// Organization, branch and stock location
+// =============================================================================
+
+model Organization {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(200)
+  /// ISO-4217. Stored even though PKR is the only launch currency
+  /// (03_ARCHITECTURE.md §8).
+  currency  String   @default("PKR") @db.Char(3)
+  timezone  String   @default("Asia/Karachi") @db.VarChar(64)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  branches       Branch[]
+  users          User[]
+  roles          Role[]
+  auditEvents    AuditEvent[]
+  settings       ApplicationSetting[]
+  numberSequences NumberSequence[]
+
+  @@map("organizations")
+}
+
+model Branch {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  code           String   @db.VarChar(20)
+  name           String   @db.VarChar(200)
+  addressLine    String?  @map("address_line") @db.VarChar(300)
+  city           String   @default("Lahore") @db.VarChar(100)
+  phone          String?  @db.VarChar(20)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  stockLocations StockLocation[]
+  scopeAccess    UserScopeAccess[]
+  auditEvents    AuditEvent[]
+  sessions       Session[]
+  numberSequences NumberSequence[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive])
+  @@map("branches")
+}
+
+model StockLocation {
+  id        String            @id @default(uuid()) @db.Uuid
+  branchId  String            @map("branch_id") @db.Uuid
+  code      String            @db.VarChar(20)
+  name      String            @db.VarChar(200)
+  kind      StockLocationKind @default(store)
+  /// Exactly one location per branch is the default receiving/selling location.
+  isDefault Boolean           @default(false) @map("is_default")
+  isActive  Boolean           @default(true) @map("is_active")
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  branch      Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  scopeAccess UserScopeAccess[]
+
+  @@unique([branchId, code])
+  @@index([branchId, isActive])
+  @@map("stock_locations")
+}
+
+/// Physical and virtual stock locations (01_PRD.md §5.4).
+enum StockLocationKind {
+  store
+  warehouse
+  /// Non-physical holding areas: quarantine, repair bench, in-transit.
+  virtual
+}
+
+// =============================================================================
+// Users, roles and permissions
+// =============================================================================
+
+model User {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  /// Normalized to lowercase before write; unique per organization.
+  email          String    @db.VarChar(255)
+  /// Argon2id hash (ASM-012). NEVER logged, never returned by any endpoint.
+  passwordHash   String    @map("password_hash") @db.VarChar(255)
+  fullName       String    @map("full_name") @db.VarChar(200)
+  /// E.164, e.g. +923001234567 (shared/src/phone.ts).
+  phone          String?   @db.VarChar(20)
+  /// Deactivation revokes access immediately; users are never hard-deleted
+  /// because they are referenced by posted records and audit history.
+  isActive       Boolean   @default(true) @map("is_active")
+  /// Forces a password change on next login (invited or reset users).
+  mustChangePassword Boolean @default(false) @map("must_change_password")
+  lastLoginAt    DateTime? @map("last_login_at") @db.Timestamptz(3)
+  /// Consecutive failed attempts; reset on success. Feeds lockout.
+  failedLoginCount Int     @default(0) @map("failed_login_count")
+  lockedUntil    DateTime? @map("locked_until") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  userRoles   UserRole[]
+  scopeAccess UserScopeAccess[]
+  sessions    Session[]
+  auditEvents AuditEvent[]
+
+  @@unique([organizationId, email])
+  @@index([organizationId, isActive])
+  @@map("users")
+}
+
+model Role {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  /// Stable machine code: owner, manager, salesperson, cashier, purchaser,
+  /// accountant, technician (shared/src/permissions.ts ROLES).
+  code           String   @db.VarChar(50)
+  name           String   @db.VarChar(100)
+  description    String?  @db.VarChar(500)
+  /// System roles are seeded and cannot be deleted; their grants stay editable.
+  isSystem       Boolean  @default(false) @map("is_system")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@unique([organizationId, code])
+  @@map("roles")
+}
+
+/// Permission catalogue. Rows mirror shared/src/permissions.ts PERMISSIONS and
+/// are reconciled by the seed, so code and database cannot drift apart.
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  /// resource.action, e.g. "sales.post".
+  key         String   @unique @db.VarChar(100)
+  resource    String   @db.VarChar(50)
+  action      String   @db.VarChar(50)
+  description String?  @db.VarChar(300)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rolePermissions RolePermission[]
+
+  @@index([resource])
+  @@map("permissions")
+}
+
+model UserRole {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  roleId     String   @map("role_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz(3)
+  assignedBy String?  @map("assigned_by") @db.Uuid
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  id           String   @id @default(uuid()) @db.Uuid
+  roleId       String   @map("role_id") @db.Uuid
+  permissionId String   @map("permission_id") @db.Uuid
+  grantedAt    DateTime @default(now()) @map("granted_at") @db.Timestamptz(3)
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+/// Restricts a user to specific branches/locations (13_ §8, §23.21).
+/// A user with NO rows here is scoped to their organization's default branch;
+/// resolution lives in the scope guard, never in the client.
+model UserScopeAccess {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  branchId  String?  @map("branch_id") @db.Uuid
+  locationId String? @map("location_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch   Branch?        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  location StockLocation? @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, branchId, locationId])
+  @@index([userId])
+  @@map("user_scope_access")
+}
+
+// =============================================================================
+// Sessions
+// =============================================================================
+
+/// Server-side session (ASM-011).
+///
+/// Server-side rather than a self-contained JWT so that deactivating a user or
+/// revoking a session takes effect immediately — 13_ §8 requires activation/
+/// deactivation to be meaningful, which a stateless token cannot guarantee until
+/// it expires.
+model Session {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  /// SHA-256 of the opaque cookie value. The raw token is never stored, so a
+  /// database leak does not hand over live sessions.
+  tokenHash    String    @unique @map("token_hash") @db.VarChar(64)
+  /// Active branch for this session; the launch UI exposes no branch selector.
+  branchId     String?   @map("branch_id") @db.Uuid
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)
+  /// Truncated/normalized; retained for the login audit trail (13_ §8).
+  ipAddress    String?   @map("ip_address") @db.VarChar(45)
+  userAgent    String?   @map("user_agent") @db.VarChar(400)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt   DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Login attempt log, separate from AuditEvent because it is written on failure
+/// for users that may not exist, and drives rate limiting/lockout (13_ §8).
+model LoginAttempt {
+  id           String   @id @default(uuid()) @db.Uuid
+  /// Raw submitted identifier, lowercased. Not an FK: failures include unknown users.
+  email        String   @db.VarChar(255)
+  succeeded    Boolean
+  failureReason String? @map("failure_reason") @db.VarChar(100)
+  ipAddress    String?  @map("ip_address") @db.VarChar(45)
+  userAgent    String?  @map("user_agent") @db.VarChar(400)
+  requestId    String?  @map("request_id") @db.VarChar(128)
+  attemptedAt  DateTime @default(now()) @map("attempted_at") @db.Timestamptz(3)
+
+  @@index([email, attemptedAt])
+  @@index([ipAddress, attemptedAt])
+  @@map("login_attempts")
+}
+
+// =============================================================================
+// Audit
+// =============================================================================
+
+/// Append-only audit log (04_DATA_MODEL.md §10, 03_ARCHITECTURE.md §9).
+///
+/// Never updated or deleted by application code. Payloads hold safe snapshots
+/// only — never secrets, tokens, or full sensitive documents (04_DATA_MODEL §10).
+model AuditEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  occurredAt     DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  organizationId String   @map("organization_id") @db.Uuid
+  branchId       String?  @map("branch_id") @db.Uuid
+  /// Null for system/unauthenticated actions (e.g. a failed login).
+  actorUserId    String?  @map("actor_user_id") @db.Uuid
+  /// Dotted action, e.g. "sale.posted", "inventory.adjusted".
+  action         String   @db.VarChar(100)
+  entityType     String   @map("entity_type") @db.VarChar(60)
+  entityId       String?  @map("entity_id") @db.VarChar(64)
+  /// Safe before/after snapshots. Redacted at the writer, not here.
+  beforeSnapshot Json?    @map("before_snapshot")
+  afterSnapshot  Json?    @map("after_snapshot")
+  /// Mandatory for overrides and sensitive actions (13_ §23.22).
+  reason         String?  @db.VarChar(500)
+  requestId      String?  @map("request_id") @db.VarChar(128)
+  ipAddress      String?  @map("ip_address") @db.VarChar(45)
+  sensitivity    AuditSensitivity @default(normal)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  actor        User?        @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, occurredAt])
+  @@index([entityType, entityId])
+  @@index([actorUserId, occurredAt])
+  @@index([action, occurredAt])
+  @@map("audit_events")
+}
+
+enum AuditSensitivity {
+  normal
+  /// Restricted entries (identity documents, exports of personal data) are
+  /// visible only to users holding audit.view (04_DATA_MODEL.md §10).
+  restricted
+}
+
+// =============================================================================
+// System
+// =============================================================================
+
+/// Runtime configuration the owner can change without a deploy
+/// (05_RULES.md §9: "no hidden magic numbers; configuration is named and versioned").
+model ApplicationSetting {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  /// Dotted key, e.g. "sales.min_margin_percent".
+  key            String   @db.VarChar(120)
+  value          Json
+  description    String?  @db.VarChar(300)
+  /// Optimistic concurrency for concurrent settings edits.
+  version        Int      @default(1)
+  updatedBy      String?  @map("updated_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@map("application_settings")
+}
+
+/// Gapless human-facing document numbers (ASM-018).
+///
+/// Allocated inside the posting transaction under a row lock, so numbering has
+/// no gaps — which is what an auditor expects. At this shop's volume the
+/// serialization cost is irrelevant.
+model NumberSequence {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  branchId       String?  @map("branch_id") @db.Uuid
+  /// shared/src/constants.ts SEQUENCE_KEYS, e.g. "sale_invoice".
+  key            String   @db.VarChar(60)
+  prefix         String   @default("") @db.VarChar(20)
+  /// Last issued value. Next = nextValue + 1, allocated under lock.
+  nextValue      Int      @default(0) @map("next_value")
+  padding        Int      @default(6)
+  /// Optional period segment (e.g. "2026") that resets numbering per year.
+  periodKey      String?  @map("period_key") @db.VarChar(10)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, branchId, key, periodKey])
+  @@map("number_sequences")
+}

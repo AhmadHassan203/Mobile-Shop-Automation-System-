@@ -144,6 +144,23 @@ const barcodeInputSchema = z
       .regex(/^[\x21-\x7E]+$/, "Barcode contains unsupported characters."),
   );
 
+/**
+ * Optimistic concurrency token. Every catalog mutation that changes an existing
+ * row carries the version the editor actually saw, so a concurrent edit fails
+ * loudly with OPTIMISTIC_LOCK_FAILED instead of silently overwriting.
+ */
+const versionInputSchema = z
+  .number()
+  .int()
+  .positive("Provide the record version you are editing.");
+
+/** Body of the deactivate/reactivate transitions; identity comes from the path. */
+export const CatalogVersionInputSchema = z
+  .object({ version: versionInputSchema })
+  .strict();
+export type CatalogVersionInput = z.input<typeof CatalogVersionInputSchema>;
+export type CatalogVersionData = z.output<typeof CatalogVersionInputSchema>;
+
 export const CreateCategoryInputSchema = z
   .object({
     name: requiredNameInputSchema,
@@ -154,6 +171,23 @@ export const CreateCategoryInputSchema = z
 export type CreateCategoryInput = z.input<typeof CreateCategoryInputSchema>;
 export type CreateCategoryData = z.output<typeof CreateCategoryInputSchema>;
 
+/**
+ * Updates replace the whole editable identity rather than patching single
+ * fields, so an omitted key can never be read as "leave unchanged" by one side
+ * and "clear it" by the other. `parentCategoryId` is required-but-nullable for
+ * exactly that reason: moving a subcategory to the root must be deliberate.
+ */
+export const UpdateCategoryInputSchema = z
+  .object({
+    name: requiredNameInputSchema,
+    parentCategoryId: z.uuid().nullable(),
+    version: versionInputSchema,
+  })
+  .strict();
+
+export type UpdateCategoryInput = z.input<typeof UpdateCategoryInputSchema>;
+export type UpdateCategoryData = z.output<typeof UpdateCategoryInputSchema>;
+
 export const CreateBrandInputSchema = z
   .object({
     name: requiredNameInputSchema,
@@ -162,6 +196,16 @@ export const CreateBrandInputSchema = z
 
 export type CreateBrandInput = z.input<typeof CreateBrandInputSchema>;
 export type CreateBrandData = z.output<typeof CreateBrandInputSchema>;
+
+export const UpdateBrandInputSchema = z
+  .object({
+    name: requiredNameInputSchema,
+    version: versionInputSchema,
+  })
+  .strict();
+
+export type UpdateBrandInput = z.input<typeof UpdateBrandInputSchema>;
+export type UpdateBrandData = z.output<typeof UpdateBrandInputSchema>;
 
 export const CreateProductModelInputSchema = z
   .object({
@@ -178,91 +222,137 @@ export type CreateProductModelData = z.output<
   typeof CreateProductModelInputSchema
 >;
 
-export const CreateProductInputSchema = z
+export const UpdateProductModelInputSchema = z
   .object({
-    productModelId: z.uuid(),
-    sku: skuInputSchema,
     name: requiredNameInputSchema,
-    trackingType: z.enum(TRACKING_TYPES),
-    condition: z.enum(PRODUCT_CONDITIONS),
-    ptaStatus: z.enum(PTA_STATUSES),
-    ram: optionalAttributeInputSchema,
-    storage: optionalAttributeInputSchema,
-    color: optionalAttributeInputSchema,
-    region: optionalAttributeInputSchema,
-    warrantyType: z.enum(WARRANTY_TYPES).default("none"),
-    warrantyMonths: z
-      .number()
-      .int()
-      .positive()
-      .max(CATALOG_CONTRACT_LIMITS.MAX_WARRANTY_MONTHS)
-      .nullable()
-      .optional(),
-    aliases: z
-      .array(aliasInputSchema)
-      .max(CATALOG_CONTRACT_LIMITS.MAX_ALIASES_PER_PRODUCT)
-      .default([]),
-    barcodes: z
-      .array(barcodeInputSchema)
-      .max(CATALOG_CONTRACT_LIMITS.MAX_BARCODES_PER_PRODUCT)
-      .default([]),
+    brandId: z.uuid(),
+    categoryId: z.uuid(),
+    version: versionInputSchema,
   })
-  .strict()
-  .superRefine((product, context) => {
-    if (
-      product.warrantyType === "none" &&
-      product.warrantyMonths !== undefined &&
-      product.warrantyMonths !== null
-    ) {
+  .strict();
+
+export type UpdateProductModelInput = z.input<
+  typeof UpdateProductModelInputSchema
+>;
+export type UpdateProductModelData = z.output<
+  typeof UpdateProductModelInputSchema
+>;
+
+const productInputShape = {
+  productModelId: z.uuid(),
+  sku: skuInputSchema,
+  name: requiredNameInputSchema,
+  trackingType: z.enum(TRACKING_TYPES),
+  condition: z.enum(PRODUCT_CONDITIONS),
+  ptaStatus: z.enum(PTA_STATUSES),
+  ram: optionalAttributeInputSchema,
+  storage: optionalAttributeInputSchema,
+  color: optionalAttributeInputSchema,
+  region: optionalAttributeInputSchema,
+  warrantyType: z.enum(WARRANTY_TYPES).default("none"),
+  warrantyMonths: z
+    .number()
+    .int()
+    .positive()
+    .max(CATALOG_CONTRACT_LIMITS.MAX_WARRANTY_MONTHS)
+    .nullable()
+    .optional(),
+  aliases: z
+    .array(aliasInputSchema)
+    .max(CATALOG_CONTRACT_LIMITS.MAX_ALIASES_PER_PRODUCT)
+    .default([]),
+  barcodes: z
+    .array(barcodeInputSchema)
+    .max(CATALOG_CONTRACT_LIMITS.MAX_BARCODES_PER_PRODUCT)
+    .default([]),
+};
+
+interface ProductInputInvariants {
+  readonly warrantyType: (typeof WARRANTY_TYPES)[number];
+  readonly warrantyMonths?: number | null | undefined;
+  readonly aliases: readonly string[];
+  readonly barcodes: readonly string[];
+}
+
+/** Create and update accept the same identity, so they share one refinement. */
+function refineProductInput(
+  product: ProductInputInvariants,
+  context: z.RefinementCtx,
+): void {
+  if (
+    product.warrantyType === "none" &&
+    product.warrantyMonths !== undefined &&
+    product.warrantyMonths !== null
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "A product without warranty cannot have warranty months.",
+      path: ["warrantyMonths"],
+    });
+  }
+  if (
+    product.warrantyType !== "none" &&
+    (product.warrantyMonths === undefined || product.warrantyMonths === null)
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Enter warranty months for this warranty type.",
+      path: ["warrantyMonths"],
+    });
+  }
+
+  const aliases = new Map<string, number>();
+  product.aliases.forEach((alias, index) => {
+    const canonical = canonicalizeCatalogAlias(alias);
+    const firstIndex = aliases.get(canonical);
+    if (firstIndex !== undefined) {
       context.addIssue({
         code: "custom",
-        message: "A product without warranty cannot have warranty months.",
-        path: ["warrantyMonths"],
+        message: `Alias duplicates item ${firstIndex + 1}.`,
+        path: ["aliases", index],
       });
+    } else {
+      aliases.set(canonical, index);
     }
-    if (
-      product.warrantyType !== "none" &&
-      (product.warrantyMonths === undefined || product.warrantyMonths === null)
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "Enter warranty months for this warranty type.",
-        path: ["warrantyMonths"],
-      });
-    }
-
-    const aliases = new Map<string, number>();
-    product.aliases.forEach((alias, index) => {
-      const canonical = canonicalizeCatalogAlias(alias);
-      const firstIndex = aliases.get(canonical);
-      if (firstIndex !== undefined) {
-        context.addIssue({
-          code: "custom",
-          message: `Alias duplicates item ${firstIndex + 1}.`,
-          path: ["aliases", index],
-        });
-      } else {
-        aliases.set(canonical, index);
-      }
-    });
-
-    const barcodes = new Map<string, number>();
-    product.barcodes.forEach((barcode, index) => {
-      const firstIndex = barcodes.get(barcode);
-      if (firstIndex !== undefined) {
-        context.addIssue({
-          code: "custom",
-          message: `Barcode duplicates item ${firstIndex + 1}.`,
-          path: ["barcodes", index],
-        });
-      } else {
-        barcodes.set(barcode, index);
-      }
-    });
   });
+
+  const barcodes = new Map<string, number>();
+  product.barcodes.forEach((barcode, index) => {
+    const firstIndex = barcodes.get(barcode);
+    if (firstIndex !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message: `Barcode duplicates item ${firstIndex + 1}.`,
+        path: ["barcodes", index],
+      });
+    } else {
+      barcodes.set(barcode, index);
+    }
+  });
+}
+
+export const CreateProductInputSchema = z
+  .object(productInputShape)
+  .strict()
+  .superRefine(refineProductInput);
 
 export type CreateProductInput = z.input<typeof CreateProductInputSchema>;
 export type CreateProductData = z.output<typeof CreateProductInputSchema>;
+
+/**
+ * `trackingType` is accepted so the caller round-trips the value it saw, but the
+ * server rejects any actual change with CATALOG_TRACKING_TYPE_LOCKED: switching
+ * a variant between serialized and quantity tracking is a migration, not an
+ * edit (05_RULES §2). Aliases and barcodes are the desired end state — the
+ * server diffs them against the stored rows.
+ */
+export const UpdateProductInputSchema = z
+  .object({ ...productInputShape, version: versionInputSchema })
+  .strict()
+  .superRefine(refineProductInput);
+
+export type UpdateProductInput = z.input<typeof UpdateProductInputSchema>;
+export type UpdateProductData = z.output<typeof UpdateProductInputSchema>;
 
 const pageInputSchema = z.coerce
   .number()
@@ -341,6 +431,7 @@ const responseAttributeSchema = z
   .max(CATALOG_CONTRACT_LIMITS.ATTRIBUTE_LENGTH)
   .nullable();
 const responseTimestampSchema = z.iso.datetime();
+const responseVersionSchema = z.number().int().positive();
 
 export const CategoryReferenceSchema = z
   .object({
@@ -348,8 +439,18 @@ export const CategoryReferenceSchema = z
     name: responseNameSchema,
     parentCategoryId: z.uuid().nullable(),
     isActive: z.boolean(),
+    version: responseVersionSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((category, context) => {
+    if (category.parentCategoryId === category.id) {
+      context.addIssue({
+        code: "custom",
+        message: "A category cannot be its own parent.",
+        path: ["parentCategoryId"],
+      });
+    }
+  });
 export type CategoryReference = z.infer<typeof CategoryReferenceSchema>;
 
 export const BrandReferenceSchema = z
@@ -357,6 +458,7 @@ export const BrandReferenceSchema = z
     id: z.uuid(),
     name: responseNameSchema,
     isActive: z.boolean(),
+    version: responseVersionSchema,
   })
   .strict();
 export type BrandReference = z.infer<typeof BrandReferenceSchema>;
@@ -370,6 +472,7 @@ export const ProductModelReferenceSchema = z
     categoryId: z.uuid(),
     categoryName: responseNameSchema,
     isActive: z.boolean(),
+    version: responseVersionSchema,
   })
   .strict();
 export type ProductModelReference = z.infer<typeof ProductModelReferenceSchema>;
@@ -393,52 +496,127 @@ const nestedProductModelSchema = z
   })
   .strict();
 
+const productSummaryShape = {
+  id: z.uuid(),
+  productModel: nestedProductModelSchema,
+  sku: z
+    .string()
+    .min(1)
+    .max(CATALOG_CONTRACT_LIMITS.SKU_LENGTH)
+    .regex(/^[A-Z0-9][A-Z0-9._/-]*$/),
+  name: responseNameSchema,
+  trackingType: z.enum(TRACKING_TYPES),
+  condition: z.enum(PRODUCT_CONDITIONS),
+  ptaStatus: z.enum(PTA_STATUSES),
+  ram: responseAttributeSchema,
+  storage: responseAttributeSchema,
+  color: responseAttributeSchema,
+  region: responseAttributeSchema,
+  warrantyType: z.enum(WARRANTY_TYPES),
+  warrantyMonths: z
+    .number()
+    .int()
+    .positive()
+    .max(CATALOG_CONTRACT_LIMITS.MAX_WARRANTY_MONTHS)
+    .nullable(),
+  isActive: z.boolean(),
+  version: responseVersionSchema,
+  createdAt: responseTimestampSchema,
+  updatedAt: responseTimestampSchema,
+};
+
+interface ProductResponseInvariants {
+  readonly warrantyType: (typeof WARRANTY_TYPES)[number];
+  readonly warrantyMonths: number | null;
+}
+
+function refineProductResponse(
+  product: ProductResponseInvariants,
+  context: z.RefinementCtx,
+): void {
+  if (product.warrantyType === "none" && product.warrantyMonths !== null) {
+    context.addIssue({
+      code: "custom",
+      message: "A product without warranty cannot have warranty months.",
+      path: ["warrantyMonths"],
+    });
+  }
+  if (product.warrantyType !== "none" && product.warrantyMonths === null) {
+    context.addIssue({
+      code: "custom",
+      message: "Warranty months are required for this warranty type.",
+      path: ["warrantyMonths"],
+    });
+  }
+}
+
 export const ProductSummarySchema = z
+  .object(productSummaryShape)
+  .strict()
+  .superRefine(refineProductResponse);
+export type ProductSummary = z.infer<typeof ProductSummarySchema>;
+
+export const ProductAliasSchema = z
   .object({
     id: z.uuid(),
-    productModel: nestedProductModelSchema,
-    sku: z
+    alias: z.string().min(1).max(CATALOG_CONTRACT_LIMITS.ALIAS_LENGTH),
+  })
+  .strict();
+export type ProductAliasEntry = z.infer<typeof ProductAliasSchema>;
+
+export const ProductBarcodeSchema = z
+  .object({
+    id: z.uuid(),
+    barcode: z
       .string()
       .min(1)
-      .max(CATALOG_CONTRACT_LIMITS.SKU_LENGTH)
-      .regex(/^[A-Z0-9][A-Z0-9._/-]*$/),
-    name: responseNameSchema,
-    trackingType: z.enum(TRACKING_TYPES),
-    condition: z.enum(PRODUCT_CONDITIONS),
-    ptaStatus: z.enum(PTA_STATUSES),
-    ram: responseAttributeSchema,
-    storage: responseAttributeSchema,
-    color: responseAttributeSchema,
-    region: responseAttributeSchema,
-    warrantyType: z.enum(WARRANTY_TYPES),
-    warrantyMonths: z
-      .number()
-      .int()
-      .positive()
-      .max(CATALOG_CONTRACT_LIMITS.MAX_WARRANTY_MONTHS)
-      .nullable(),
-    isActive: z.boolean(),
-    createdAt: responseTimestampSchema,
-    updatedAt: responseTimestampSchema,
+      .max(CATALOG_CONTRACT_LIMITS.BARCODE_LENGTH)
+      .regex(/^[\x21-\x7E]+$/),
+    isPrimary: z.boolean(),
+  })
+  .strict();
+export type ProductBarcodeEntry = z.infer<typeof ProductBarcodeSchema>;
+
+/**
+ * Detail additionally carries the identity needed to edit a variant: its active
+ * aliases and barcodes. These are catalog identity, not inventory or financial
+ * data, so they are safe to expose to any `catalog.view` caller.
+ */
+export const ProductDetailSchema = z
+  .object({
+    ...productSummaryShape,
+    aliases: z
+      .array(ProductAliasSchema)
+      .max(CATALOG_CONTRACT_LIMITS.MAX_ALIASES_PER_PRODUCT),
+    barcodes: z
+      .array(ProductBarcodeSchema)
+      .max(CATALOG_CONTRACT_LIMITS.MAX_BARCODES_PER_PRODUCT),
   })
   .strict()
   .superRefine((product, context) => {
-    if (product.warrantyType === "none" && product.warrantyMonths !== null) {
+    refineProductResponse(product, context);
+
+    const primaryCount = product.barcodes.filter(
+      (barcode) => barcode.isPrimary,
+    ).length;
+    // Mirrors the partial unique index that allows at most one primary barcode
+    // per variant, so a corrupted row cannot be served as a valid response.
+    if (primaryCount > 1) {
       context.addIssue({
         code: "custom",
-        message: "A product without warranty cannot have warranty months.",
-        path: ["warrantyMonths"],
+        message: "A product cannot have more than one primary barcode.",
+        path: ["barcodes"],
       });
     }
-    if (product.warrantyType !== "none" && product.warrantyMonths === null) {
+    if (product.barcodes.length > 0 && primaryCount === 0) {
       context.addIssue({
         code: "custom",
-        message: "Warranty months are required for this warranty type.",
-        path: ["warrantyMonths"],
+        message: "A product with barcodes must have one primary barcode.",
+        path: ["barcodes"],
       });
     }
   });
-export type ProductSummary = z.infer<typeof ProductSummarySchema>;
+export type ProductDetail = z.infer<typeof ProductDetailSchema>;
 
 export const PageMetadataSchema = z
   .object({

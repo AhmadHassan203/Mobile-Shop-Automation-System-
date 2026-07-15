@@ -1,185 +1,147 @@
 # Build Status
 
-**Last updated:** 2026-07-16 02:24 PKT
+**Last updated:** 2026-07-16 03:20 PKT
 
 **Evidence rule:** Only checks actually executed are described as passing.
 
 ## Current outcome
 
-The authenticated Product Catalog vertical is live locally:
+The Product Catalog is a complete production workflow. Slice 2 is functionally
+done: categories, brands, product models and product variants can each be
+listed, searched, filtered, paginated, created, edited, deactivated and
+reactivated through real tenant-scoped PostgreSQL-backed APIs and a real
+browser workspace.
 
 - frontend: `http://localhost:3000/login`
+- catalog workspace: `http://localhost:3000/inventory`
 - backend readiness: `http://localhost:4000/api/v1/health/ready`
-- protected catalog route: `http://localhost:3000/inventory`
 
-This checkpoint implements real tenant-scoped category, brand, product-model,
-and product APIs backed by PostgreSQL. The browser provides real search,
-filters, pagination, permission-aware navigation, and an Add Product drawer.
-No fake stock, IMEI, cost, price, sales, or KPI data is shown.
-
-Catalog core is a usable vertical slice, but it is not all of blueprint Slice 2.
-Product detail/update/deactivation, standalone reference management, and pricing
-remain future work. Slice 1 is also still partial because password change,
-user/role administration, and ScopeGuard are not implemented.
+Nothing is hard-deleted. No fake stock, IMEI, cost, price, sales, demand or KPI
+value is displayed anywhere. Inventory and pricing are explicitly labelled
+unavailable until their real modules exist.
 
 ## Clean handoff checkpoints
 
-The latest committed checkpoint before this Catalog work is:
-
 ```text
+e390642 Slice 2: ship authenticated product catalog core
 4366145 Slice 0/1: ship authenticated workspace foundation
 ```
 
-The current Catalog checkpoint is intended to be committed as one coherent
-follow-up. Do not discard its work when switching between Codex and Claude.
+This checkpoint completes the Catalog on top of `e390642`.
 
-## Verified implementation
+## What this checkpoint added
 
-### Shared contracts
+### Shared contracts (`shared/src/catalog.ts`)
 
-- Strict public contracts exist for category, brand, product model, product
-  create/list/search, references, and paginated responses.
-- Tenant, cost, price, stock, IMEI, and reorder fields are absent from public
-  Catalog inputs and outputs.
-- SKU, barcode, alias, warranty, pagination, and Unicode normalization limits
-  are shared by frontend and backend.
-- Unicode-expanding derived slugs/canonical aliases are code-point bounded to
-  their PostgreSQL widths.
-- Lint, strict typecheck, and build pass.
-- **9 files / 190 tests pass.**
+- `UpdateCategoryInputSchema`, `UpdateBrandInputSchema`,
+  `UpdateProductModelInputSchema`, `UpdateProductInputSchema`.
+- `CatalogVersionInputSchema` — the deactivate/reactivate body.
+- `ProductDetailSchema` + `ProductAliasSchema` + `ProductBarcodeSchema`.
+- A required `version` on all four response schemas.
+- Create and update share one refinement, so they cannot drift apart.
+- Updates use **replace semantics** (the whole editable identity is sent);
+  `parentCategoryId` is required-but-nullable so "move to root" is deliberate
+  and an omitted key can never mean "leave unchanged" to one side and "clear
+  it" to the other.
+- **9 files / 290 tests pass** (was 190).
 
-### PostgreSQL and Prisma
+### PostgreSQL — migration 0006
 
-Migration `20260716014200_0005_catalog_core` adds:
+`database/prisma/migrations/20260716120000_0006_catalog_management`. Migration
+`0005` was **not** edited. `0006` exists because Catalog completion genuinely
+required schema the create-only slice could not express:
 
-- `categories`
-- `brands`
-- `product_models`
-- `product_variants`
-- `product_aliases`
-- `product_barcodes`
-- Catalog enums, indexes, checks, composite tenant foreign keys, and no-hard-
-  delete protections
+1. `categories`, `brands`, `product_models` gained `version` (`CHECK > 0`).
+   `product_variants.version` already existed from `0005`.
+2. `categories` gained `CHECK parent_category_id IS DISTINCT FROM id` and a
+   cycle-rejecting trigger. The trigger takes a per-organization transaction
+   advisory lock first, because two concurrent re-parents can each look acyclic
+   and still commit a cycle between them.
+3. `product_aliases` and `product_barcodes` gained `is_active`, and their
+   unconditional unique indexes became **partial** (`WHERE is_active`).
+   Reason: those tables are hard-delete protected, so an unconditional unique
+   index meant a mistyped barcode was burned inside the organization forever.
+   Rows are now **retired**, never deleted — the protection is preserved, not
+   weakened.
+4. `product_barcodes` gained `CHECK (NOT is_primary OR is_active)` so a retired
+   barcode can never stay flagged primary.
 
 Evidence:
 
-- Prisma format, validate, generate, typecheck, and build pass.
-- Migration-to-schema diff reports no difference.
-- The disposable test database was reset and rebuilt from all five migrations.
-- **2 files / 16 real-PostgreSQL integration tests pass.**
-- Tests cover tenant isolation, uniqueness, warranty/SKU/barcode checks, exact
-  shared maximum widths, primary barcode rules, runtime privileges, and legacy
-  evidence protections.
-- The seed ran twice against the disposable database: exactly one neutral
-  category, one neutral brand, one neutral model, and zero products.
-- Migration `0005` is applied to `mobileshop_dev`; migration status is current.
-- Development seed added only `Smartphones`, `Unbranded`, and
-  `Generic smartphone`. It seeded no product, price, stock, or transaction.
+- Prisma format, validate, generate pass.
+- `migrate diff --from-migrations --to-schema` reports **no difference** (the
+  shadow database applied all six migrations from scratch).
+- `migrate deploy` applied `0006` to the disposable test database **first**, then
+  to `mobileshop_dev`. **No database was reset.**
+- **2 files / 32 real-PostgreSQL integration tests pass** (was 16).
+- Directly proven against real PostgreSQL: the cycle trigger rejects
+  self-parent, 2-level and 3-level cycles and does **not** false-positive on a
+  legitimate deep chain; a retired barcode/alias frees its value for reuse while
+  a duplicate active one is rejected; hard delete is still refused (`42501`).
 
-### Backend
+Prisma cannot express partial indexes, so `@@unique` was removed from
+`ProductAlias`/`ProductBarcode` in the datamodel and the rule now lives only in
+SQL. This is documented inline in `schema.prisma`.
 
-Implemented and live:
+### Backend — 13 new routes
 
-| Endpoint                              | Permission       |
-| ------------------------------------- | ---------------- |
-| `GET /api/v1/catalog/categories`      | `catalog.view`   |
-| `POST /api/v1/catalog/categories`     | `catalog.create` |
-| `GET /api/v1/catalog/brands`          | `catalog.view`   |
-| `POST /api/v1/catalog/brands`         | `catalog.create` |
-| `GET /api/v1/catalog/product-models`  | `catalog.view`   |
-| `POST /api/v1/catalog/product-models` | `catalog.create` |
-| `GET /api/v1/products`                | `catalog.view`   |
-| `POST /api/v1/products`               | `catalog.create` |
+| Endpoint                                                | Permission           |
+| ------------------------------------------------------- | -------------------- |
+| `PATCH /api/v1/catalog/categories/{id}`                 | `catalog.update`     |
+| `POST /api/v1/catalog/categories/{id}/deactivate`       | `catalog.deactivate` |
+| `POST /api/v1/catalog/categories/{id}/activate`         | `catalog.update`     |
+| `PATCH /api/v1/catalog/brands/{id}`                     | `catalog.update`     |
+| `POST /api/v1/catalog/brands/{id}/deactivate`           | `catalog.deactivate` |
+| `POST /api/v1/catalog/brands/{id}/activate`             | `catalog.update`     |
+| `PATCH /api/v1/catalog/product-models/{id}`             | `catalog.update`     |
+| `POST /api/v1/catalog/product-models/{id}/deactivate`   | `catalog.deactivate` |
+| `POST /api/v1/catalog/product-models/{id}/activate`     | `catalog.update`     |
+| `GET /api/v1/products/{id}`                             | `catalog.view`       |
+| `PATCH /api/v1/products/{id}`                           | `catalog.update`     |
+| `POST /api/v1/products/{id}/deactivate`                 | `catalog.deactivate` |
+| `POST /api/v1/products/{id}/activate`                   | `catalog.update`     |
 
-Security and correctness evidence:
+Correctness and security properties:
 
-- A global PermissionGuard merges class and method metadata and requires every
-  grant resolved by the authenticated server context.
-- A global Origin guard protects all browser unsafe methods while keeping safe
-  methods and Origin-less CLI/native calls usable.
-- Every Catalog query is scoped by the authenticated organization; no client
-  organization ID is accepted.
-- Product, aliases, barcodes, and complete safe audit snapshot are written in
-  one transaction.
-- Actual Prisma 7 duplicate errors map to stable 409 SKU/barcode codes.
-- Response selects and schemas exclude price, cost, stock, IMEI, aliases,
-  barcodes, reorder fields, and organization identifiers.
-- Response-contract corruption is treated as an opaque server fault, not a
-  caller validation error.
-- Lint, strict typecheck, and production build pass.
-- **11 files / 53 unit tests pass.**
-- Existing backend HTTP integration remains green: **3 files / 23 tests.**
+- Optimistic locking is an **atomic conditional write** — a single
+  `updateMany({ where: { id, organizationId, version } , data: { version: { increment: 1 } } })`,
+  not a read-then-write race. `count === 0` becomes `OPTIMISTIC_LOCK_FAILED`.
+- Unknown id, or an id from another organization, returns `NOT_FOUND` — existence
+  elsewhere is never leaked.
+- `trackingType` changes always return `CATALOG_TRACKING_TYPE_LOCKED`; re-sending
+  the stored value is a no-op. See the decision note below.
+- Category parent must exist, be in the caller's organization and be active.
+  Self-parent and cycles are rejected by an in-transaction ancestor walk (bounded
+  at 64 hops) as a clean 422; the SQL trigger is a backstop, mapped to the same
+  422 rather than leaking a 500.
+- Alias/barcode edits are diffed against the stored active rows and **retired**,
+  never deleted; retirement happens before insertion because the partial index
+  counts only active rows; the old primary is cleared before the new one is set.
+- Every mutation runs in one transaction and writes one audit event with safe
+  before **and** after snapshots.
+- **11 files / 83 unit tests pass** (was 53).
 
 ### Frontend
 
-The production build and live standalone server include:
+`/inventory` is a Catalog workspace with URL-backed tabs (Products, Categories,
+Brands, Models), each with server-driven search, filters and pagination,
+permission-aware actions, product detail, create/edit drawers, and inline
+creation of a missing brand/category/model without leaving the product flow.
 
-- `/inventory` Product Catalog route
-- server-backed search, filters, pagination, loading, error, empty, and no-
-  result states
-- permission-aware Product Catalog navigation and Add Product action
-- accessible Add Product drawer using exact shared validation limits
-- honest separation between catalog identity and later inventory/pricing data
-- API response validation with no mock fallback
+## Decisions recorded (not invented rules)
 
-Evidence:
-
-- Lint and strict typecheck pass.
-- Production build passes; `/inventory` is generated and live.
-- **7 files / 47 frontend tests pass.**
-- Catalog Playwright flow passes and its screenshot was manually inspected.
-- The owner created one real development product through the live UI
-  (`PH-BRAND-VARIANT`, variant `256gb`); it was preserved. This row did not
-  come from the seed or automated tests.
-
-### Live API and browser checks
-
-The final compiled API was also run against the disposable test database and
-verified through real HTTP and PostgreSQL:
-
-- health 200, login 200, logout 204, unauthenticated Catalog 401
-- category/brand/model/product list responses 200
-- product create 201 and search match
-- duplicate SKU 409 `CATALOG_SKU_DUPLICATE`
-- duplicate barcode 409 `CATALOG_BARCODE_DUPLICATE`
-- duplicate reference 409 `CONFLICT`
-- smuggled tenant/financial/stock fields 422 `VALIDATION_FAILED`
-- untrusted browser Origin 403 with zero product/audit rows
-- Unicode-expanding 200-character brand/alias inputs persist within DB widths
-- duplicate child write rolls back product and audit rows
-- complete product audit snapshot has all 15 expected identity fields and no
-  forbidden financial/tenant/stock/IMEI fields
-
-The complete live Playwright suite passes **4/4**:
-
-- health liveness
-- PostgreSQL readiness
-- login → protected workspace → logout → denied reuse
-- login → Product Catalog → real references/Add drawer → logout
-
-No active headless-test session remains.
-
-## Latest workspace gate
-
-Executed after the final security fixes:
-
-| Gate                                               | Result     |
-| -------------------------------------------------- | ---------- |
-| Prettier format check                              | Pass       |
-| Workspace lint                                     | Pass       |
-| Workspace strict typecheck                         | Pass       |
-| Shared tests                                       | 190 passed |
-| Backend unit tests                                 | 53 passed  |
-| Frontend tests                                     | 47 passed  |
-| Database integration                               | 16 passed  |
-| Backend HTTP integration                           | 23 passed  |
-| Live Playwright                                    | 4 passed   |
-| Shared/database/backend/frontend production builds | Pass       |
-| `git diff --check`                                 | Pass       |
-
-The monolithic `pnpm verify` build phase was not rerun while the live Next
-standalone process held `.next`; the equivalent component builds and all other
-workspace gates above were run successfully.
+- **Tracking type is locked on update, unconditionally.** `05_RULES` §2 says it
+  cannot change once transactions exist. The Inventory slice does not exist, so
+  the API cannot ask whether transactions exist. An "allow now, block later" path
+  would silently become wrong the day Slice 3 lands, so the existing
+  `CATALOG_TRACKING_TYPE_LOCKED` code is returned for any change.
+- **Barcode/alias maintenance is part of `PATCH /products/{id}`**, not the
+  separate routes the API map proposed. It keeps an identity edit atomic and
+  auditable as one event, and the proposed `DELETE .../barcodes/{id}` is
+  impossible anyway under the no-hard-delete protection.
+- **Deactivation does not cascade.** No source specifies a cascade, so none was
+  invented. Reactivation requires the parent/brand/category/model to be active,
+  which mirrors the already-shipped create-time checks.
 
 ## Database migrations
 
@@ -190,28 +152,28 @@ workspace gates above were run successfully.
 | `20260715235600_0003_runtime_object_privileges`        | Applied     | Rehearsed               | Not configured |
 | `20260716003000_0004_auth_evidence_and_user_integrity` | Applied     | Rehearsed               | Not configured |
 | `20260716014200_0005_catalog_core`                     | Applied     | Rehearsed from clean DB | Not configured |
+| `20260716120000_0006_catalog_management`               | Applied     | Applied first           | Not configured |
 
-No development or production database was reset.
+No development or production database was reset. Owner data is intact: the
+owner-created product (`PH-BRAND-VARIANT`, variant `256gb`) and the three seeded
+references survived `0006` and were backfilled to `version = 1`.
 
 ## Remaining risks and scope
 
-| ID       | Remaining item                                                      | Impact                                             |
-| -------- | ------------------------------------------------------------------- | -------------------------------------------------- |
-| AUTH-001 | Password/change flow, user/role admin, and ScopeGuard absent        | Slice 1 remains incomplete                         |
-| AUTH-002 | Trusted reverse-proxy/client-IP policy not configured               | Production proxy/rate-limit confidence pending     |
-| CAT-001  | Product detail/update/deactivate and reference-management UI absent | Catalog core usable; full Slice 2 incomplete       |
-| CAT-002  | Pricing is intentionally absent                                     | Must be built before POS                           |
-| INV-001  | Physical inventory, IMEIs, batches, balances, and movements absent  | Next core module                                   |
-| CON-008  | Docker unavailable locally                                          | Container/volume/proxy evidence must run elsewhere |
-| ENV-002  | Local Node 25 is outside Prisma-supported release lines             | Repeat release gates on supported Node 24 LTS      |
+| ID       | Remaining item                                                | Impact                                             |
+| -------- | ------------------------------------------------------------- | -------------------------------------------------- |
+| AUTH-001 | Password change, user/role admin, ScopeGuard absent           | Slice 1 remains incomplete                         |
+| AUTH-002 | Trusted reverse-proxy/client-IP policy not configured         | Production proxy/rate-limit confidence pending     |
+| CAT-002  | Pricing is intentionally absent                               | Must be built before POS                           |
+| CAT-003  | `GET /api/v1/products/search` counter-speed lookup not built  | POS needs it                                       |
+| INV-001  | Physical inventory, IMEIs, batches, balances, movements absent | Next core module                                   |
+| CON-008  | Docker unavailable locally                                    | Container/volume/proxy evidence must run elsewhere |
+| ENV-002  | Local Node 25 is outside Prisma-supported release lines       | Repeat release gates on supported Node 24 LTS      |
 
 ## Next smallest executable work
 
-1. Commit this Catalog checkpoint.
-2. Begin Slice 3 Inventory foundation with contracts and migration first:
-   serialized units/device identifiers, quantity batches, stock locations,
-   immutable movements, and derived balances.
-3. Add real inventory list/receiving surfaces only after their APIs exist.
-4. Continue remaining Slice 1 authorization/admin work in parallel without
-   weakening the Catalog checkpoint.
-5. Add product detail/update/deactivation and pricing in later Catalog work.
+1. Slice 3 Inventory foundation, contracts and migration `0007` first:
+   serialized units and device identifiers, quantity batches, stock locations,
+   immutable movements, derived balances.
+2. Finish Slice 1: password change, user/role administration, ScopeGuard.
+3. Pricing, then POS.

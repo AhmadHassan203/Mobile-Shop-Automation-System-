@@ -11,23 +11,43 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  useRef,
   useState,
   type FormEvent,
+  type JSX,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { AddProductDrawer } from "./add-product-drawer";
+import { ProductFormDrawer } from "./add-product-drawer";
+import { BrandsTab } from "./brands-tab";
 import {
-  AlertTriangleIcon,
+  CatalogEmptyState,
+  CatalogErrorState,
+  CatalogForbiddenState,
+  CatalogNoResultsState,
+  CatalogTableSkeleton,
+} from "./catalog-states";
+import { CategoriesTab } from "./categories-tab";
+import {
+  catalogReadErrorCopy,
+  ProductDetailDrawer,
+} from "./product-detail-drawer";
+import { ProductModelsTab } from "./product-models-tab";
+import {
   BoxIcon,
   CheckCircleIcon,
   CloseIcon,
+  EyeIcon,
   PlusIcon,
-  RefreshIcon,
   SearchIcon,
   ShieldCheckIcon,
 } from "@/components/ui/icons";
-import type { CatalogProduct, ProductListParameters } from "@/lib/api/catalog";
-import { toApiError } from "@/lib/api/client";
+import {
+  activateCatalogProduct,
+  deactivateCatalogProduct,
+  type CatalogProduct,
+  type ProductListParameters,
+} from "@/lib/api/catalog";
+import { toApiError, type ApiError } from "@/lib/api/client";
 import { currentAuthQueryOptions } from "@/lib/query/auth-query";
 import {
   catalogProductsQueryOptions,
@@ -59,7 +79,14 @@ function positivePage(value: string | null): number {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 1;
 }
 
-function parametersFrom(searchParams: URLSearchParams): ProductListParameters {
+/**
+ * The products tab reads unprefixed query keys, which the other tabs never
+ * touch — each reference tab namespaces its own. That keeps one URL shareable
+ * across the whole workspace without any tab clobbering another's state.
+ */
+export function parametersFrom(
+  searchParams: URLSearchParams,
+): ProductListParameters {
   const q = searchParams.get("q")?.trim();
   const activeValue = searchParams.get("active");
   return {
@@ -95,7 +122,80 @@ function parametersFrom(searchParams: URLSearchParams): ProductListParameters {
   };
 }
 
-function CatalogSkeleton() {
+export const CATALOG_TABS = [
+  { id: "products", label: "Products" },
+  { id: "categories", label: "Categories" },
+  { id: "brands", label: "Brands" },
+  { id: "models", label: "Models" },
+] as const;
+
+export type CatalogTabId = (typeof CATALOG_TABS)[number]["id"];
+
+/** An unknown or absent `tab` is the products tab; a bad URL never blanks the page. */
+export function catalogTabFrom(searchParams: URLSearchParams): CatalogTabId {
+  const value = searchParams.get("tab");
+  return CATALOG_TABS.some((tab) => tab.id === value)
+    ? (value as CatalogTabId)
+    : "products";
+}
+
+/**
+ * The query string for a tab switch. Every other parameter is preserved, so a
+ * search on the products tab survives a detour through Brands and back.
+ */
+export function catalogTabQuery(
+  searchParams: URLSearchParams,
+  tab: CatalogTabId,
+): string {
+  const next = new URLSearchParams(searchParams.toString());
+  if (tab === "products") next.delete("tab");
+  else next.set("tab", tab);
+  return next.toString();
+}
+
+/** APG tablist keyboard model: arrows wrap, Home/End jump to the ends. */
+export function nextCatalogTabIndex(
+  current: number,
+  key: string,
+  length: number,
+): number | null {
+  if (length === 0) return null;
+  if (key === "ArrowRight") return (current + 1) % length;
+  if (key === "ArrowLeft") return (current - 1 + length) % length;
+  if (key === "Home") return 0;
+  if (key === "End") return length - 1;
+  return null;
+}
+
+/** Copy for a failed deactivate/reactivate. Nothing is optimistically flipped. */
+export function productStatusChangeMessage(
+  error: ApiError,
+  wasActive: boolean,
+): string {
+  const action = wasActive ? "deactivated" : "reactivated";
+
+  if (error.code === "OPTIMISTIC_LOCK_FAILED") {
+    return `This product changed since the list loaded, so it was not ${action}. Refresh the catalog to see the current values and try again.`;
+  }
+  if (error.code === "VALIDATION_FAILED") {
+    return `The API rejected this change: ${error.message}`;
+  }
+  if (error.code === "NOT_FOUND" || error.status === 404) {
+    return `This product no longer exists for your organization, so it was not ${action}.`;
+  }
+  if (error.code === "FORBIDDEN_PERMISSION" || error.status === 403) {
+    return `Your current permissions no longer allow this product to be ${action}.`;
+  }
+  if (error.code === "NETWORK_ERROR") {
+    return `The catalog API could not be reached, so this product was not ${action}. Check your connection and try again.`;
+  }
+  if (error.code === "REQUEST_TIMEOUT") {
+    return `The catalog API did not respond in time, so this product was not ${action}.`;
+  }
+  return `This product could not be ${action}. Try again.`;
+}
+
+function CatalogSkeleton(): JSX.Element {
   return (
     <div
       aria-label="Loading product catalog"
@@ -105,133 +205,13 @@ function CatalogSkeleton() {
       <span className="sr-only">Loading product catalog</span>
       <div className="h-20 animate-pulse rounded-card bg-line-subtle" />
       <div className="h-28 animate-pulse rounded-card bg-line-subtle" />
-      <div className="overflow-hidden rounded-card border border-line bg-surface">
-        <div className="h-12 animate-pulse border-b border-line-subtle bg-line-subtle/65" />
-        {Array.from({ length: 6 }, (_, index) => (
-          <div
-            className="h-[4.5rem] animate-pulse border-b border-line-subtle bg-surface last:border-0"
-            key={index}
-          />
-        ))}
-      </div>
+      <CatalogTableSkeleton />
     </div>
   );
 }
 
-export function ProductCatalogRouteFallback() {
+export function ProductCatalogRouteFallback(): JSX.Element {
   return <CatalogSkeleton />;
-}
-
-function ReferenceStateDialog({
-  failed,
-  loading,
-  onClose,
-  onRetry,
-}: {
-  readonly failed: boolean;
-  readonly loading: boolean;
-  readonly onClose: () => void;
-  readonly onRetry: () => void;
-}) {
-  const keepFocusInside = (event: ReactKeyboardEvent<HTMLElement>): void => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      onClose();
-      return;
-    }
-    if (event.key !== "Tab") return;
-
-    const focusable = Array.from(
-      event.currentTarget.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-      ),
-    );
-    const first = focusable[0];
-    const last = focusable.at(-1);
-    if (first === undefined || last === undefined) return;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-[80] flex justify-end bg-black/45"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <section
-        aria-labelledby="reference-dialog-title"
-        aria-modal="true"
-        className="flex h-full w-full max-w-md flex-col bg-surface p-6 shadow-overlay"
-        onKeyDown={keepFocusInside}
-        role="dialog"
-        tabIndex={-1}
-      >
-        <div className="flex items-start gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-control bg-accent-soft text-accent">
-            <BoxIcon className="size-5" />
-          </span>
-          <div>
-            <h2 className="font-semibold text-ink" id="reference-dialog-title">
-              Preparing product form
-            </h2>
-            <p className="mt-1 text-xs text-ink-muted">
-              The form uses real active category, brand, and model records.
-            </p>
-          </div>
-          <button
-            aria-label="Close add product"
-            autoFocus
-            className="ml-auto grid size-9 place-items-center rounded-control text-ink-muted hover:bg-surface-subtle"
-            onClick={onClose}
-            type="button"
-          >
-            <CloseIcon className="size-5" />
-          </button>
-        </div>
-        <div className="mt-8">
-          {loading ? (
-            <div
-              className="flex items-center gap-3 text-sm text-ink-subtle"
-              role="status"
-            >
-              <span className="size-5 animate-spin rounded-full border-2 border-line border-t-accent" />
-              Loading catalog references…
-            </div>
-          ) : null}
-          {failed ? (
-            <div
-              className="rounded-control border border-negative/25 bg-negative-soft p-4 text-sm text-negative"
-              role="alert"
-            >
-              <div className="flex items-start gap-2">
-                <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
-                <div>
-                  <p className="font-semibold">Reference data unavailable</p>
-                  <p className="mt-1 text-xs">
-                    The form cannot create a valid product until models load.
-                  </p>
-                </div>
-              </div>
-              <button
-                className="mt-4 inline-flex min-h-9 items-center gap-2 rounded-control bg-negative px-3 text-xs font-semibold text-white"
-                onClick={onRetry}
-                type="button"
-              >
-                <RefreshIcon className="size-4" /> Retry
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </section>
-    </div>
-  );
 }
 
 function productAttributes(product: CatalogProduct): string {
@@ -244,60 +224,99 @@ function productAttributes(product: CatalogProduct): string {
   return values.length === 0 ? "No optional attributes" : values.join(" · ");
 }
 
-function EmptyCatalog({
-  canCreate,
-  onAdd,
-}: {
-  readonly canCreate: boolean;
-  readonly onAdd: () => void;
-}) {
+const actionClass =
+  "inline-flex min-h-8 items-center gap-1 rounded-control border border-line px-2.5 text-xs font-semibold text-ink-subtle hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-45";
+
+interface ProductRowActionsProps {
+  readonly product: CatalogProduct;
+  readonly busy: boolean;
+  readonly canUpdate: boolean;
+  readonly canDeactivate: boolean;
+  readonly onView: (id: string) => void;
+  readonly onEdit: (id: string) => void;
+  readonly onToggleActive: (product: CatalogProduct) => void;
+}
+
+/**
+ * Row actions. There is deliberately no delete: catalog rows are retired by the
+ * database's no-hard-delete triggers, never removed, so offering one would
+ * promise something the system will always refuse.
+ */
+function ProductRowActions({
+  product,
+  busy,
+  canUpdate,
+  canDeactivate,
+  onView,
+  onEdit,
+  onToggleActive,
+}: ProductRowActionsProps): JSX.Element {
+  // Reactivation is an ordinary edit; only taking a product out of use is gated
+  // on catalog.deactivate.
+  const canToggle = product.isActive ? canDeactivate : canUpdate;
+
   return (
-    <div className="px-5 py-14 text-center">
-      <span className="mx-auto grid size-12 place-items-center rounded-full bg-accent-soft text-accent">
-        <BoxIcon className="size-6" />
-      </span>
-      <h2 className="mt-4 text-base font-semibold text-ink">No products yet</h2>
-      <p className="mx-auto mt-1 max-w-md text-sm text-ink-muted">
-        This organization has no catalog variants. Products appear here only
-        after the API persists them.
-      </p>
-      {canCreate ? (
+    <div className="flex flex-wrap justify-end gap-1.5">
+      <button
+        aria-haspopup="dialog"
+        className={actionClass}
+        onClick={() => onView(product.id)}
+        type="button"
+      >
+        <EyeIcon className="size-3.5" /> View
+      </button>
+      {canUpdate ? (
         <button
-          className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-control bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-strong"
-          onClick={onAdd}
+          aria-haspopup="dialog"
+          className={actionClass}
+          onClick={() => onEdit(product.id)}
           type="button"
         >
-          <PlusIcon className="size-4" /> Add first product
+          Edit
         </button>
-      ) : (
-        <p className="mt-4 text-xs font-semibold text-ink-subtle">
-          A catalog editor can create the first product.
-        </p>
-      )}
+      ) : null}
+      {canToggle ? (
+        <button
+          className={actionClass}
+          disabled={busy}
+          onClick={() => onToggleActive(product)}
+          type="button"
+        >
+          {busy ? "Working…" : product.isActive ? "Deactivate" : "Reactivate"}
+        </button>
+      ) : null}
     </div>
   );
 }
 
-export function ProductCatalogPage() {
+interface ProductsTabProps {
+  readonly canCreate: boolean;
+  readonly canUpdate: boolean;
+  readonly canDeactivate: boolean;
+}
+
+function ProductsTab({
+  canCreate,
+  canUpdate,
+  canDeactivate,
+}: ProductsTabProps): JSX.Element {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const auth = useQuery(currentAuthQueryOptions);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [createdProduct, setCreatedProduct] = useState<string | null>(null);
-  const canView =
-    auth.data?.permissions.includes(PERMISSIONS.CATALOG_VIEW) === true;
-  const canCreate =
-    auth.data?.permissions.includes(PERMISSIONS.CATALOG_CREATE) === true;
+  const [createOpen, setCreateOpen] = useState(false);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [savedProduct, setSavedProduct] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<ApiError | null>(null);
+  const [statusWasActive, setStatusWasActive] = useState(true);
+  const [busyRowId, setBusyRowId] = useState<string | null>(null);
+
   const parameters = parametersFrom(
     new URLSearchParams(searchParams.toString()),
   );
-  const products = useQuery({
-    ...catalogProductsQueryOptions(parameters),
-    enabled: canView,
-  });
-  const references = useQuery(catalogReferencesQueryOptions(canView));
+  const products = useQuery(catalogProductsQueryOptions(parameters));
+  const references = useQuery(catalogReferencesQueryOptions(true));
   const hasFilters =
     parameters.q !== undefined ||
     parameters.brandId !== undefined ||
@@ -321,6 +340,24 @@ export function ProductCatalogPage() {
     router.replace(query.length === 0 ? pathname : `${pathname}?${query}`);
   };
 
+  const clearFilters = (): void => {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const key of [
+      "q",
+      "brandId",
+      "categoryId",
+      "trackingType",
+      "condition",
+      "ptaStatus",
+      "active",
+      "page",
+    ]) {
+      next.delete(key);
+    }
+    const query = next.toString();
+    router.replace(query.length === 0 ? pathname : `${pathname}?${query}`);
+  };
+
   const search = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -333,67 +370,65 @@ export function ProductCatalogPage() {
     });
   };
 
-  if (auth.data !== undefined && !canView) {
-    return (
-      <section
-        className="rounded-card border border-warning/25 bg-warning-soft p-5 text-warning"
-        role="alert"
-      >
-        <div className="flex items-start gap-3">
-          <ShieldCheckIcon className="mt-0.5 size-5 shrink-0" />
-          <div>
-            <h1 className="text-base font-semibold">Catalog access required</h1>
-            <p className="mt-1 text-sm">
-              This route requires the server-provided catalog.view permission.
-              No product request was sent.
-            </p>
-          </div>
-        </div>
-      </section>
-    );
-  }
+  const invalidateProducts = (): void => {
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.catalogProductsRoot,
+    });
+  };
+
+  const toggleActive = async (product: CatalogProduct): Promise<void> => {
+    if (busyRowId !== null) return;
+    setStatusError(null);
+    setStatusWasActive(product.isActive);
+    setBusyRowId(product.id);
+    try {
+      if (product.isActive) {
+        await deactivateCatalogProduct(product.id, product.version);
+      } else {
+        await activateCatalogProduct(product.id, product.version);
+      }
+      invalidateProducts();
+    } catch (error) {
+      setStatusError(toApiError(error));
+    } finally {
+      setBusyRowId(null);
+    }
+  };
+
+  const productsError =
+    products.error === null || products.data !== undefined
+      ? null
+      : toApiError(products.error);
 
   return (
     <div>
-      <header className="mb-5 flex flex-wrap items-start gap-4">
-        <div className="min-w-0 flex-1">
-          <p className="mb-1.5 text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-accent">
-            Catalog · Product identity
-          </p>
-          <h1 className="text-[1.375rem] font-semibold tracking-[-0.01em] text-ink">
-            Product catalog
-          </h1>
-          <p className="mt-1 max-w-3xl text-[0.84375rem] text-ink-muted">
-            Define and find sellable variants by model, SKU, category, brand,
-            alias, or barcode. A catalog product is not physical inventory.
-          </p>
-        </div>
+      <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
         {canCreate ? (
           <button
             aria-haspopup="dialog"
             className="inline-flex min-h-10 items-center gap-2 rounded-control bg-accent px-4 text-sm font-semibold text-white shadow-sm hover:bg-accent-strong"
-            onClick={() => setDrawerOpen(true)}
+            onClick={() => setCreateOpen(true)}
             type="button"
           >
             <PlusIcon className="size-4" /> Add product
           </button>
         ) : null}
-      </header>
+      </div>
 
-      {createdProduct === null ? null : (
+      {savedProduct === null ? null : (
         <div
           className="mb-4 flex items-start gap-2.5 rounded-control border border-positive/25 bg-positive-soft p-3 text-sm text-positive"
           role="status"
         >
           <CheckCircleIcon className="mt-0.5 size-4 shrink-0" />
           <p>
-            <strong>{createdProduct}</strong> was created and the catalog is
+            <strong>{savedProduct}</strong> was saved and the catalog is
             refreshing.
           </p>
           <button
-            aria-label="Dismiss product-created message"
+            aria-label="Dismiss product-saved message"
             className="ml-auto grid size-7 shrink-0 place-items-center rounded-control hover:bg-positive/10"
-            onClick={() => setCreatedProduct(null)}
+            onClick={() => setSavedProduct(null)}
             type="button"
           >
             <CloseIcon className="size-4" />
@@ -401,14 +436,33 @@ export function ProductCatalogPage() {
         </div>
       )}
 
-      <div className="mb-4 flex items-start gap-2.5 rounded-card border border-info/20 bg-info-soft px-4 py-3 text-[0.8125rem] text-info">
-        <ShieldCheckIcon className="mt-0.5 size-[1.125rem] shrink-0" />
-        <p>
-          This view contains catalog identity only. Stock quantities, IMEIs,
-          supplier cost, and selling prices will appear only through their real
-          inventory, purchasing, and pricing workflows.
-        </p>
-      </div>
+      {statusError === null ? null : (
+        <div
+          className="mb-4 flex items-start gap-2.5 rounded-control border border-negative/25 bg-negative-soft p-3 text-sm text-negative"
+          role="alert"
+        >
+          <ShieldCheckIcon className="mt-0.5 size-4 shrink-0" />
+          <div className="min-w-0">
+            <p className="font-semibold">Product status was not changed</p>
+            <p className="mt-0.5">
+              {productStatusChangeMessage(statusError, statusWasActive)}
+            </p>
+            {statusError.requestId === undefined ? null : (
+              <p className="mt-1 font-mono text-xs">
+                Ref: {statusError.requestId}
+              </p>
+            )}
+          </div>
+          <button
+            aria-label="Dismiss status-change error"
+            className="ml-auto grid size-7 shrink-0 place-items-center rounded-control hover:bg-negative/10"
+            onClick={() => setStatusError(null)}
+            type="button"
+          >
+            <CloseIcon className="size-4" />
+          </button>
+        </div>
+      )}
 
       <section
         aria-label="Catalog search and filters"
@@ -566,7 +620,7 @@ export function ProductCatalogPage() {
         {hasFilters ? (
           <button
             className="mt-3 text-xs font-semibold text-accent hover:text-accent-strong"
-            onClick={() => router.replace(pathname)}
+            onClick={clearFilters}
             type="button"
           >
             Clear search and filters
@@ -574,43 +628,19 @@ export function ProductCatalogPage() {
         ) : null}
       </section>
 
-      {products.isPending ? <CatalogSkeleton /> : null}
+      {products.isPending ? <CatalogTableSkeleton /> : null}
 
-      {products.error !== null && products.data === undefined ? (
-        <section
-          className="rounded-card border border-negative/25 bg-surface p-5 shadow-card"
-          role="alert"
-        >
-          <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-full bg-negative-soft text-negative">
-              <AlertTriangleIcon className="size-5" />
-            </span>
-            <div>
-              <h2 className="font-semibold text-ink">
-                Catalog could not be loaded
-              </h2>
-              <p className="mt-1 text-sm text-ink-muted">
-                The API did not return a valid product page. No fallback or mock
-                products are shown.
-              </p>
-              {toApiError(products.error).requestId === undefined ? null : (
-                <p className="mt-2 font-mono text-xs text-ink-muted">
-                  Ref: {toApiError(products.error).requestId}
-                </p>
-              )}
-              <button
-                className="mt-4 inline-flex min-h-9 items-center gap-2 rounded-control bg-accent px-3.5 text-xs font-semibold text-white hover:bg-accent-strong"
-                onClick={() => {
-                  void products.refetch();
-                }}
-                type="button"
-              >
-                <RefreshIcon className="size-4" /> Retry catalog
-              </button>
-            </div>
-          </div>
-        </section>
-      ) : null}
+      {productsError === null ? null : (
+        <CatalogErrorState
+          {...catalogReadErrorCopy(productsError)}
+          {...(productsError.requestId === undefined
+            ? {}
+            : { requestId: productsError.requestId })}
+          onRetry={() => {
+            void products.refetch();
+          }}
+        />
+      )}
 
       {products.data === undefined ? null : (
         <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
@@ -633,31 +663,35 @@ export function ProductCatalogPage() {
           </div>
 
           {products.data.items.length === 0 && !hasFilters ? (
-            <EmptyCatalog
-              canCreate={canCreate}
-              onAdd={() => setDrawerOpen(true)}
+            <CatalogEmptyState
+              description="This organization has no catalog variants. Products appear here only after the API persists them."
+              title="No products yet"
+              {...(canCreate
+                ? {
+                    action: (
+                      <button
+                        className="inline-flex min-h-10 items-center gap-2 rounded-control bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-strong"
+                        onClick={() => setCreateOpen(true)}
+                        type="button"
+                      >
+                        <PlusIcon className="size-4" /> Add first product
+                      </button>
+                    ),
+                  }
+                : {
+                    action: (
+                      <p className="text-xs font-semibold text-ink-subtle">
+                        A catalog editor can create the first product.
+                      </p>
+                    ),
+                  })}
             />
           ) : products.data.items.length === 0 ? (
-            <div className="px-5 py-14 text-center">
-              <SearchIcon className="mx-auto size-9 text-ink-muted" />
-              <h2 className="mt-3 text-base font-semibold text-ink">
-                No matching products
-              </h2>
-              <p className="mt-1 text-sm text-ink-muted">
-                Try another search term or clear one of the filters.
-              </p>
-              <button
-                className="mt-4 text-sm font-semibold text-accent hover:text-accent-strong"
-                onClick={() => router.replace(pathname)}
-                type="button"
-              >
-                Clear search and filters
-              </button>
-            </div>
+            <CatalogNoResultsState onClear={clearFilters} />
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[66rem] border-collapse text-left text-[0.8125rem]">
+                <table className="w-full min-w-[74rem] border-collapse text-left text-[0.8125rem]">
                   <thead className="bg-surface-subtle text-[0.6875rem] uppercase tracking-[0.04em] text-ink-muted">
                     <tr>
                       <th className="px-4 py-2.5 font-semibold sm:px-[1.125rem]">
@@ -669,8 +703,9 @@ export function ProductCatalogPage() {
                       <th className="px-3 py-2.5 font-semibold">Condition</th>
                       <th className="px-3 py-2.5 font-semibold">PTA</th>
                       <th className="px-3 py-2.5 font-semibold">Warranty</th>
-                      <th className="px-4 py-2.5 font-semibold sm:px-[1.125rem]">
-                        Status
+                      <th className="px-3 py-2.5 font-semibold">Status</th>
+                      <th className="px-4 py-2.5 text-right font-semibold sm:px-[1.125rem]">
+                        Actions
                       </th>
                     </tr>
                   </thead>
@@ -681,10 +716,15 @@ export function ProductCatalogPage() {
                         key={product.id}
                       >
                         <td className="px-4 py-3.5 sm:px-[1.125rem]">
-                          <p className="font-semibold text-ink">
+                          <button
+                            aria-haspopup="dialog"
+                            className="rounded-control text-left font-semibold text-ink hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                            onClick={() => setDetailId(product.id)}
+                            type="button"
+                          >
                             {product.productModel.brand.name}{" "}
                             {product.productModel.name}
-                          </p>
+                          </button>
                           <p className="mt-0.5 text-xs text-ink-muted">
                             {product.name}
                           </p>
@@ -715,7 +755,7 @@ export function ProductCatalogPage() {
                             ? ""
                             : ` · ${product.warrantyMonths} mo`}
                         </td>
-                        <td className="px-4 py-3.5 sm:px-[1.125rem]">
+                        <td className="px-3 py-3.5">
                           <span
                             className={`rounded-full px-2 py-1 text-xs font-semibold ${
                               product.isActive
@@ -725,6 +765,19 @@ export function ProductCatalogPage() {
                           >
                             {product.isActive ? "Active" : "Inactive"}
                           </span>
+                        </td>
+                        <td className="px-4 py-3.5 sm:px-[1.125rem]">
+                          <ProductRowActions
+                            busy={busyRowId === product.id}
+                            canDeactivate={canDeactivate}
+                            canUpdate={canUpdate}
+                            onEdit={setEditId}
+                            onToggleActive={(target) => {
+                              void toggleActive(target);
+                            }}
+                            onView={setDetailId}
+                            product={product}
+                          />
                         </td>
                       </tr>
                     ))}
@@ -783,29 +836,264 @@ export function ProductCatalogPage() {
         </section>
       )}
 
-      {drawerOpen && references.data !== undefined ? (
-        <AddProductDrawer
-          onClose={() => setDrawerOpen(false)}
-          onCreated={(product) => {
-            setDrawerOpen(false);
-            setCreatedProduct(product.name);
-            void queryClient.invalidateQueries({
-              queryKey: queryKeys.catalogProductsRoot,
-            });
+      {detailId === null ? null : (
+        <ProductDetailDrawer
+          canUpdate={canUpdate}
+          canView
+          onClose={() => setDetailId(null)}
+          onEdit={(id) => {
+            setDetailId(null);
+            setEditId(id);
+          }}
+          productId={detailId}
+        />
+      )}
+
+      {createOpen && references.data !== undefined ? (
+        <ProductFormDrawer
+          canCreateReferences={canCreate}
+          mode="create"
+          onClose={() => setCreateOpen(false)}
+          onSaved={(product) => {
+            setCreateOpen(false);
+            setSavedProduct(product.name);
+            invalidateProducts();
           }}
           references={references.data}
         />
       ) : null}
-      {drawerOpen && references.data === undefined ? (
-        <ReferenceStateDialog
-          failed={references.isError}
-          loading={references.isPending || references.isFetching}
-          onClose={() => setDrawerOpen(false)}
+
+      {editId !== null && references.data !== undefined ? (
+        <ProductFormDrawer
+          canCreateReferences={canCreate}
+          mode="edit"
+          onClose={() => setEditId(null)}
+          onSaved={(product) => {
+            setEditId(null);
+            setSavedProduct(product.name);
+            invalidateProducts();
+          }}
+          productId={editId}
+          references={references.data}
+        />
+      ) : null}
+
+      {(createOpen || editId !== null) && references.data === undefined ? (
+        <ReferenceGateDrawer
+          error={
+            references.error === null ? null : toApiError(references.error)
+          }
+          onClose={() => {
+            setCreateOpen(false);
+            setEditId(null);
+          }}
           onRetry={() => {
             void references.refetch();
           }}
         />
       ) : null}
+    </div>
+  );
+}
+
+function ReferenceGateDrawer({
+  error,
+  onClose,
+  onRetry,
+}: {
+  readonly error: ApiError | null;
+  readonly onClose: () => void;
+  readonly onRetry: () => void;
+}): JSX.Element {
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex justify-end bg-black/45"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        aria-labelledby="reference-gate-title"
+        aria-modal="true"
+        className="flex h-full w-full max-w-xl flex-col bg-surface p-6 shadow-overlay"
+        role="dialog"
+        tabIndex={-1}
+      >
+        <div className="flex items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-control bg-accent-soft text-accent">
+            <BoxIcon className="size-5" />
+          </span>
+          <div>
+            <h2 className="font-semibold text-ink" id="reference-gate-title">
+              Preparing product form
+            </h2>
+            <p className="mt-1 text-xs text-ink-muted">
+              The form uses real active category, brand, and model records.
+            </p>
+          </div>
+          <button
+            aria-label="Close product form"
+            autoFocus
+            className="ml-auto grid size-9 place-items-center rounded-control text-ink-muted hover:bg-surface-subtle"
+            onClick={onClose}
+            type="button"
+          >
+            <CloseIcon className="size-5" />
+          </button>
+        </div>
+        <div className="mt-8">
+          {error === null ? (
+            <div
+              className="flex items-center gap-3 text-sm text-ink-subtle"
+              role="status"
+            >
+              <span className="size-5 animate-spin rounded-full border-2 border-line border-t-accent" />
+              Loading catalog references…
+            </div>
+          ) : (
+            <CatalogErrorState
+              {...catalogReadErrorCopy(error)}
+              {...(error.requestId === undefined
+                ? {}
+                : { requestId: error.requestId })}
+              onRetry={onRetry}
+            />
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export function ProductCatalogPage(): JSX.Element {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const auth = useQuery(currentAuthQueryOptions);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const permissions = auth.data?.permissions;
+  const canView = permissions?.includes(PERMISSIONS.CATALOG_VIEW) === true;
+  const canCreate = permissions?.includes(PERMISSIONS.CATALOG_CREATE) === true;
+  const canUpdate = permissions?.includes(PERMISSIONS.CATALOG_UPDATE) === true;
+  const canDeactivate =
+    permissions?.includes(PERMISSIONS.CATALOG_DEACTIVATE) === true;
+
+  const activeTab = catalogTabFrom(
+    new URLSearchParams(searchParams.toString()),
+  );
+
+  const selectTab = (tab: CatalogTabId): void => {
+    const query = catalogTabQuery(
+      new URLSearchParams(searchParams.toString()),
+      tab,
+    );
+    router.replace(query.length === 0 ? pathname : `${pathname}?${query}`);
+  };
+
+  const onTabKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ): void => {
+    const nextIndex = nextCatalogTabIndex(
+      index,
+      event.key,
+      CATALOG_TABS.length,
+    );
+    if (nextIndex === null) return;
+    const nextTab = CATALOG_TABS[nextIndex];
+    if (nextTab === undefined) return;
+    event.preventDefault();
+    tabRefs.current[nextIndex]?.focus();
+    selectTab(nextTab.id);
+  };
+
+  if (auth.data !== undefined && !canView) {
+    return (
+      <CatalogForbiddenState
+        description="This route requires the server-provided catalog.view permission. No catalog request was sent."
+        title="Catalog access required"
+      />
+    );
+  }
+
+  return (
+    <div>
+      <header className="mb-5">
+        <p className="mb-1.5 text-[0.6875rem] font-bold uppercase tracking-[0.09em] text-accent">
+          Catalog · Product identity
+        </p>
+        <h1 className="text-[1.375rem] font-semibold tracking-[-0.01em] text-ink">
+          Product catalog
+        </h1>
+        <p className="mt-1 max-w-3xl text-[0.84375rem] text-ink-muted">
+          Define and find sellable variants by model, SKU, category, brand,
+          alias, or barcode. A catalog product is not physical inventory.
+        </p>
+      </header>
+
+      <div className="mb-4 flex items-start gap-2.5 rounded-card border border-info/20 bg-info-soft px-4 py-3 text-[0.8125rem] text-info">
+        <ShieldCheckIcon className="mt-0.5 size-[1.125rem] shrink-0" />
+        <p>
+          This view contains catalog identity only. Stock quantities, IMEIs,
+          supplier cost, and selling prices will appear only through their real
+          inventory, purchasing, and pricing workflows.
+        </p>
+      </div>
+
+      <div className="mb-4 -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <div
+          aria-label="Product catalog sections"
+          className="flex w-max min-w-full gap-1 border-b border-line"
+          role="tablist"
+        >
+          {CATALOG_TABS.map((tab, index) => (
+            <button
+              aria-controls={`catalog-panel-${tab.id}`}
+              aria-selected={tab.id === activeTab}
+              className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+                tab.id === activeTab
+                  ? "border-accent text-accent"
+                  : "border-transparent text-ink-muted hover:border-line hover:text-ink"
+              }`}
+              id={`catalog-tab-${tab.id}`}
+              key={tab.id}
+              onClick={() => selectTab(tab.id)}
+              onKeyDown={(event) => onTabKeyDown(event, index)}
+              ref={(node) => {
+                tabRefs.current[index] = node;
+              }}
+              role="tab"
+              tabIndex={tab.id === activeTab ? 0 : -1}
+              type="button"
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        aria-labelledby={`catalog-tab-${activeTab}`}
+        id={`catalog-panel-${activeTab}`}
+        role="tabpanel"
+      >
+        {auth.data === undefined ? (
+          <CatalogTableSkeleton />
+        ) : activeTab === "products" ? (
+          <ProductsTab
+            canCreate={canCreate}
+            canDeactivate={canDeactivate}
+            canUpdate={canUpdate}
+          />
+        ) : activeTab === "categories" ? (
+          <CategoriesTab />
+        ) : activeTab === "brands" ? (
+          <BrandsTab />
+        ) : (
+          <ProductModelsTab />
+        )}
+      </div>
     </div>
   );
 }

@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Product · MobileShop OS</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="inventory">
+  <div class="layout">
+    <aside id="sidebar"></aside>
+    <div class="main">
+      <header id="topbar"></header>
+      <main class="content">
+
+        <div class="breadcrumb">
+          <a href="inventory.html">Inventory</a>
+          <span class="sep">/</span>
+          <span id="crumbName">Product</span>
+        </div>
+
+        <div class="page-head">
+          <div>
+            <h1 id="pName">Product</h1>
+            <div class="subtitle" id="pSub"></div>
+          </div>
+          <div class="actions">
+            <a class="btn" href="intelligence.html" id="btn-reorder"></a>
+            <a class="btn btn-primary" href="pos.html" id="btn-sell"></a>
+          </div>
+        </div>
+
+        <!-- Recommended action banner -->
+        <div id="actionBanner" style="margin-bottom:18px"></div>
+
+        <!-- Overview KPI tiles (click to drill into a tab) -->
+        <div class="grid cols-4" id="kpiRow" style="margin-bottom:22px"></div>
+
+        <!-- Tab bar -->
+        <div class="tabs" id="tabBar"></div>
+
+        <!-- Tab panels -->
+        <div id="panel-overview" class="tab-panel active"></div>
+        <div id="panel-units"    class="tab-panel"></div>
+        <div id="panel-sales"    class="tab-panel"></div>
+        <div id="panel-demand"   class="tab-panel"></div>
+        <div id="panel-purchases" class="tab-panel"></div>
+        <div id="panel-price"    class="tab-panel"></div>
+        <div id="panel-returns"  class="tab-panel"></div>
+        <div id="panel-recs"     class="tab-panel"></div>
+        <div id="panel-audit"    class="tab-panel"></div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Add-to-buying-plan modal -->
+  <div class="overlay center" id="planModal">
+    <div class="modal">
+      <div class="modal-head"><h3>Add to buying plan</h3><div class="x-close" onclick="Shell.close('planModal')">✕</div></div>
+      <div class="modal-body" id="planModalBody"></div>
+      <div class="modal-foot">
+        <button class="btn" onclick="Shell.close('planModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmPlan()">Add to plan</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/data.js"></script>
+  <script src="assets/shell.js"></script>
+  <script>
+    // ---- Resolve the product from ?id ------------------------------------
+    var params = new URLSearchParams(location.search);
+    var id = params.get("id") || "V-IP17PM-256-BLK";
+    var v = DB.variants.find(function (x) { return x.id === id; }) || DB.variants[0];
+    id = v.id;
+    var st = DB.stock[id] || { available: 0, reserved: 0, inbound: 0, sold30: 0, unmet: 0, coverDays: 0, ageDays: 0, returns: 0 };
+    var units = DB.units.filter(function (u) { return u.variantId === id; });
+    var rec = DB.recommendations.find(function (r) { return r.variantId === id; }) || null;
+    var name = fmt.variantName(id);
+    var isAccessory = v.band === "Accessory";
+    var perUnit = v.price - v.avgCost;
+    var marginPct = v.price ? (perUnit / v.price * 100) : 0;
+    var warranty = (units[0] && units[0].warranty) || (isAccessory ? "Store 7-day" : /Used/.test(v.condition) ? "Shop 7-day" : "Official 1 yr");
+
+    // ---- Recommended action inference ------------------------------------
+    function recAction() {
+      if (st.available === 0 && st.unmet > 0)
+        return { label: "Stock deeper", cls: "neg",
+          why: "Out of stock with " + st.unmet + " unmet request" + (st.unmet !== 1 ? "s" : "") + " — you are losing sales right now." };
+      if (st.ageDays >= 30)
+        return { label: "Clear aged stock", cls: "warn",
+          why: "Oldest unit has sat " + st.ageDays + " days — capital is tied up, consider a promotion." };
+      if (st.unmet > st.available)
+        return { label: "Stock deeper", cls: "warn",
+          why: "Demand (" + st.unmet + " unmet) is outpacing your " + st.available + " available unit" + (st.available !== 1 ? "s" : "") + "." };
+      return { label: "Maintain", cls: "info", why: "Healthy cover and steady demand — no action needed today." };
+    }
+    var action = recAction();
+    var badgeText = { neg: "Blocking", warn: "Attention", info: "Healthy" };
+
+    // ---- Header ----------------------------------------------------------
+    document.title = name + " · MobileShop OS";
+    document.getElementById("crumbName").textContent = name;
+    document.getElementById("pName").textContent = name;
+    document.getElementById("pSub").innerHTML =
+      '<span class="mono">' + v.sku + '</span> &nbsp;·&nbsp; ' + v.condition +
+      ' &nbsp;·&nbsp; ' + (v.pta === "—" ? "Accessory" : v.pta);
+    document.getElementById("btn-sell").innerHTML = Shell.svg("sell") + " Sell this";
+    document.getElementById("btn-reorder").innerHTML = Shell.svg("purchases") + " Reorder";
+
+    // ---- Recommended action banner ---------------------------------------
+    document.getElementById("actionBanner").innerHTML =
+      '<div class="callout ' + action.cls + '">' + Shell.svg("intelligence") +
+      '<div><strong>Recommended action: ' + action.label + '</strong> &nbsp;<span class="badge ' + action.cls + '">' + badgeText[action.cls] + '</span><br>' +
+      action.why + ' &nbsp; <a href="javascript:void(0)" onclick="showTab(\'recs\')">See the reasoning</a>' +
+      (rec ? ' &nbsp;·&nbsp; <a href="intelligence.html">Open buying plan →</a>' : '') +
+      '</div></div>';
+
+    // ---- KPI tiles -------------------------------------------------------
+    var coverMeta = st.coverDays === 0 ? "Out of stock" : st.coverDays <= 3 ? "Runs out soon" : "at current sales rate";
+    var tiles = [
+      { label: "Current price", value: fmt.pkr(v.price), meta: v.band + " band", tab: "price", accent: true },
+      { label: "Avg cost", value: fmt.pkr(v.avgCost), meta: "recorded landed cost", tab: "purchases" },
+      { label: "Gross margin", value: marginPct.toFixed(1) + "%", meta: fmt.pkr(perUnit) + " per unit", tab: "sales", vc: marginPct >= 0 ? "pos-text" : "neg-text" },
+      { label: "Days of cover", value: st.coverDays, meta: coverMeta, tab: "recs", vc: st.coverDays === 0 ? "neg-text" : st.coverDays <= 3 ? "" : "" },
+      { label: "Available", value: st.available, meta: st.reserved + " reserved · " + st.inbound + " inbound", tab: "units" },
+      { label: "Sold (30 days)", value: st.sold30, meta: "units in last 30 days", tab: "sales" },
+      { label: "Unmet demand", value: st.unmet, meta: "requests while low / out", tab: "demand", vc: st.unmet > 0 ? "neg-text" : "" },
+      { label: "Aging", value: st.ageDays + "d", meta: "oldest unit in stock", tab: "units", vc: st.ageDays >= 30 ? "neg-text" : "" }
+    ];
+    document.getElementById("kpiRow").innerHTML = tiles.map(function (t) {
+      return '<div class="kpi' + (t.accent ? " accent" : "") + '" onclick="showTab(\'' + t.tab + '\')">' +
+        '<div class="label">' + t.label + '</div>' +
+        '<div class="value ' + (t.vc || "") + '">' + t.value + '</div>' +
+        '<div class="meta">' + t.meta + '</div></div>';
+    }).join("");
+
+    // ---- Tab bar ---------------------------------------------------------
+    var TABS = [
+      { id: "overview", label: "Overview" },
+      { id: "units", label: "Units" + (units.length ? " (" + units.length + ")" : "") },
+      { id: "sales", label: "Sales" },
+      { id: "demand", label: "Demand" },
+      { id: "purchases", label: "Purchases" },
+      { id: "price", label: "Price history" },
+      { id: "returns", label: "Returns / defects" },
+      { id: "recs", label: "Recommendations" },
+      { id: "audit", label: "Audit" }
+    ];
+    document.getElementById("tabBar").innerHTML = TABS.map(function (t, i) {
+      return '<div class="tab' + (i === 0 ? " active" : "") + '" data-tab="' + t.id + '" onclick="showTab(\'' + t.id + '\')">' + t.label + '</div>';
+    }).join("");
+
+    function showTab(tid) {
+      document.querySelectorAll(".tab").forEach(function (t) { t.classList.toggle("active", t.dataset.tab === tid); });
+      document.querySelectorAll(".tab-panel").forEach(function (p) { p.classList.toggle("active", p.id === "panel-" + tid); });
+      document.getElementById("tabBar").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    // ---- Small helpers ---------------------------------------------------
+    function stateBadge(s) {
+      var m = { available: ["pos", "Available"], reserved: ["warn", "Reserved"], sold: ["plain", "Sold"],
+        pending_verification: ["neg", "Pending check"], in_repair: ["warn", "In repair"] };
+      var x = m[s] || ["plain", s];
+      return '<span class="badge ' + x[0] + '">' + x[1] + '</span>';
+    }
+    function poBadge(s) {
+      var m = { received: ["pos", "Received"], ordered: ["info", "Ordered"], partially_received: ["warn", "Partial"],
+        approved: ["accent", "Approved"], draft: ["plain", "Draft"] };
+      var x = m[s] || ["plain", s];
+      return '<span class="badge ' + x[0] + '">' + x[1] + '</span>';
+    }
+    function urgencyBadge(u) {
+      var m = { High: "warn", Medium: "info", Low: "plain" };
+      return '<span class="badge ' + (m[u] || "plain") + '">' + u + '</span>';
+    }
+    function statusBadge(s) {
+      var neg = /open|faulty/i, warn = /progress|awaiting|quarant/i, pos = /ready|resolved|clear|restock/i, info = /inspection|sent/i;
+      var cls = pos.test(s) ? "pos" : neg.test(s) ? "warn" : warn.test(s) ? "warn" : info.test(s) ? "info" : "plain";
+      return '<span class="badge ' + cls + '">' + s + '</span>';
+    }
+    function nameMatches(itemName) {
+      var n = itemName.toLowerCase();
+      if (n.indexOf(v.model.toLowerCase()) !== -1) return true;
+      if (isAccessory && n.indexOf(v.brand.toLowerCase()) !== -1) return true;
+      return false;
+    }
+    function emptyState(icon, title, msg) {
+      return '<div class="card"><div class="empty"><div class="icn" style="font-size:38px">' + icon + '</div>' +
+        '<h4>' + title + '</h4><p>' + msg + '</p></div></div>';
+    }
+
+    // ---- OVERVIEW panel --------------------------------------------------
+    (function () {
+      var attrs = [
+        ["Brand", v.brand], ["Model", v.model], ["RAM", v.ram], ["Storage", v.storage],
+        ["Color", v.color], ["Condition", v.condition],
+        ["PTA status", v.pta === "—" ? "Not applicable" : v.pta],
+        ["Warranty", warranty], ["Price band", v.band],
+        ["Tracking", v.serialized ? "Serialized — by IMEI" : "Non-serialized — batch stock"]
+      ];
+      var kv = attrs.map(function (a) {
+        return '<div class="kv"><span class="k">' + a[0] + '</span><span class="v">' + a[1] + '</span></div>';
+      }).join("");
+
+      var kind = isAccessory ? "accessory" : "handset";
+      var summary = name + " is a " + v.band + " " + kind + ". You currently have <strong>" + st.available + " available</strong>" +
+        (st.reserved ? ", " + st.reserved + " reserved" : "") + (st.inbound ? " and " + st.inbound + " inbound" : "") + ". " +
+        "It sold <strong>" + st.sold30 + " unit" + (st.sold30 !== 1 ? "s" : "") + "</strong> in the last 30 days" +
+        (st.unmet ? ", and <strong>" + st.unmet + " qualified request" + (st.unmet !== 1 ? "s" : "") + "</strong> went unmet while stock was low or out" : "") + ". " +
+        "At " + fmt.pkr(v.price) + " list against " + fmt.pkr(v.avgCost) + " cost, each sale earns about <strong>" + fmt.pkr(perUnit) +
+        "</strong> (" + marginPct.toFixed(1) + "% margin). Current cover is about " + st.coverDays + " day" + (st.coverDays !== 1 ? "s" : "") + ". " +
+        "Recommended action: <strong>" + action.label.toLowerCase() + "</strong> — " + action.why;
+
+      document.getElementById("panel-overview").innerHTML =
+        '<div class="grid cols-2" style="align-items:start">' +
+          '<div class="card"><div class="card-head"><h3>Attributes</h3></div><div class="card-pad">' + kv +
+            '<div class="divider"></div><div class="kv"><span class="k">SKU</span><span class="v mono" style="font-size:12px">' + v.sku + '</span></div>' +
+          '</div></div>' +
+          '<div class="card"><div class="card-head"><h3>In plain language</h3></div><div class="card-pad">' +
+            '<p style="color:var(--ink-2);line-height:1.65">' + summary + '</p>' +
+            '<div class="divider"></div>' +
+            '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+              '<a class="btn btn-sm" href="pos.html">' + Shell.svg("sell") + ' Sell this</a>' +
+              '<a class="btn btn-sm" href="intelligence.html">' + Shell.svg("purchases") + ' Reorder</a>' +
+              '<a class="btn btn-sm btn-ghost" href="demand.html">' + Shell.svg("demand") + ' Record demand</a>' +
+            '</div>' +
+          '</div></div>' +
+        '</div>';
+    })();
+
+    // ---- UNITS panel -----------------------------------------------------
+    (function () {
+      var el = document.getElementById("panel-units");
+      if (!units.length) {
+        if (!v.serialized) {
+          el.innerHTML = emptyState("📦", "Batch stock — no IMEIs",
+            "This is a non-serialized accessory tracked by quantity, not IMEI. <strong>" + st.available +
+            " in stock</strong> at " + fmt.pkr(v.avgCost) + " average cost. Adjust quantity from the Purchases tab.");
+        } else if (st.available > 0) {
+          el.innerHTML = emptyState("📇", "IMEI records not loaded here",
+            "The rollup shows <strong>" + st.available + " available</strong>, but the individual IMEI records for this product aren't in this prototype view. Open <a href=\"inventory.html\">Inventory</a> for the full unit list.");
+        } else {
+          el.innerHTML = emptyState("📭", "No units in stock",
+            "There are no serialized units on hand for this product right now. See the Recommendations tab to reorder.");
+        }
+        return;
+      }
+      var rows = units.map(function (u) {
+        var risk = (u.risk && u.risk.length) ? ' <span class="badge neg" title="' + u.risk.join("; ") + '">' + Shell.svg("returns") + ' ' + u.risk.length + ' flag</span>' : "";
+        return '<tr class="row-link" onclick="location.href=\'unit.html?id=' + u.id + '\'">' +
+          '<td class="mono">' + u.imei1 + risk + '</td>' +
+          '<td>' + stateBadge(u.state) + '</td>' +
+          '<td class="muted">' + u.location + '</td>' +
+          '<td>' + u.battery + '</td>' +
+          '<td>' + u.grade + '</td>' +
+          '<td class="num">' + fmt.pkr(u.cost) + '</td></tr>';
+      }).join("");
+      el.innerHTML =
+        '<div class="card"><div class="card-head"><h3>Serialized units</h3>' +
+        '<span class="hint">' + units.length + ' unit' + (units.length !== 1 ? "s" : "") + ' · click a row for full IMEI history</span></div>' +
+        '<div class="table-wrap"><table class="data"><thead><tr>' +
+        '<th>IMEI (primary)</th><th>State</th><th>Location</th><th>Battery</th><th>Grade</th><th class="num">Cost</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+    })();
+
+    // ---- SALES panel -----------------------------------------------------
+    (function () {
+      var el = document.getElementById("panel-sales");
+      var lines = [];
+      DB.sales.forEach(function (s) {
+        s.items.forEach(function (it) { if (nameMatches(it.name)) lines.push({ s: s, it: it }); });
+      });
+      if (!lines.length) {
+        el.innerHTML =
+          '<div class="callout info">' + Shell.svg("reports") + '<div>The rollup shows <strong>' + st.sold30 +
+          ' sold in the last 30 days</strong>, but no recent posted invoice in this window lists this exact model.</div></div>';
+        return;
+      }
+      var rows = lines.map(function (r) {
+        return '<tr class="row-link" onclick="location.href=\'finance.html\'">' +
+          '<td class="mono">' + r.s.id + '</td>' +
+          '<td class="muted">' + r.s.time + '</td>' +
+          '<td>' + r.s.customer + '</td>' +
+          '<td><span class="badge plain">' + r.s.method + '</span></td>' +
+          '<td class="num">' + r.it.qty + '</td>' +
+          '<td class="num">' + fmt.pkr(r.it.price) + '</td>' +
+          '<td class="num strong">' + fmt.pkr(r.it.qty * r.it.price) + '</td></tr>';
+      }).join("");
+      el.innerHTML =
+        '<div class="card"><div class="card-head"><h3>Recent sales</h3>' +
+        '<span class="hint">' + st.sold30 + ' sold in last 30 days · latest invoices below</span></div>' +
+        '<div class="table-wrap"><table class="data"><thead><tr>' +
+        '<th>Invoice</th><th>Time</th><th>Customer</th><th>Method</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Line total</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+    })();
+
+    // ---- DEMAND panel ----------------------------------------------------
+    (function () {
+      var el = document.getElementById("panel-demand");
+      var d = DB.demand.filter(function (x) { return x.variantId === id; });
+      if (!d.length) {
+        el.innerHTML = emptyState("🗣️", "No recorded demand",
+          "No customer requests are logged against this product. Requests turn into your reorder signal.");
+        return;
+      }
+      var rows = d.map(function (x) {
+        return '<tr class="row-link" onclick="location.href=\'demand.html\'">' +
+          '<td class="muted nowrap">' + x.date + '</td>' +
+          '<td>' + x.customer + '</td>' +
+          '<td>' + x.request + '</td>' +
+          '<td class="nowrap">' + x.budget + '</td>' +
+          '<td>' + urgencyBadge(x.urgency) + '</td>' +
+          '<td><span class="badge ' + (x.available ? "info" : "neg") + '">' + x.outcome + '</span></td></tr>';
+      }).join("");
+      var unmetCount = d.filter(function (x) { return !x.available; }).length;
+      el.innerHTML =
+        '<div class="card"><div class="card-head"><h3>Customer requests</h3>' +
+        '<span class="hint">' + d.length + ' logged · ' + unmetCount + ' unmet</span></div>' +
+        '<div class="table-wrap"><table class="data"><thead><tr>' +
+        '<th>When</th><th>Customer</th><th>Requested</th><th>Budget</th><th>Urgency</th><th>Outcome</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+    })();
+
+    // ---- PURCHASES panel -------------------------------------------------
+    (function () {
+      var el = document.getElementById("panel-purchases");
+      var set = {};
+      units.forEach(function (u) { if (u.source) { var pid = u.source.split("·")[0].trim(); if (pid) set[pid] = true; } });
+      DB.purchaseOrders.forEach(function (po) {
+        if (po.note && po.note.toLowerCase().indexOf(v.model.toLowerCase()) !== -1) set[po.id] = true;
+        if (rec && po.note && po.note.indexOf(rec.id) !== -1) set[po.id] = true;
+      });
+      var rel = DB.purchaseOrders.filter(function (po) { return set[po.id]; });
+      if (!rel.length) {
+        el.innerHTML =
+          '<div class="callout info">' + Shell.svg("purchases") + '<div>No purchase order is directly linked to this product yet. ' +
+          'Last recorded landed cost is <strong>' + fmt.pkr(v.avgCost) + '</strong>. Create one from the ' +
+          '<a href="intelligence.html">buying plan</a>.</div></div>';
+        return;
+      }
+      var rows = rel.map(function (po) {
+        var unitCost = po.units ? po.total / po.units : 0;
+        return '<tr class="row-link" onclick="location.href=\'purchase-order.html?id=' + po.id + '\'">' +
+          '<td class="mono">' + po.id + '</td>' +
+          '<td class="muted nowrap">' + po.date + '</td>' +
+          '<td>' + po.supplier + '</td>' +
+          '<td>' + poBadge(po.status) + '</td>' +
+          '<td class="num">' + po.received + " / " + po.units + '</td>' +
+          '<td class="num">' + fmt.pkr(unitCost) + '</td>' +
+          '<td class="num strong">' + fmt.pkr(po.total) + '</td></tr>';
+      }).join("");
+      el.innerHTML =
+        '<div class="card"><div class="card-head"><h3>Purchase orders</h3>' +
+        '<span class="hint">click a PO for line detail</span></div>' +
+        '<div class="table-wrap"><table class="data"><thead><tr>' +
+        '<th>PO</th><th>Date</th><th>Supplier</th><th>Status</th><th class="num">Received</th><th class="num">Unit cost</th><th class="num">Total</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+    })();
+
+    // ---- PRICE HISTORY panel --------------------------------------------
+    (function () {
+      var el = document.getElementById("panel-price");
+      function r100(n) { return Math.round(n / 100) * 100; }
+      var pts = [
+        { date: "~90 days ago", cost: r100(v.avgCost * 0.962), tag: "Earlier landed cost" },
+        { date: "~45 days ago", cost: r100(v.avgCost * 0.985), tag: "Previous purchase" },
+        { date: "Today", cost: v.avgCost, tag: "Current recorded average" }
+      ];
+      var rows = pts.map(function (p) {
+        var m = (v.price - p.cost) / v.price * 100;
+        return '<tr' + (p.date === "Today" ? ' class="strong"' : "") + '>' +
+          '<td class="nowrap">' + p.date + '</td>' +
+          '<td class="num">' + fmt.pkr(p.cost) + '</td>' +
+          '<td class="num">' + fmt.pkr(v.price) + '</td>' +
+          '<td class="num ' + (m >= 0 ? "pos-text" : "neg-text") + '">' + m.toFixed(1) + '%</td>' +
+          '<td class="muted">' + p.tag + '</td></tr>';
+      }).join("");
+      el.innerHTML =
+        '<div class="callout info" style="margin-bottom:14px">' + Shell.svg("reports") +
+        '<div>Illustrative reference points — list price held at ' + fmt.pkr(v.price) + '. Live cost history comes from your purchase ledger.</div></div>' +
+        '<div class="card"><div class="card-head"><h3>Cost &amp; margin over time</h3></div>' +
+        '<div class="table-wrap"><table class="data"><thead><tr>' +
+        '<th>Point</th><th class="num">Landed cost</th><th class="num">List price</th><th class="num">Margin</th><th>Note</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+    })();
+
+    // ---- RETURNS / DEFECTS panel ----------------------------------------
+    (function () {
+      var el = document.getElementById("panel-returns");
+      var rel = DB.returns.filter(function (r) { return r.item.toLowerCase().indexOf(v.model.toLowerCase()) !== -1; });
+      var defectRate = st.sold30 > 0 ? (st.returns / st.sold30 * 100).toFixed(1) + "%" : "—";
+      var stat =
+        '<div class="grid cols-2" style="margin-bottom:14px">' +
+          '<div class="kpi"><div class="label">Returns (30 days)</div><div class="value ' + (st.returns > 0 ? "neg-text" : "") + '">' + st.returns + '</div><div class="meta">units returned or claimed</div></div>' +
+          '<div class="kpi"><div class="label">Defect rate</div><div class="value">' + defectRate + '</div><div class="meta">returns ÷ units sold</div></div>' +
+        '</div>';
+      if (!rel.length) {
+        el.innerHTML = stat +
+          '<div class="callout pos">' + Shell.svg("check") + '<div>No open returns, warranty claims or defects recorded for this product.</div></div>';
+        return;
+      }
+      var rows = rel.map(function (r) {
+        return '<tr class="row-link" onclick="location.href=\'returns.html\'">' +
+          '<td class="mono">' + r.id + '</td>' +
+          '<td class="mono">' + (r.imei === "—" ? "—" : r.imei) + '</td>' +
+          '<td>' + r.reason + '</td>' +
+          '<td class="muted">' + r.outcome + '</td>' +
+          '<td>' + statusBadge(r.status) + '</td>' +
+          '<td class="muted nowrap">' + r.date + '</td></tr>';
+      }).join("");
+      el.innerHTML = stat +
+        '<div class="card"><div class="card-head"><h3>Returns &amp; warranty</h3></div>' +
+        '<div class="table-wrap"><table class="data"><thead><tr>' +
+        '<th>Ref</th><th>IMEI</th><th>Reason</th><th>Outcome</th><th>Status</th><th>When</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+    })();
+
+    // ---- RECOMMENDATIONS panel ------------------------------------------
+    (function () {
+      var el = document.getElementById("panel-recs");
+      if (!rec) {
+        el.innerHTML = emptyState("✅", "No active reorder recommendation",
+          "The engine is not recommending a purchase for this product right now. See all recommendations in the <a href=\"intelligence.html\">buying plan</a>.");
+        return;
+      }
+      var confCls = rec.confidence === "High" ? "pos" : rec.confidence === "Medium" ? "warn" : "neg";
+      var unitCost = rec.qty ? rec.cost / rec.qty : 0;
+      var reasons = rec.reasons.map(function (r) { return "<li>" + r + "</li>"; }).join("");
+      var risks = (rec.risks && rec.risks.length)
+        ? '<div class="callout warn" style="margin-top:12px">' + Shell.svg("returns") + '<div><strong>Watch-outs:</strong> ' + rec.risks.join(" · ") + '</div></div>' : "";
+      el.innerHTML =
+        '<div class="grid cols-2" style="align-items:start">' +
+          '<div class="card"><div class="card-head"><h3>Recommendation ' + rec.id + '</h3>' +
+            '<span class="badge ' + confCls + '">' + rec.confidence + ' confidence</span></div>' +
+            '<div class="card-pad">' +
+              '<div class="kv"><span class="k">Recommended quantity</span><span class="v">' + rec.qty + ' units</span></div>' +
+              '<div class="kv"><span class="k">Supplier</span><span class="v">' + rec.supplier + '</span></div>' +
+              '<div class="kv"><span class="k">Unit cost</span><span class="v">' + fmt.pkr(unitCost) + '</span></div>' +
+              '<div class="kv"><span class="k">Order cost</span><span class="v">' + fmt.pkr(rec.cost) + '</span></div>' +
+              '<div class="kv"><span class="k">Expected gross profit</span><span class="v pos-text">' + fmt.pkr(rec.expProfit) + '</span></div>' +
+              '<div class="kv"><span class="k">Return on investment</span><span class="v">' + rec.roi + '%</span></div>' +
+              '<div class="kv"><span class="k">Days of cover now</span><span class="v">' + rec.daysCover + ' days</span></div>' +
+              '<div class="kv"><span class="k">Confidence</span><span class="v" style="min-width:120px">' +
+                '<span class="confbar"><span class="meter ' + confCls + '"><span style="width:' + rec.confPct + '%"></span></span><span class="tiny">' + rec.confPct + '%</span></span></span></div>' +
+              '<div class="row" style="margin-top:14px;gap:8px;flex-wrap:wrap">' +
+                '<button class="btn btn-primary btn-sm" onclick="openPlan()">' + Shell.svg("check") + ' Add to buying plan</button>' +
+                '<a class="btn btn-sm" href="intelligence.html">Open full plan →</a>' +
+              '</div>' +
+            '</div></div>' +
+          '<div class="card"><div class="card-head"><h3>Why the engine suggests this</h3></div>' +
+            '<div class="card-pad"><ul style="margin:0;padding-left:18px;line-height:1.7;color:var(--ink-2)">' + reasons + '</ul>' + risks + '</div></div>' +
+        '</div>';
+    })();
+
+    // ---- AUDIT panel -----------------------------------------------------
+    (function () {
+      var el = document.getElementById("panel-audit");
+      function entityLink(e) {
+        var href = /^INV-2026/.test(e) ? "finance.html" : /^PO-/.test(e) ? "purchases.html" :
+          /^DM-/.test(e) ? "demand.html" : /^CS-/.test(e) ? "closing.html" : null;
+        return href ? '<a href="' + href + '" class="mono">' + e + '</a>' : '<span class="mono">' + e + '</span>';
+      }
+      var items = DB.audit.map(function (a) {
+        return '<div class="tl-item done">' +
+          '<div class="tl-time">' + a.time + '</div>' +
+          '<div class="tl-title">' + a.action + ' · ' + entityLink(a.entity) + '</div>' +
+          '<div class="tl-desc">' + a.actor + ' — ' + a.detail + '</div></div>';
+      }).join("");
+      el.innerHTML =
+        '<div class="card"><div class="card-head"><h3>Audit trail</h3>' +
+        '<span class="hint">immutable record of critical actions</span></div>' +
+        '<div class="card-pad"><div class="timeline">' + items + '</div></div></div>';
+    })();
+
+    // ---- Buying-plan modal ----------------------------------------------
+    function openPlan() {
+      if (!rec) return;
+      var newCover = rec.daysCover + Math.round(rec.qty / Math.max(st.sold30 / 30, 0.2));
+      document.getElementById("planModalBody").innerHTML =
+        '<p class="muted" style="margin-bottom:10px">Confirm this addition to today\'s buying plan.</p>' +
+        '<div class="impact"><strong>Adding ' + rec.id + ' will:</strong><ul>' +
+          '<li>Order <strong>' + rec.qty + ' × ' + name + '</strong> from ' + rec.supplier + '</li>' +
+          '<li>Commit <strong>' + fmt.pkr(rec.cost) + '</strong> of your buying budget</li>' +
+          '<li>Add an expected <strong>' + fmt.pkr(rec.expProfit) + '</strong> gross profit (' + rec.roi + '% ROI)</li>' +
+          '<li>Raise days of cover from ' + rec.daysCover + ' → ~' + newCover + ' days</li>' +
+        '</ul></div>';
+      Shell.open("planModal");
+    }
+    function confirmPlan() {
+      Shell.close("planModal");
+      Shell.toast(rec ? rec.qty + " × " + v.model + " added to buying plan" : "Added to buying plan", true);
+    }
+  </script>
+</body>
+</html>

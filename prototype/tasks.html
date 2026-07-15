@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tasks · MobileShop OS</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="tasks">
+  <div class="layout">
+    <aside id="sidebar"></aside>
+    <div class="main">
+      <header id="topbar"></header>
+      <main class="content">
+
+        <style>
+          .task-group-label { display:flex; align-items:center; gap:8px; font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-3); margin:4px 2px 2px; }
+          .task-row { display:flex; align-items:flex-start; gap:12px; padding:12px 14px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--surface); transition:border-color .15s, background .15s; }
+          .task-row:hover { border-color:var(--accent); }
+          .task-row.done { background:var(--surface-2); border-color:var(--line-2); }
+          .tcheck { flex-shrink:0; width:20px; height:20px; margin-top:1px; border:2px solid var(--ink-3); border-radius:50%; cursor:pointer; display:grid; place-items:center; color:#fff; transition:background .15s, border-color .15s; }
+          .tcheck:hover { border-color:var(--pos); }
+          .task-row.done .tcheck { background:var(--pos); border-color:var(--pos); }
+          .tcheck svg { width:12px; height:12px; stroke-width:3; opacity:0; transition:opacity .15s; }
+          .task-row.done .tcheck svg { opacity:1; }
+          .task-main { flex:1; min-width:0; cursor:pointer; }
+          .task-title { font-weight:600; font-size:14px; color:var(--ink); }
+          .task-row.done .task-title { text-decoration:line-through; color:var(--ink-3); }
+          .task-meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; align-items:center; }
+          .task-go { flex-shrink:0; align-self:center; width:32px; height:32px; border-radius:8px; display:grid; place-items:center; color:var(--ink-3); border:1px solid transparent; }
+          .task-go:hover { color:var(--accent); background:var(--surface-2); border-color:var(--line); text-decoration:none; }
+          .task-go svg { width:18px; height:18px; }
+          .kpi.click { cursor:pointer; }
+          .sum-link { color:var(--accent); text-decoration:underline; font-weight:600; }
+        </style>
+
+        <div class="page-head">
+          <div>
+            <h1>Tasks &amp; Follow-ups</h1>
+            <div class="subtitle">Your daily command center — everything that needs a decision or a callback today at Al-Madina Mobiles.</div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-ghost" id="btn-add"></button>
+            <button class="btn btn-primary" id="btn-summary"></button>
+          </div>
+        </div>
+
+        <!-- KPI row -->
+        <div class="grid cols-4" id="kpiRow" style="margin-bottom:20px"></div>
+
+        <!-- Daily owner summary -->
+        <div class="callout pos" id="ownerSummary" style="align-items:flex-start; margin-bottom:20px"></div>
+
+        <div class="grid cols-3" style="align-items:start">
+          <!-- Task list (spans 2) -->
+          <div style="grid-column: span 2">
+            <div class="card">
+              <div class="card-head">
+                <h3>Open tasks</h3>
+                <div class="seg" id="taskFilter" style="margin-left:auto">
+                  <button data-filter="all" class="active">All</button>
+                  <button data-filter="High">High</button>
+                  <button data-filter="Medium">Medium</button>
+                  <button data-filter="today">Due today</button>
+                </div>
+              </div>
+              <div class="card-pad">
+                <div class="stack g10" id="taskList"></div>
+                <div class="empty" id="taskEmpty" style="display:none">
+                  <div class="icn">🗂️</div>
+                  <h4>Nothing here</h4>
+                  <p>No tasks match this filter right now.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right rail -->
+          <div class="stack g16">
+            <div class="card">
+              <div class="card-head"><h3>By priority</h3><span class="hint">today's load</span></div>
+              <div class="card-pad stack g16" id="priorityBreak"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-head"><h3>Jump to</h3></div>
+              <div class="card-pad stack g6" id="jumpTo"></div>
+            </div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Task detail drawer -->
+  <div class="overlay" id="taskDrawer" onclick="if(event.target===this)Shell.close('taskDrawer')">
+    <div class="drawer">
+      <div class="drawer-head">
+        <h3 id="tdTitle" style="max-width:88%">Task</h3>
+        <div class="x-close" onclick="Shell.close('taskDrawer')">✕</div>
+      </div>
+      <div class="drawer-body stack g16">
+        <div class="row wrap" id="tdBadges"></div>
+        <div class="small" id="tdCtx" style="color:var(--ink-2)"></div>
+        <div id="tdKv"></div>
+        <div class="impact">
+          <strong>Marking this complete will</strong>
+          <ul>
+            <li>Remove it from today's task queue.</li>
+            <li>Log who cleared it and when to the audit trail.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="drawer-foot">
+        <a class="btn btn-primary" id="tdGo" href="#">Open</a>
+        <button class="btn btn-pos" id="tdComplete" onclick="completeFromDrawer()">Mark complete</button>
+        <button class="btn btn-ghost" onclick="Shell.toast('Snoozed to tomorrow — moved to 14 Jul');Shell.close('taskDrawer')">Snooze to tomorrow</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/data.js"></script>
+  <script src="assets/shell.js"></script>
+  <script>
+    // ---- Small helpers ---------------------------------------------------
+    const CHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>';
+    function set(id, v) { document.getElementById(id).textContent = v; }
+    function kv(k, v) { return '<div class="kv"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>'; }
+
+    // ---- Derived facts (from DB, never hard-coded numbers) ---------------
+    const HOT = "V-HOT50-256-GRN";
+    const waiting = DB.stock[HOT].unmet;                                  // 8
+    const hotName = "Infinix Hot 50";
+    const restockPO = (DB.purchaseOrders.find(p => /hot 50/i.test(p.note)) || {}).id || "restock PO"; // PO-2042
+    const blocked = DB.usedIntakes.filter(u => u.gates.some(g => !g.ok)); // used devices with a failed gate
+    const blockedN = blocked.length;                                      // 1
+    const blockedId = (blocked[0] || {}).id || "";                        // UDI-311
+    const blockedResale = blocked[0] ? fmt.pkr(blocked[0].resale) : "";   // Rs 218,000
+    const techPayable = fmt.pkr((DB.suppliers.find(s => s.name === "TechSource Intl") || {}).payable); // Rs 452,000
+    const draftPO = DB.purchaseOrders.find(p => p.id === "PO-2045");
+    const salesStr = fmt.pkr(DB.KPI.salesToday);                          // Rs 612,500
+    const marginStr = DB.KPI.grossMarginPct;                             // 11.7
+
+    // ---- Page-head action buttons ----------------------------------------
+    document.getElementById("btn-add").innerHTML = Shell.svg("demand") + " Add follow-up";
+    document.getElementById("btn-add").onclick = function () { Shell.toast("New follow-up capture is illustrative in this prototype"); };
+    const summaryLine = salesStr + " sold · " + marginStr + "% margin · " + waiting + " waiting for " + hotName + " · " + blockedN + " device blocked on verification";
+    document.getElementById("btn-summary").innerHTML = Shell.svg("reports") + " Daily owner summary";
+    document.getElementById("btn-summary").onclick = function () { Shell.toast(summaryLine, true); };
+
+    // ---- KPI tiles (clickable → filter) ----------------------------------
+    const total = DB.tasks.length;
+    const highN = DB.tasks.filter(t => t.priority === "High").length;
+    const todayN = DB.tasks.filter(t => /Today/i.test(t.due)).length;
+    document.getElementById("kpiRow").innerHTML = ''
+      + '<div class="kpi accent click" onclick="setFilter(\'all\')"><div class="label">Open tasks</div><div class="value" id="kpiOpen">' + total + '</div><div class="meta">in your queue today</div></div>'
+      + '<div class="kpi click" onclick="setFilter(\'High\')"><div class="label">High priority</div><div class="value" id="kpiHigh">' + highN + '</div><div class="meta">work these first</div></div>'
+      + '<div class="kpi click" onclick="setFilter(\'today\')"><div class="label">Due today</div><div class="value" id="kpiToday">' + todayN + '</div><div class="meta">before closing</div></div>'
+      + '<div class="kpi"><div class="label">Cleared today</div><div class="value pos-text" id="kpiCleared">0</div><div class="meta">checked off so far</div></div>';
+
+    // ---- Daily owner summary callout -------------------------------------
+    document.getElementById("ownerSummary").innerHTML = Shell.svg("tasks")
+      + '<div>'
+      +   '<div style="font-weight:700; margin-bottom:3px">Daily owner summary</div>'
+      +   '<div style="color:var(--ink-2)">'
+      +     salesStr + ' sold today at ' + marginStr + '% margin. '
+      +     '<a class="sum-link" href="demand.html">' + waiting + ' customers</a> are waiting for the ' + hotName
+      +     ' — restock order <a class="sum-link" href="purchases.html">' + restockPO + '</a> is already placed. '
+      +     '<a class="sum-link" href="used-intake.html">' + blockedN + ' used device' + (blockedN === 1 ? '' : 's') + ' (' + blockedId + ')</a> '
+      +     (blockedN === 1 ? 'is' : 'are') + ' blocked pending the police e-Gadget check.'
+      +   '</div>'
+      + '</div>';
+
+    // ---- Context sentences for the drawer (derived from DB) --------------
+    const CTX = {
+      "T-01": waiting + " customers are waiting for the " + hotName + ". Restock order " + restockPO + " is already placed with Infinix Wholesale (~4-day lead).",
+      "T-02": "Faizan (0301-2233445) asked for the Infinix Hot 50 and is ready to buy today. Call the moment stock lands.",
+      "T-03": "The used iPhone 15 (" + blockedId + ") is quarantined until the police e-Gadget reference clears — blocking a " + blockedResale + " resale.",
+      "T-04": "iPhone 17 Pro Max (INV-1044) is reserved for pickup on Tuesday. If it is not collected, release the unit back to available stock.",
+      "T-05": techPayable + " is due to TechSource Intl on 16 Jul under 30-day credit terms.",
+      "T-06": "Draft PO-2045 for 3× iPhone 17 Pro Max (" + fmt.pkr(draftPO.total) + ") is waiting for your approval."
+    };
+    const PAGE = { "intelligence.html": "Buying plan", "demand.html": "Demand board", "used-intake.html": "Used intake", "inventory.html": "Inventory", "finance.html": "Finance", "purchases.html": "Purchases" };
+    const ICONFOR = { "intelligence.html": "intelligence", "demand.html": "demand", "used-intake.html": "used", "inventory.html": "inventory", "finance.html": "finance", "purchases.html": "purchases" };
+
+    // ---- Task list (grouped by priority) ---------------------------------
+    const completed = new Set();
+    let allDoneToasted = false;
+
+    function rowHTML(t) {
+      const dueToday = /Today/i.test(t.due);
+      const prCls = t.priority === "High" ? "neg" : "warn";
+      const dueCls = dueToday ? "warn" : "plain";
+      const dueTxt = dueToday ? "Due today" : "Due " + t.due;
+      return '<div class="task-row" data-id="' + t.id + '" data-priority="' + t.priority + '" data-today="' + (dueToday ? 1 : 0) + '">'
+        + '<div class="tcheck" title="Mark complete" onclick="toggleTask(this)">' + Shell.svg("check") + '</div>'
+        + '<div class="task-main" onclick="openTask(\'' + t.id + '\')">'
+        +   '<div class="task-title">' + t.title + '</div>'
+        +   '<div class="task-meta">'
+        +     '<span class="badge plain">' + t.type + '</span>'
+        +     '<span class="badge ' + prCls + '">' + t.priority + ' priority</span>'
+        +     '<span class="badge ' + dueCls + '">' + dueTxt + '</span>'
+        +   '</div>'
+        + '</div>'
+        + '<a class="task-go" href="' + t.link + '" title="Open ' + (PAGE[t.link] || "page") + '" onclick="event.stopPropagation()">' + CHEV + '</a>'
+        + '</div>';
+    }
+    function groupLabel(g, txt, n) {
+      return '<div class="task-group-label" data-group="' + g + '">' + txt
+        + '<span class="badge ' + (g === "High" ? "neg" : "warn") + '" style="margin-left:auto">' + n + '</span></div>';
+    }
+
+    (function renderTasks() {
+      const high = DB.tasks.filter(t => t.priority === "High");
+      const med = DB.tasks.filter(t => t.priority === "Medium");
+      let html = "";
+      if (high.length) { html += groupLabel("High", "High priority", high.length); high.forEach(t => html += rowHTML(t)); }
+      if (med.length) { html += groupLabel("Medium", "Medium priority", med.length); med.forEach(t => html += rowHTML(t)); }
+      document.getElementById("taskList").innerHTML = html;
+    })();
+
+    // ---- Filter ----------------------------------------------------------
+    function setFilter(f) {
+      document.querySelectorAll("#taskFilter button").forEach(b => b.classList.toggle("active", b.dataset.filter === f));
+      const shown = { High: 0, Medium: 0 };
+      let any = false;
+      document.querySelectorAll(".task-row").forEach(row => {
+        const p = row.dataset.priority, isToday = row.dataset.today === "1";
+        const show = f === "all" || (f === "High" && p === "High") || (f === "Medium" && p === "Medium") || (f === "today" && isToday);
+        row.style.display = show ? "" : "none";
+        if (show) { any = true; shown[p]++; }
+      });
+      document.querySelectorAll(".task-group-label").forEach(g => { g.style.display = shown[g.dataset.group] > 0 ? "" : "none"; });
+      document.getElementById("taskEmpty").style.display = any ? "none" : "block";
+    }
+    document.querySelectorAll("#taskFilter button").forEach(b => b.onclick = function () { setFilter(this.dataset.filter); });
+
+    // ---- Complete / reopen -----------------------------------------------
+    function toggleTask(el) {
+      const row = el.closest(".task-row");
+      flip(row.dataset.id, row);
+    }
+    function flip(id, row) {
+      const t = DB.tasks.find(x => x.id === id);
+      if (completed.has(id)) { completed.delete(id); if (row) row.classList.remove("done"); Shell.toast("Task reopened", false); }
+      else { completed.add(id); if (row) row.classList.add("done"); Shell.toast("Completed — " + t.title, true); }
+      updateCounts();
+    }
+    function updateCounts() {
+      const openList = DB.tasks.filter(t => !completed.has(t.id));
+      set("kpiOpen", openList.length);
+      set("kpiHigh", openList.filter(t => t.priority === "High").length);
+      set("kpiToday", openList.filter(t => /Today/i.test(t.due)).length);
+      set("kpiCleared", completed.size);
+      if (openList.length === 0 && !allDoneToasted) { allDoneToasted = true; setTimeout(() => Shell.toast("All caught up — every task cleared for today 🎉", true), 350); }
+      if (openList.length > 0) allDoneToasted = false;
+    }
+
+    // ---- Detail drawer ---------------------------------------------------
+    let currentTaskId = null;
+    function openTask(id) {
+      const t = DB.tasks.find(x => x.id === id); if (!t) return;
+      currentTaskId = id;
+      const dueToday = /Today/i.test(t.due);
+      document.getElementById("tdTitle").textContent = t.title;
+      document.getElementById("tdBadges").innerHTML =
+          '<span class="badge plain">' + t.type + '</span>'
+        + '<span class="badge ' + (t.priority === "High" ? "neg" : "warn") + '">' + t.priority + ' priority</span>'
+        + '<span class="badge ' + (dueToday ? "warn" : "plain") + '">' + (dueToday ? "Due today" : "Due " + t.due) + '</span>';
+      document.getElementById("tdCtx").textContent = CTX[id] || "";
+      document.getElementById("tdKv").innerHTML = kv("Task", '<span class="mono">' + t.id + '</span>') + kv("Type", t.type) + kv("Priority", t.priority) + kv("Due", t.due) + kv("Opens", PAGE[t.link] || t.link);
+      const goBtn = document.getElementById("tdGo");
+      goBtn.href = t.link;
+      goBtn.innerHTML = Shell.svg(ICONFOR[t.link] || "demand") + " Open " + (PAGE[t.link] || "page");
+      document.getElementById("tdComplete").textContent = completed.has(id) ? "Reopen task" : "Mark complete";
+      Shell.open("taskDrawer");
+    }
+    function completeFromDrawer() {
+      const row = document.querySelector('.task-row[data-id="' + currentTaskId + '"]');
+      flip(currentTaskId, row);
+      Shell.close("taskDrawer");
+    }
+
+    // ---- Right rail: by priority -----------------------------------------
+    (function priorityBreak() {
+      const rows = [
+        { label: "High priority", n: highN, cls: "neg" },
+        { label: "Medium priority", n: DB.tasks.filter(t => t.priority === "Medium").length, cls: "warn" }
+      ];
+      document.getElementById("priorityBreak").innerHTML = rows.map(r => {
+        const pct = Math.round((r.n / total) * 100);
+        return '<div>'
+          + '<div class="spread" style="margin-bottom:7px"><span class="small strong">' + r.label + '</span><span class="badge ' + r.cls + '">' + r.n + ' task' + (r.n === 1 ? "" : "s") + '</span></div>'
+          + '<div class="meter ' + r.cls + '"><span style="width:' + pct + '%"></span></div>'
+          + '</div>';
+      }).join("");
+    })();
+
+    // ---- Right rail: jump-to workspaces ----------------------------------
+    (function jumpTo() {
+      const links = [
+        { label: "Review buying plan", href: "intelligence.html", icon: "intelligence" },
+        { label: "Demand board", href: "demand.html", icon: "demand" },
+        { label: "Used intake", href: "used-intake.html", icon: "used" },
+        { label: "Finance & payables", href: "finance.html", icon: "finance" }
+      ];
+      document.getElementById("jumpTo").innerHTML = links.map(l =>
+        '<a class="btn btn-block btn-ghost" style="justify-content:flex-start; text-align:left" href="' + l.href + '">' + Shell.svg(l.icon) + " " + l.label + '</a>'
+      ).join("");
+    })();
+  </script>
+</body>
+</html>

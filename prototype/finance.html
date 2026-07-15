@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finance · MobileShop OS</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="finance">
+  <div class="layout">
+    <aside id="sidebar"></aside>
+    <div class="main">
+      <header id="topbar"></header>
+      <main class="content">
+
+        <div class="page-head">
+          <div>
+            <h1>Finance &amp; Cash</h1>
+            <div class="subtitle">Management view for <strong>14 Jul 2026</strong> — <em>profit</em> is what you earned, <em>cash</em> is what you hold. They are not the same number.</div>
+          </div>
+          <div class="actions">
+            <button class="btn" id="btn-export"></button>
+            <button class="btn btn-primary" id="btn-expense" onclick="Shell.open('newexp')"></button>
+          </div>
+        </div>
+
+        <!-- KPI row ---------------------------------------------------------- -->
+        <div class="grid cols-4" style="margin-bottom:18px">
+          <a class="kpi accent" href="reports.html" style="text-decoration:none">
+            <div class="label">Sales revenue</div>
+            <div class="value" id="kSalesVal"></div>
+            <div class="meta"><span class="trend up" id="kSalesTrend"></span> <span id="kSalesMeta"></span></div>
+          </a>
+          <a class="kpi" href="reports.html" style="text-decoration:none">
+            <div class="label">Gross profit</div>
+            <div class="value" id="kGrossVal"></div>
+            <div class="meta"><span class="trend up" id="kGrossTrend"></span> <span id="kGrossMeta"></span></div>
+          </a>
+          <a class="kpi" href="#expensesCard" style="text-decoration:none">
+            <div class="label">Operating expenses</div>
+            <div class="value" id="kExpVal"></div>
+            <div class="meta" id="kExpMeta"></div>
+          </a>
+          <a class="kpi" href="reports.html" style="text-decoration:none">
+            <div class="label">Estimated net operating</div>
+            <div class="value" id="kNetVal"></div>
+            <div class="meta" id="kNetMeta"></div>
+          </a>
+        </div>
+
+        <!-- Profit-vs-cash explainer ---------------------------------------- -->
+        <div class="callout info" id="profitCallout" style="margin-bottom:18px"></div>
+
+        <div class="grid cols-4" id="digitalKpis" style="margin-bottom:18px"></div>
+
+        <!-- P&L + money cards ----------------------------------------------- -->
+        <div class="grid cols-3" style="align-items:start; margin-bottom:18px">
+
+          <!-- Profit & loss statement (spans 2) -->
+          <div style="grid-column: span 2">
+            <div class="card">
+              <div class="card-head">
+                <h3>Profit &amp; loss — today</h3>
+                <span class="hint">how revenue becomes profit</span>
+              </div>
+              <div class="card-pad">
+                <div id="pnlBody"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Money you hold / are owed / owe -->
+          <div class="stack g16">
+
+            <div class="card">
+              <div class="card-head">
+                <h3>Cash &amp; bank</h3>
+                <span class="hint">what you actually hold</span>
+              </div>
+              <div class="card-pad">
+                <a class="kv row-link" href="closing.html" style="text-decoration:none;color:inherit">
+                  <span class="k">Cash in drawer <span class="badge pos" style="margin-left:4px"><span class="dot-i"></span>Session open</span></span>
+                  <span class="v" id="cashVal" style="font-variant-numeric:tabular-nums"></span>
+                </a>
+                <div class="kv">
+                  <span class="k">Bank &amp; digital wallets</span>
+                  <span class="v" id="bankVal" style="font-variant-numeric:tabular-nums"></span>
+                </div>
+                <a class="kv row-link" href="digital-balances.html" style="text-decoration:none;color:inherit">
+                  <span class="k">Digital service floats</span>
+                  <span class="v" id="digitalFloatVal" style="font-variant-numeric:tabular-nums"></span>
+                </a>
+                <a class="kv row-link" href="digital-history.html" style="text-decoration:none;color:inherit">
+                  <span class="k">Digital cash impact</span>
+                  <span class="v" id="digitalCashVal" style="font-variant-numeric:tabular-nums"></span>
+                </a>
+                <div class="kv" style="border-top:1px solid var(--line); margin-top:2px; padding-top:10px">
+                  <span class="k strong">Total liquid funds</span>
+                  <span class="v strong" id="liquidVal" style="font-size:15px;font-variant-numeric:tabular-nums"></span>
+                </div>
+                <div class="small muted" style="margin:12px 0 12px" id="sessionNote"></div>
+                <a class="btn btn-block" href="closing.html">Go to Daily Closing &nbsp;→</a>
+              </div>
+            </div>
+
+            <a class="card row-link" href="customers.html" style="text-decoration:none;color:inherit">
+              <div class="card-pad spread">
+                <div>
+                  <div class="label muted small" style="font-weight:600">Receivables — owed to you</div>
+                  <div style="font-size:21px;font-weight:720;margin-top:4px;font-variant-numeric:tabular-nums" id="recVal"></div>
+                  <div class="small muted" style="margin-top:4px" id="recNote"></div>
+                </div>
+                <span class="chev muted"></span>
+              </div>
+            </a>
+
+            <a class="card row-link" href="suppliers.html" style="text-decoration:none;color:inherit">
+              <div class="card-pad spread">
+                <div>
+                  <div class="label muted small" style="font-weight:600">Payables — you owe suppliers</div>
+                  <div style="font-size:21px;font-weight:720;margin-top:4px;font-variant-numeric:tabular-nums" id="payVal"></div>
+                  <div class="small muted" style="margin-top:4px" id="payNote"></div>
+                  <div style="margin-top:8px"><span class="badge warn" id="payBadge"></span></div>
+                </div>
+                <span class="chev muted"></span>
+              </div>
+            </a>
+
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:18px">
+          <div class="card-head">
+            <h3>Digital services earnings — today</h3>
+            <span class="hint">principal kept separate from sales revenue</span>
+          </div>
+          <div class="card-pad" id="digitalPnlBody"></div>
+        </div>
+
+        <!-- Operating expenses ---------------------------------------------- -->
+        <div class="card" id="expensesCard">
+          <div class="card-head">
+            <h3>Operating expenses — today</h3>
+            <div class="actions">
+              <span class="small muted" id="expSummary"></span>
+              <button class="btn btn-sm btn-primary" onclick="Shell.open('newexp')">+ Record expense</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data" id="expTable">
+              <thead>
+                <tr>
+                  <th>Ref</th>
+                  <th>Category</th>
+                  <th>Source</th>
+                  <th>Date</th>
+                  <th>Evidence / note</th>
+                  <th class="num">Amount</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+              <tfoot></tfoot>
+            </table>
+          </div>
+          <div class="card-pad" style="border-top:1px solid var(--line-2)">
+            <div class="small muted">Operating expenses are recorded as a daily accrual (e.g. monthly rent ÷ 30). They lower net operating profit but are <strong>separate from COGS</strong> — the cost of a phone is only booked when that phone sells.</div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Overlays (drawers/modals) live here, siblings of .layout -->
+  <div class="overlay" id="newexp" onclick="if(event.target===this)Shell.close('newexp')">
+    <div class="drawer">
+      <div class="drawer-head">
+        <h3>Record an expense</h3>
+        <div class="x-close" onclick="Shell.close('newexp')">✕</div>
+      </div>
+      <div class="drawer-body">
+        <div class="field">
+          <label for="expCat">Category</label>
+          <select class="input" id="expCat" onchange="updateImpact()"></select>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="expAmt">Amount (Rs)</label>
+            <input class="input" id="expAmt" type="number" min="0" step="100" placeholder="0" oninput="updateImpact()">
+          </div>
+          <div class="field">
+            <label>Paid from</label>
+            <div class="seg" id="expSourceSeg" style="width:100%">
+              <button type="button" class="active" style="flex:1" onclick="setSource('Cash', this)">Cash drawer</button>
+              <button type="button" style="flex:1" onclick="setSource('Bank', this)">Bank / wallet</button>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label for="expDate">Date</label>
+          <input class="input" id="expDate" type="text">
+          <div class="help">Recorded against the current business day.</div>
+        </div>
+        <div class="field">
+          <label for="expNote">Evidence / note</label>
+          <textarea class="input" id="expNote" rows="2" placeholder="e.g. WAPDA bill photo attached · receipt #4471"></textarea>
+          <div class="help">Attach a reference so the entry is auditable at closing.</div>
+        </div>
+
+        <div class="impact" id="expImpact"></div>
+      </div>
+      <div class="drawer-foot">
+        <button class="btn" onclick="Shell.close('newexp')">Cancel</button>
+        <button class="btn btn-primary" onclick="recordExpense()">Record expense</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/data.js"></script>
+  <script src="assets/digital.js"></script>
+  <script src="assets/shell.js"></script>
+  <script>
+    // ---- Small reusable glyphs ------------------------------------------
+    var infoSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>';
+    var chevSvg = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>';
+
+    // ---- Header actions --------------------------------------------------
+    document.getElementById("btn-expense").innerHTML = Shell.svg("finance") + " Record expense";
+    document.getElementById("btn-export").innerHTML = Shell.svg("reports") + " Export for accountant";
+    document.getElementById("btn-export").onclick = function () {
+      Shell.toast("Day-book exported for the accountant (CSV) — illustrative in this prototype", true);
+    };
+
+    // ---- Source data -----------------------------------------------------
+    var PL   = DB.finance.pnl;
+    var EXP  = DB.finance.expenses.map(function (e) { return Object.assign({}, e); });
+    var cashPos = DB.KPI.cashPosition;   // adjusted only by NEW expenses this session
+    var bankPos = DB.KPI.bankPosition;
+    var expSource = "Cash";
+    var digitalState = Digital.load();
+    var digitalTotals = Digital.totals({ settledOnly: true });
+    var digitalBalances = Digital.balanceSummary();
+    var digitalPhysical = digitalBalances.find(function (b) { return b.key === "physicalCash"; }) || { current: 0 };
+    var digitalFloatTotal = digitalBalances.filter(function (b) { return b.key !== "physicalCash"; }).reduce(function (s, b) { return s + b.current; }, 0);
+    var digitalPending = digitalState.digitalServiceTransactions.filter(function (t) { return t.status === "PENDING"; }).length;
+
+    // Fixed (upper) part of the P&L never changes on this screen
+    document.getElementById("kSalesVal").textContent  = fmt.pkr(PL.salesRevenue);
+    document.getElementById("kSalesTrend").textContent = "▲ " + fmt.pct(DB.KPI.salesTrendPct);
+    document.getElementById("kSalesMeta").textContent  = "vs yesterday";
+    document.getElementById("kGrossVal").textContent  = fmt.pkr(PL.grossProfit);
+    document.getElementById("kGrossTrend").textContent = "▲ " + fmt.pct(DB.KPI.profitTrendPct);
+    document.getElementById("kGrossMeta").textContent  = PL.grossMarginPct + "% margin";
+
+    document.getElementById("profitCallout").innerHTML = infoSvg +
+      '<div><strong>Profit is not cash.</strong> Buying stock reduces your cash straight away, but that money only becomes an expense (<span class="mono">COGS</span>) on the P&amp;L when the phone actually sells. A big cash-out for inventory can sit next to a healthy profit — and the other way round.</div>';
+
+    // ---- Profit &amp; loss statement -------------------------------------
+    function pnlRowHTML(label, value, opt) {
+      opt = opt || {};
+      var top = opt.rule ? "border-top:1px solid var(--line);margin-top:2px;padding-top:10px;" : "";
+      var big = opt.total ? "font-size:15px;" : "";
+      var kExtra = opt.strong ? " strong" : "";
+      var vCls = "v" + (opt.strong ? " strong" : "") + (opt.pos ? " pos-text" : "");
+      var vStyle = "font-variant-numeric:tabular-nums;" + big;
+      var keyHtml = opt.less
+        ? '<span class="k muted">Less: ' + label + '</span>'
+        : '<span class="k' + kExtra + '">' + label + (opt.badge ? ' <span class="badge pos" style="margin-left:4px">' + opt.badge + '</span>' : '') + '</span>';
+      var valStr = opt.less ? "− " + fmt.pkr(Math.abs(value)) : fmt.pkr(value);
+      var idAttr = opt.id ? ' id="' + opt.id + '"' : '';
+      return '<div class="kv"' + idAttr + ' style="' + top + '">' + keyHtml
+        + '<span class="' + vCls + '" style="' + vStyle + '">' + valStr + '</span></div>'
+        + (opt.note ? '<div class="tiny muted" style="margin:-2px 0 4px">' + opt.note + '</div>' : '');
+    }
+
+    // ---- Master render (recomputes everything from EXP) ------------------
+    function render() {
+      var opEx  = EXP.reduce(function (s, e) { return s + e.amount; }, 0);
+      var netOp = PL.grossProfit - opEx;
+      var netMargin = (netOp / PL.netSales * 100).toFixed(1);
+
+      // KPI tiles (dynamic ones)
+      document.getElementById("kExpVal").textContent  = fmt.pkr(opEx);
+      document.getElementById("kExpMeta").textContent = EXP.length + " entries today";
+      document.getElementById("kNetVal").textContent  = fmt.pkr(netOp);
+      document.getElementById("kNetMeta").textContent = "after expenses · " + netMargin + "% net margin";
+
+      // P&L statement
+      document.getElementById("pnlBody").innerHTML =
+          pnlRowHTML("Sales revenue", PL.salesRevenue, { strong: true })
+        + pnlRowHTML("Discounts given", PL.discounts, { less: true })
+        + pnlRowHTML("Returns &amp; refunds", PL.returns, { less: true })
+        + pnlRowHTML("Net sales", PL.netSales, { rule: true, strong: true })
+        + pnlRowHTML("Cost of goods sold (COGS)", PL.cogs, { less: true, note: "Booked only when items sell — not when stock is bought." })
+        + pnlRowHTML("Gross profit", PL.grossProfit, { rule: true, strong: true, pos: true, badge: PL.grossMarginPct + "% margin" })
+        + pnlRowHTML("Operating expenses", opEx, { less: true })
+        + pnlRowHTML("Estimated net operating profit", netOp, { rule: true, strong: true, total: true, pos: netOp >= 0, badge: netMargin + "% net margin" });
+
+      document.getElementById("digitalPnlBody").innerHTML =
+          pnlRowHTML("Digital principal sent", digitalTotals.sent, { strong: true, note: "Movement only — not sales revenue." })
+        + pnlRowHTML("Digital principal received", digitalTotals.received, { strong: true, note: "Movement only — not sales revenue." })
+        + pnlRowHTML("Customer service fees", digitalTotals.sentFees + digitalTotals.receivedFees, { pos: true })
+        + pnlRowHTML("Provider gross commission", digitalTotals.grossCommission, { pos: true })
+        + pnlRowHTML("Commission tax", digitalTotals.commissionTax, { less: true })
+        + pnlRowHTML("Other direct charges", digitalTotals.otherCharges, { less: true })
+        + pnlRowHTML("Net digital-service earnings", digitalTotals.netEarnings, { rule: true, strong: true, total: true, pos: digitalTotals.netEarnings >= 0 })
+        + pnlRowHTML("Combined operating + digital earnings", netOp + digitalTotals.netEarnings, { rule: true, strong: true, total: true, pos: (netOp + digitalTotals.netEarnings) >= 0, note: "Shown separately from phone sales revenue." });
+
+      // Cash & bank
+      document.getElementById("cashVal").textContent   = fmt.pkr(cashPos);
+      document.getElementById("bankVal").textContent   = fmt.pkr(bankPos);
+      document.getElementById("digitalFloatVal").textContent = fmt.pkr(digitalFloatTotal);
+      document.getElementById("digitalCashVal").textContent = (digitalPhysical.current >= 0 ? "+" : "") + fmt.pkr(digitalPhysical.current);
+      document.getElementById("liquidVal").textContent = fmt.pkr(cashPos + bankPos + digitalFloatTotal + digitalPhysical.current);
+
+      // Expenses table
+      renderExpenses(opEx);
+    }
+
+    // ---- Receivables / payables (derived, one-time) ---------------------
+    var creditCustomers = DB.customers.filter(function (c) { return c.credit > 0; });
+    var creditSum = creditCustomers.reduce(function (s, c) { return s + c.credit; }, 0);
+    document.getElementById("recVal").textContent = fmt.pkr(DB.KPI.receivables);
+    document.getElementById("recNote").textContent = "Store credit across " + creditCustomers.length + " customers · click to view";
+    document.querySelector("#recVal").closest(".card").querySelector(".chev").innerHTML = chevSvg;
+
+    var owedSuppliers = DB.suppliers.filter(function (s) { return s.payable > 0; });
+    var topPayable = owedSuppliers.slice().sort(function (a, b) { return b.payable - a.payable; })[0];
+    document.getElementById("payVal").textContent = fmt.pkr(DB.KPI.payables);
+    document.getElementById("payNote").textContent = "Unpaid stock purchases · " + owedSuppliers.length + " suppliers";
+    document.getElementById("payBadge").textContent = topPayable.name + " " + fmt.pkr(topPayable.payable) + " due 16 Jul";
+    document.querySelector("#payVal").closest(".card").querySelector(".chev").innerHTML = chevSvg;
+
+    // ---- Cash session note ----------------------------------------------
+    var cs = DB.SHOP.cashSession;
+    document.getElementById("sessionNote").innerHTML =
+      "Drawer session open since <strong>" + cs.openedAt + "</strong> (float " + fmt.pkr(cs.openingFloat) + "). Count &amp; reconcile at day end.";
+
+    document.getElementById("digitalKpis").innerHTML = [
+      { label: "Digital sent", value: fmt.pkr(digitalTotals.sent), meta: "principal movement only", href: "digital-history.html" },
+      { label: "Digital received", value: fmt.pkr(digitalTotals.received), meta: "principal movement only", href: "digital-history.html" },
+      { label: "Digital fees + commission", value: fmt.pkr(digitalTotals.grossEarnings), meta: "gross service earnings", href: "digital-commission.html", vc: "pos-text" },
+      { label: "Net digital earnings", value: fmt.pkr(digitalTotals.netEarnings), meta: digitalPending + " pending not settled", href: "digital-commission.html", vc: "pos-text", accent: true }
+    ].map(function (t) {
+      return '<a class="kpi' + (t.accent ? " accent" : "") + '" href="' + t.href + '" style="text-decoration:none">'
+        + '<div class="label">' + t.label + '</div><div class="value ' + (t.vc || "") + '">' + t.value + '</div><div class="meta">' + t.meta + '</div></a>';
+    }).join("");
+
+    // ---- Expenses table --------------------------------------------------
+    function srcBadge(src) {
+      return src === "Bank"
+        ? '<span class="badge accent">Bank</span>'
+        : '<span class="badge plain">Cash</span>';
+    }
+    function renderExpenses(opEx) {
+      var tb = document.querySelector("#expTable tbody");
+      if (!EXP.length) {
+        tb.innerHTML = '<tr><td colspan="6"><div class="empty">'
+          + '<div class="icn">' + Shell.svg("finance") + '</div>'
+          + '<h4>No expenses recorded yet today</h4>'
+          + '<p>Rent, electricity and small costs go here — they reduce profit, not COGS.</p></div></td></tr>';
+      } else {
+        tb.innerHTML = EXP.map(function (e) {
+          return '<tr class="row-link" onclick="Shell.toast(\'Opening evidence for ' + e.id + ' — illustrative in this prototype\')">'
+            + '<td class="mono muted">' + e.id + '</td>'
+            + '<td>' + e.category + '</td>'
+            + '<td>' + srcBadge(e.source) + '</td>'
+            + '<td class="muted nowrap">' + e.date + '</td>'
+            + '<td class="muted small">' + (e.note ? e.note : '<span class="tiny">—</span>') + '</td>'
+            + '<td class="num strong" style="font-variant-numeric:tabular-nums">' + fmt.pkr(e.amount) + '</td>'
+            + '</tr>';
+        }).join("");
+      }
+      document.querySelector("#expTable tfoot").innerHTML =
+          '<tr><td colspan="5" class="strong" style="text-align:right">Total operating expenses</td>'
+        + '<td class="num strong" style="font-variant-numeric:tabular-nums;border-top:1px solid var(--line)">' + fmt.pkr(opEx) + '</td></tr>';
+      document.getElementById("expSummary").textContent = EXP.length + " entries · " + fmt.pkr(opEx);
+    }
+
+    // ---- Record-expense drawer ------------------------------------------
+    var CATS = [
+      "Shop rent (daily accrual)", "Electricity", "Salaries / wages", "Staff tea / misc",
+      "Packaging / bags", "Internet / DSL", "Repairs & maintenance", "Marketing / ads",
+      "Transport / delivery", "Bank charges", "Other"
+    ];
+    document.getElementById("expCat").innerHTML = CATS.map(function (c) {
+      return '<option value="' + c + '">' + c + '</option>';
+    }).join("");
+    document.getElementById("expDate").value = DB.SHOP.businessDate;
+
+    function setSource(src, btn) {
+      expSource = src;
+      var seg = document.getElementById("expSourceSeg");
+      seg.querySelectorAll("button").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      updateImpact();
+    }
+    window.setSource = setSource;
+
+    function updateImpact() {
+      var amt = parseFloat(document.getElementById("expAmt").value) || 0;
+      var cat = document.getElementById("expCat").value;
+      var box = document.getElementById("expImpact");
+      if (amt <= 0) {
+        box.innerHTML = '<strong>What recording this does</strong>'
+          + '<ul><li>Reduces the money you hold in the chosen source.</li>'
+          + '<li>Lowers today’s net operating profit.</li>'
+          + '<li>Does <strong>not</strong> change COGS or gross profit.</li>'
+          + '<li class="muted">Enter an amount to see the exact effect.</li></ul>';
+        return;
+      }
+      var opEx  = EXP.reduce(function (s, e) { return s + e.amount; }, 0);
+      var netOpAfter = PL.grossProfit - opEx - amt;
+      var srcAfter = (expSource === "Bank" ? bankPos : cashPos) - amt;
+      box.innerHTML = '<strong>Impact of this entry</strong>'
+        + '<ul>'
+        + '<li>Records <strong>' + fmt.pkr(amt) + '</strong> as <strong>' + cat + '</strong>.</li>'
+        + '<li>' + expSource + ' on hand falls to <strong>' + fmt.pkr(srcAfter) + '</strong>.</li>'
+        + '<li>Estimated net operating profit falls to <strong>' + fmt.pkr(netOpAfter) + '</strong>.</li>'
+        + '<li>Gross profit &amp; COGS are <strong>unchanged</strong> — this is an operating cost, not cost of goods.</li>'
+        + '</ul>';
+    }
+    window.updateImpact = updateImpact;
+
+    function recordExpense() {
+      var amt = parseFloat(document.getElementById("expAmt").value) || 0;
+      if (amt <= 0) { Shell.toast("Enter an amount greater than zero", false); return; }
+      var cat  = document.getElementById("expCat").value;
+      var note = document.getElementById("expNote").value.trim();
+      var date = document.getElementById("expDate").value.trim() || DB.SHOP.businessDate;
+      var maxN = EXP.reduce(function (mx, e) {
+        var n = parseInt(String(e.id).split("-")[1], 10);
+        return isNaN(n) ? mx : Math.max(mx, n);
+      }, 70);
+      var id = "EXP-0" + (maxN + 1);
+      EXP.unshift({ id: id, category: cat, amount: amt, source: expSource, date: date, note: note });
+      if (expSource === "Bank") bankPos -= amt; else cashPos -= amt;
+
+      // reset form
+      document.getElementById("expAmt").value = "";
+      document.getElementById("expNote").value = "";
+      updateImpact();
+      Shell.close("newexp");
+      render();
+      Shell.toast("Recorded " + fmt.pkr(amt) + " · " + cat + " from " + expSource + " — profit unchanged, cash reduced", true);
+    }
+    window.recordExpense = recordExpense;
+
+    // ---- Boot ------------------------------------------------------------
+    render();
+    updateImpact();
+  </script>
+</body>
+</html>

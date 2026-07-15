@@ -1,0 +1,10 @@
+packages:
+  - 'shared'
+  - 'database'
+  - 'backend'
+  - 'frontend'
+  - 'e2e'
+
+# Keep the approved reference material out of the production workspace.
+# `prototype/` and `mobile-shop-automation-blueprint/` are reference-only and
+# must never be installed, built or published as production packages.

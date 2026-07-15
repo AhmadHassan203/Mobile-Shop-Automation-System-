@@ -57,6 +57,11 @@ model Organization {
   productAliases  ProductAlias[]
   productBarcodes ProductBarcode[]
 
+  serializedUnits    SerializedUnit[]
+  deviceIdentifiers  DeviceIdentifier[]
+  stockBatches       StockBatch[]
+  inventoryMovements InventoryMovement[]
+
   @@map("organizations")
 }
 
@@ -82,6 +87,10 @@ model Branch {
   numberSequences NumberSequence[]
   settings        ApplicationSetting[]
 
+  serializedUnits    SerializedUnit[]
+  stockBatches       StockBatch[]
+  inventoryMovements InventoryMovement[]
+
   @@unique([organizationId, code])
   @@unique([id, organizationId])
   @@index([organizationId, isActive])
@@ -94,15 +103,25 @@ model StockLocation {
   branchId       String            @map("branch_id") @db.Uuid
   code           String            @db.VarChar(20)
   name           String            @db.VarChar(200)
+  /// The public inventory contract calls this `locationType`; the column keeps
+  /// the name migration 0001 applied.
   kind           StockLocationKind @default(store)
   /// Exactly one location per branch is the default receiving/selling location.
   isDefault      Boolean           @default(false) @map("is_default")
   isActive       Boolean           @default(true) @map("is_active")
+  /// Optimistic concurrency token, added by 0007 so two managers editing one
+  /// location cannot silently overwrite each other. A CHECK (> 0) guards it in
+  /// SQL and is not expressible here.
+  version        Int               @default(1)
   createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   branch      Branch            @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
   scopeAccess UserScopeAccess[]
+
+  serializedUnits SerializedUnit[]
+  stockBatches    StockBatch[]
+  movements       InventoryMovement[]
 
   @@unique([organizationId, branchId, code])
   @@unique([id, organizationId, branchId])
@@ -226,6 +245,10 @@ model ProductVariant {
   aliases      ProductAlias[]
   barcodes     ProductBarcode[]
 
+  serializedUnits SerializedUnit[]
+  stockBatches    StockBatch[]
+  movements       InventoryMovement[]
+
   @@unique([organizationId, sku])
   @@unique([id, organizationId])
   @@index([organizationId, productModelId, isActive])
@@ -276,6 +299,195 @@ model ProductBarcode {
 
   @@index([organizationId, productVariantId])
   @@map("product_barcodes")
+}
+
+// =============================================================================
+// Inventory
+// =============================================================================
+// Balances are DERIVED from inventory_movements plus the unit and batch rows.
+// There is deliberately no stored balance table: a cached total is one bug away
+// from disagreeing with the ledger that produced it (04_DATA_MODEL.md §5).
+
+/// One physical serialized device. A ProductVariant is the sellable definition;
+/// this is the handset on the shelf (04_DATA_MODEL.md §3).
+model SerializedUnit {
+  id               String               @id @default(uuid()) @db.Uuid
+  organizationId   String               @map("organization_id") @db.Uuid
+  branchId         String               @map("branch_id") @db.Uuid
+  productVariantId String               @map("product_variant_id") @db.Uuid
+  stockLocationId  String               @map("stock_location_id") @db.Uuid
+  state            SerializedStockState
+  condition        ProductCondition
+  ptaStatus        PtaStatus            @map("pta_status")
+  receivedAt       DateTime?            @map("received_at") @db.Timestamptz(3)
+  /// Reserved for the purchasing slice, which owns cost. The inventory API
+  /// neither accepts nor exposes these values: no inventory request can set
+  /// them and no inventory response carries them (shared/src/inventory.ts).
+  /// A CHECK (>= 0 OR NULL) guards both in SQL.
+  actualCostMinor  BigInt?              @map("actual_cost_minor")
+  landedCostMinor  BigInt?              @map("landed_cost_minor")
+  /// Optimistic concurrency token; CHECK (> 0) lives in SQL (0007).
+  version          Int                  @default(1)
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch         Branch         @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  productVariant ProductVariant @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  /// Keyed on (id, organization_id, branch_id) rather than (id, organization_id):
+  /// this is what forces a unit's branch to agree with its location's branch.
+  stockLocation  StockLocation  @relation(fields: [stockLocationId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+
+  identifiers DeviceIdentifier[]
+  movements   InventoryMovement[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId, productVariantId, state])
+  @@index([organizationId, stockLocationId, state])
+  @@index([organizationId, receivedAt])
+  @@map("serialized_units")
+}
+
+/// The IMEI-uniqueness backbone.
+///
+/// A separate table rather than imei1/imei2/serial columns on the unit, so that
+/// every identifier shares ONE uniqueness namespace per organization: the same
+/// IMEI cannot be imei1 on one handset and imei2 on another (05_RULES.md §1.1).
+model DeviceIdentifier {
+  id               String               @id @default(uuid()) @db.Uuid
+  organizationId   String               @map("organization_id") @db.Uuid
+  serializedUnitId String               @map("serialized_unit_id") @db.Uuid
+  identifierType   DeviceIdentifierType @map("identifier_type")
+  /// Normalized form (shared/src/imei.ts normalizeImei/normalizeSerial), so
+  /// "356938-035643809" and "356938035643809" collide instead of both entering
+  /// stock. A CHECK constrains it to the normalized alphabet.
+  normalizedValue  String               @map("normalized_value") @db.VarChar(64)
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  serializedUnit SerializedUnit @relation(fields: [serializedUnitId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, normalizedValue])
+  @@index([organizationId, serializedUnitId])
+  @@map("device_identifiers")
+}
+
+/// Quantity-tracked stock: one row per variant per location.
+model StockBatch {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  branchId         String    @map("branch_id") @db.Uuid
+  productVariantId String    @map("product_variant_id") @db.Uuid
+  stockLocationId  String    @map("stock_location_id") @db.Uuid
+  /// CHECK (>= 0) in SQL: 13_ §23 blocks negative stock at the database, not
+  /// merely in the API.
+  quantityOnHand   Int       @default(0) @map("quantity_on_hand")
+  /// CHECK (>= 0 AND <= quantity_on_hand) in SQL.
+  quantityReserved Int       @default(0) @map("quantity_reserved")
+  receivedAt       DateTime? @map("received_at") @db.Timestamptz(3)
+  /// Optimistic concurrency token; CHECK (> 0) lives in SQL (0007).
+  version          Int       @default(1)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch         Branch         @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  productVariant ProductVariant @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  stockLocation  StockLocation  @relation(fields: [stockLocationId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+
+  movements InventoryMovement[]
+
+  @@unique([organizationId, productVariantId, stockLocationId])
+  @@unique([id, organizationId])
+  @@map("stock_batches")
+}
+
+/// The append-only inventory ledger (04_DATA_MODEL.md §5).
+///
+/// Never updated or deleted: a correction is a new compensating movement. A
+/// BEFORE UPDATE OR DELETE OR TRUNCATE trigger and an explicit REVOKE enforce
+/// that at the database, not merely by convention (0007).
+///
+/// Direction is carried by `movement_type` through MOVEMENT_ON_HAND_SIGN, never
+/// by a negative quantity — CHECK (quantity > 0) makes that unrepresentable.
+model InventoryMovement {
+  id               String                @id @default(uuid()) @db.Uuid
+  organizationId   String                @map("organization_id") @db.Uuid
+  branchId         String                @map("branch_id") @db.Uuid
+  productVariantId String                @map("product_variant_id") @db.Uuid
+  /// Exactly one of serialized_unit_id / stock_batch_id is set; a CHECK with
+  /// `<>` over the two NULL tests enforces the exclusivity in SQL.
+  serializedUnitId String?               @map("serialized_unit_id") @db.Uuid
+  stockBatchId     String?               @map("stock_batch_id") @db.Uuid
+  stockLocationId  String                @map("stock_location_id") @db.Uuid
+  movementType     MovementType          @map("movement_type")
+  quantity         Int
+  /// Set only for serialized movements; a CHECK keeps them NULL otherwise.
+  fromState        SerializedStockState? @map("from_state")
+  toState          SerializedStockState? @map("to_state")
+  referenceType    String?               @map("reference_type") @db.VarChar(40)
+  referenceId      String?               @map("reference_id") @db.Uuid
+  reason           String?               @db.VarChar(500)
+  actorUserId      String                @map("actor_user_id") @db.Uuid
+  occurredAt       DateTime              @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch         Branch          @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  productVariant ProductVariant  @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  serializedUnit SerializedUnit? @relation(fields: [serializedUnitId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  stockBatch     StockBatch?     @relation(fields: [stockBatchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  stockLocation  StockLocation   @relation(fields: [stockLocationId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  actor          User            @relation("InventoryMovementActor", fields: [actorUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@index([organizationId, productVariantId, occurredAt])
+  @@index([organizationId, serializedUnitId, occurredAt])
+  @@index([organizationId, movementType, occurredAt])
+  @@index([referenceType, referenceId])
+  @@map("inventory_movements")
+}
+
+/// Serialized device lifecycle (05_RULES.md §3). Order and values mirror
+/// shared/src/enums.ts SERIALIZED_STOCK_STATES exactly; allowed transitions are
+/// decided by isTransitionAllowed() in the domain service.
+enum SerializedStockState {
+  pending_verification
+  quarantined
+  available
+  reserved
+  sold
+  returned_inspection
+  defective
+  supplier_warranty
+  customer_warranty
+  repair
+  written_off
+  purchase_returned
+}
+
+/// Mirrors shared/src/enums.ts MOVEMENT_TYPES exactly (04_DATA_MODEL.md §5).
+enum MovementType {
+  purchase_receive
+  sale
+  sale_return
+  purchase_return
+  transfer_out
+  transfer_in
+  reserve
+  release
+  adjustment_in
+  adjustment_out
+  damage
+  write_off
+  repair_issue
+  repair_return
+}
+
+/// IMEI and serial share one uniqueness namespace, so the kind is a column
+/// rather than a separate table (shared/src/inventory.ts DEVICE_IDENTIFIER_TYPES).
+enum DeviceIdentifierType {
+  imei
+  serial
 }
 
 enum TrackingType {
@@ -340,6 +552,8 @@ model User {
   sessions          Session[]
   auditEvents       AuditEvent[]
   updatedSettings   ApplicationSetting[] @relation("SettingUpdater")
+
+  inventoryMovements InventoryMovement[] @relation("InventoryMovementActor")
 
   @@unique([organizationId, email])
   @@unique([id, organizationId])

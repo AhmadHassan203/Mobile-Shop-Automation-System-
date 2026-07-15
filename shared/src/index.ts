@@ -19,3 +19,4 @@ export * from "./fee-rules";
 export * from "./constants";
 export * from "./auth";
 export * from "./catalog";
+export * from "./inventory";

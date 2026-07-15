@@ -1,6 +1,6 @@
 # Build Status
 
-**Last updated:** 2026-07-16 03:20 PKT
+**Last updated:** 2026-07-16 04:05 PKT
 
 **Evidence rule:** Only checks actually executed are described as passing.
 
@@ -85,21 +85,21 @@ SQL. This is documented inline in `schema.prisma`.
 
 ### Backend — 13 new routes
 
-| Endpoint                                                | Permission           |
-| ------------------------------------------------------- | -------------------- |
-| `PATCH /api/v1/catalog/categories/{id}`                 | `catalog.update`     |
-| `POST /api/v1/catalog/categories/{id}/deactivate`       | `catalog.deactivate` |
-| `POST /api/v1/catalog/categories/{id}/activate`         | `catalog.update`     |
-| `PATCH /api/v1/catalog/brands/{id}`                     | `catalog.update`     |
-| `POST /api/v1/catalog/brands/{id}/deactivate`           | `catalog.deactivate` |
-| `POST /api/v1/catalog/brands/{id}/activate`             | `catalog.update`     |
-| `PATCH /api/v1/catalog/product-models/{id}`             | `catalog.update`     |
-| `POST /api/v1/catalog/product-models/{id}/deactivate`   | `catalog.deactivate` |
-| `POST /api/v1/catalog/product-models/{id}/activate`     | `catalog.update`     |
-| `GET /api/v1/products/{id}`                             | `catalog.view`       |
-| `PATCH /api/v1/products/{id}`                           | `catalog.update`     |
-| `POST /api/v1/products/{id}/deactivate`                 | `catalog.deactivate` |
-| `POST /api/v1/products/{id}/activate`                   | `catalog.update`     |
+| Endpoint                                              | Permission           |
+| ----------------------------------------------------- | -------------------- |
+| `PATCH /api/v1/catalog/categories/{id}`               | `catalog.update`     |
+| `POST /api/v1/catalog/categories/{id}/deactivate`     | `catalog.deactivate` |
+| `POST /api/v1/catalog/categories/{id}/activate`       | `catalog.update`     |
+| `PATCH /api/v1/catalog/brands/{id}`                   | `catalog.update`     |
+| `POST /api/v1/catalog/brands/{id}/deactivate`         | `catalog.deactivate` |
+| `POST /api/v1/catalog/brands/{id}/activate`           | `catalog.update`     |
+| `PATCH /api/v1/catalog/product-models/{id}`           | `catalog.update`     |
+| `POST /api/v1/catalog/product-models/{id}/deactivate` | `catalog.deactivate` |
+| `POST /api/v1/catalog/product-models/{id}/activate`   | `catalog.update`     |
+| `GET /api/v1/products/{id}`                           | `catalog.view`       |
+| `PATCH /api/v1/products/{id}`                         | `catalog.update`     |
+| `POST /api/v1/products/{id}/deactivate`               | `catalog.deactivate` |
+| `POST /api/v1/products/{id}/activate`                 | `catalog.update`     |
 
 Correctness and security properties:
 
@@ -128,6 +128,28 @@ Brands, Models), each with server-driven search, filters and pagination,
 permission-aware actions, product detail, create/edit drawers, and inline
 creation of a missing brand/category/model without leaving the product flow.
 
+## Slice 3 — Inventory foundation (APIs only, no UI yet)
+
+Migration `20260717000000_0007_inventory_foundation` adds `serialized_units`
+(12-state machine), `device_identifiers` (IMEI/serial in ONE uniqueness
+namespace), `stock_batches` (negative stock refused by the database), and the
+append-only `inventory_movements` ledger (UPDATE/DELETE revoked). It extends the
+pre-existing `stock_locations` from `0001` rather than duplicating it. Balances
+are **derived** from the ledger and unit/batch rows — there is deliberately no
+stored rollup to drift out of truth.
+
+15 routes are live on `:4000`. Stock is never written directly: every quantity
+change is a movement. Serialized state changes go through `isTransitionAllowed()`
+and take a real `SELECT ... FOR UPDATE` row lock, so two users cannot take the
+same IMEI.
+
+Evidence: shared **443** tests, backend unit **145**, database real-PostgreSQL
+**58**, lint/typecheck/build green, and live HTTP showing balances, movements and
+units all returning an honest empty set with no cost/price/organization leak.
+
+**Not done:** no inventory UI, no `backend/test/inventory.e2e-spec.ts`, and
+nothing creates units/batches yet — receiving is Slice 4. See `HANDOFF.md` §4.
+
 ## Decisions recorded (not invented rules)
 
 - **Tracking type is locked on update, unconditionally.** `05_RULES` §2 says it
@@ -153,6 +175,7 @@ creation of a missing brand/category/model without leaving the product flow.
 | `20260716003000_0004_auth_evidence_and_user_integrity` | Applied     | Rehearsed               | Not configured |
 | `20260716014200_0005_catalog_core`                     | Applied     | Rehearsed from clean DB | Not configured |
 | `20260716120000_0006_catalog_management`               | Applied     | Applied first           | Not configured |
+| `20260717000000_0007_inventory_foundation`             | Applied     | Applied first           | Not configured |
 
 No development or production database was reset. Owner data is intact: the
 owner-created product (`PH-BRAND-VARIANT`, variant `256gb`) and the three seeded
@@ -160,15 +183,16 @@ references survived `0006` and were backfilled to `version = 1`.
 
 ## Remaining risks and scope
 
-| ID       | Remaining item                                                | Impact                                             |
-| -------- | ------------------------------------------------------------- | -------------------------------------------------- |
-| AUTH-001 | Password change, user/role admin, ScopeGuard absent           | Slice 1 remains incomplete                         |
-| AUTH-002 | Trusted reverse-proxy/client-IP policy not configured         | Production proxy/rate-limit confidence pending     |
-| CAT-002  | Pricing is intentionally absent                               | Must be built before POS                           |
-| CAT-003  | `GET /api/v1/products/search` counter-speed lookup not built  | POS needs it                                       |
-| INV-001  | Physical inventory, IMEIs, batches, balances, movements absent | Next core module                                   |
-| CON-008  | Docker unavailable locally                                    | Container/volume/proxy evidence must run elsewhere |
-| ENV-002  | Local Node 25 is outside Prisma-supported release lines       | Repeat release gates on supported Node 24 LTS      |
+| ID       | Remaining item                                               | Impact                                              |
+| -------- | ------------------------------------------------------------ | --------------------------------------------------- |
+| AUTH-001 | Password change, user/role admin, ScopeGuard absent          | Slice 1 remains incomplete                          |
+| AUTH-002 | Trusted reverse-proxy/client-IP policy not configured        | Production proxy/rate-limit confidence pending      |
+| CAT-002  | Pricing is intentionally absent                              | Must be built before POS                            |
+| CAT-003  | `GET /api/v1/products/search` counter-speed lookup not built | POS needs it                                        |
+| INV-002  | Inventory has APIs but no UI and no HTTP integration spec    | Finish before Purchasing                            |
+| INV-003  | Nothing creates units/batches yet — receiving is Slice 4     | Inventory is correctly empty; never seed fake stock |
+| CON-008  | Docker unavailable locally                                   | Container/volume/proxy evidence must run elsewhere  |
+| ENV-002  | Local Node 25 is outside Prisma-supported release lines      | Repeat release gates on supported Node 24 LTS       |
 
 ## Next smallest executable work
 

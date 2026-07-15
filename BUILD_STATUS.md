@@ -1,197 +1,217 @@
 # Build Status
 
-**Last updated:** 2026-07-16
-**Evidence rule:** Only executed checks appear under “Completed and verified.” Generated or partially verified work remains explicitly incomplete.
+**Last updated:** 2026-07-16 02:24 PKT
 
-## Current slice
+**Evidence rule:** Only checks actually executed are described as passing.
 
-**Slice 1 — Authentication and access: in progress.**
+## Current outcome
 
-The local foundation now supports a real owner login against PostgreSQL: the database is migrated and seeded, the API exposes login/logout/current-user endpoints, and the hardened Next.js preview exposes `/login` and the protected `/` workspace at `localhost:3000`. The real browser login/workspace/logout flow passes. This is an authentication checkpoint, not a completed Slice 1 or a deployment.
+The authenticated Product Catalog vertical is live locally:
 
-Slice 1 remains incomplete until password/change handling, user/role/admin APIs, server PermissionGuard and ScopeGuard, permission-aware operational navigation, trusted-proxy policy, broader CSRF protection, and authorization E2E pass.
+- frontend: `http://localhost:3000/login`
+- backend readiness: `http://localhost:4000/api/v1/health/ready`
+- protected catalog route: `http://localhost:3000/inventory`
 
-## Completed and verified
+This checkpoint implements real tenant-scoped category, brand, product-model,
+and product APIs backed by PostgreSQL. The browser provides real search,
+filters, pagination, permission-aware navigation, and an Add Product drawer.
+No fake stock, IMEI, cost, price, sales, or KPI data is shown.
 
-### Repository and prototype audit
+Catalog core is a usable vertical slice, but it is not all of blueprint Slice 2.
+Product detail/update/deactivation, standalone reference management, and pricing
+remain future work. Slice 1 is also still partial because password change,
+user/role administration, and ScopeGuard are not implemented.
 
-| Deliverable                                         | Evidence                                                             |
-| --------------------------------------------------- | -------------------------------------------------------------------- |
-| Repository tree and production boundaries inspected | `docs/CURRENT_REPOSITORY_AUDIT.md`                                   |
-| Blueprint conflicts and assumptions recorded        | `docs/REQUIREMENT_CONFLICTS_AND_DECISIONS.md`, `docs/ASSUMPTIONS.md` |
-| All 24 prototype screens and 29 overlays mapped     | `docs/PROTOTYPE_SCREEN_AND_FLOW_MAP.md`                              |
-| Prototype-to-production traceability completed      | `docs/PROTOTYPE_TO_PRODUCTION_GAP_ANALYSIS.md`                       |
-| Git repository established on `main`                | Verified commits listed below                                        |
+## Clean handoff checkpoints
 
-Verified commits currently at `HEAD`:
+The latest committed checkpoint before this Catalog work is:
 
 ```text
-125c0ea  Slice 0: repository audit, shared contracts, workspace foundation
-f21078d  Slice 0: backend NestJS foundation (config, logging, request IDs, health)
-edac0e6  Slice 0/1: database package + Prisma schema for access, audit and system
+4366145 Slice 0/1: ship authenticated workspace foundation
 ```
 
-Work after `edac0e6` is intentional but not yet committed. Do not discard it when handing off between coding agents.
+The current Catalog checkpoint is intended to be committed as one coherent
+follow-up. Do not discard its work when switching between Codex and Claude.
 
-### Shared package
+## Verified implementation
 
-| Check                     | Executed result          |
-| ------------------------- | ------------------------ |
-| Lint and strict typecheck | **Pass**                 |
-| Unit tests                | **155 passed, 0 failed** |
-| Production build          | **Pass**                 |
+### Shared contracts
 
-The verified package includes the canonical login/current-auth Zod contracts as well as the existing money, IMEI, phone, permissions, errors, time, and fee rules.
+- Strict public contracts exist for category, brand, product model, product
+  create/list/search, references, and paginated responses.
+- Tenant, cost, price, stock, IMEI, and reorder fields are absent from public
+  Catalog inputs and outputs.
+- SKU, barcode, alias, warranty, pagination, and Unicode normalization limits
+  are shared by frontend and backend.
+- Unicode-expanding derived slugs/canonical aliases are code-point bounded to
+  their PostgreSQL widths.
+- Lint, strict typecheck, and build pass.
+- **9 files / 190 tests pass.**
 
-### Backend authentication checkpoint
+### PostgreSQL and Prisma
 
-| Check                          | Executed result                                                         |
-| ------------------------------ | ----------------------------------------------------------------------- |
-| Lint and strict typecheck      | **Pass**                                                                |
-| Unit tests                     | **36 passed, 0 failed**                                                 |
-| HTTP integration tests         | **23 passed, 0 failed**                                                 |
-| Production build               | **Pass**                                                                |
-| Live liveness                  | `GET /api/v1/health` → **HTTP 200**                                     |
-| Live readiness                 | `GET /api/v1/health/ready` → **HTTP 200**, database **up**              |
-| Live real-PostgreSQL auth flow | login **200** → me **200** → logout **204** → me **401**                |
-| Live browser boundary          | Expected local cookie flags and credentialed allow-listed CORS **pass** |
+Migration `20260716014200_0005_catalog_core` adds:
 
-Verified behavior includes:
+- `categories`
+- `brands`
+- `product_models`
+- `product_variants`
+- `product_aliases`
+- `product_barcodes`
+- Catalog enums, indexes, checks, composite tenant foreign keys, and no-hard-
+  delete protections
 
-- Argon2id password verification with a non-enumerating unknown/wrong-password response;
-- a signed, HTTP-only opaque session cookie restricted to `/api/v1`, with only its SHA-256 digest stored;
-- absolute expiry, revocation, inactive organization/user checks, and active branch checks;
-- a global authentication guard with explicit public health/login routes;
-- configured-Origin checks for the Auth controller and `Cache-Control: no-store` on auth successes and failures;
-- generic API throttling plus a bounded, TTL-evicting login limiter keyed by IP then normalized email; and
-- append-only login-attempt/audit evidence with bounded request metadata.
+Evidence:
 
-The backend parses only an explicit runtime allow-list from the local root environment file; migration, shadow, test, seed, frontend, and PostgreSQL-admin values are not loaded into the API process.
+- Prisma format, validate, generate, typecheck, and build pass.
+- Migration-to-schema diff reports no difference.
+- The disposable test database was reset and rebuilt from all five migrations.
+- **2 files / 16 real-PostgreSQL integration tests pass.**
+- Tests cover tenant isolation, uniqueness, warranty/SKU/barcode checks, exact
+  shared maximum widths, primary barcode rules, runtime privileges, and legacy
+  evidence protections.
+- The seed ran twice against the disposable database: exactly one neutral
+  category, one neutral brand, one neutral model, and zero products.
+- Migration `0005` is applied to `mobileshop_dev`; migration status is current.
+- Development seed added only `Smartphones`, `Unbranded`, and
+  `Generic smartphone`. It seeded no product, price, stock, or transaction.
 
-### Frontend authentication checkpoint
+### Backend
 
-| Check                      | Recorded result                                                                                                                                                |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Current static gates       | Lint and strict typecheck **pass**; **6 files, 42 tests passed, 0 failed** after credential-cache and exact-expiry hardening                                   |
-| Production build           | **Pass** after the latest hardening                                                                                                                            |
-| Routes implemented         | Public `/login`; session-protected `/` workspace with ended-session redirect, private-cache purge, credential-mutation invalidation, and exact-expiry handling |
-| Current standalone preview | Live at `localhost:3000`; `/login` → **HTTP 200** and the root static response contains no signed-in user data                                                 |
+Implemented and live:
 
-The browser uses the shared login/current-auth contracts, sends credentials only to the configured API, stores no session token in JavaScript storage, and presents non-enumerating authentication errors. The frontend no longer loads the combined root `.env`; public overrides belong in `frontend/.env.local`.
+| Endpoint                              | Permission       |
+| ------------------------------------- | ---------------- |
+| `GET /api/v1/catalog/categories`      | `catalog.view`   |
+| `POST /api/v1/catalog/categories`     | `catalog.create` |
+| `GET /api/v1/catalog/brands`          | `catalog.view`   |
+| `POST /api/v1/catalog/brands`         | `catalog.create` |
+| `GET /api/v1/catalog/product-models`  | `catalog.view`   |
+| `POST /api/v1/catalog/product-models` | `catalog.create` |
+| `GET /api/v1/products`                | `catalog.view`   |
+| `POST /api/v1/products`               | `catalog.create` |
 
-### Local PostgreSQL, migrations, and seed
+Security and correctness evidence:
 
-| Check                        | Executed result                                                                      |
-| ---------------------------- | ------------------------------------------------------------------------------------ |
-| PostgreSQL availability      | PostgreSQL 18.4 reachable on localhost                                               |
-| Least-privilege topology     | Separate runtime and migration roles plus development/test/shadow databases verified |
-| Runtime DDL denial           | **Pass**; runtime role could not create the attempted table                          |
-| Prisma/package gates         | Format, validate, generate, typecheck, build, and migration/schema diff **pass**     |
-| Development migration deploy | All four reviewed migrations applied without reset                                   |
-| PostgreSQL integration       | **1 file, 10 tests passed, 0 failed**                                                |
-| Development seed             | **Pass twice**; second run verified idempotence                                      |
+- A global PermissionGuard merges class and method metadata and requires every
+  grant resolved by the authenticated server context.
+- A global Origin guard protects all browser unsafe methods while keeping safe
+  methods and Origin-less CLI/native calls usable.
+- Every Catalog query is scoped by the authenticated organization; no client
+  organization ID is accepted.
+- Product, aliases, barcodes, and complete safe audit snapshot are written in
+  one transaction.
+- Actual Prisma 7 duplicate errors map to stable 409 SKU/barcode codes.
+- Response selects and schemas exclude price, cost, stock, IMEI, aliases,
+  barcodes, reorder fields, and organization identifiers.
+- Response-contract corruption is treated as an opaque server fault, not a
+  caller validation error.
+- Lint, strict typecheck, and production build pass.
+- **11 files / 53 unit tests pass.**
+- Existing backend HTTP integration remains green: **3 files / 23 tests.**
 
-The seed creates the synthetic Lahore organization, default branch/location, permission catalogue, system roles, and owner account from ignored local settings. It accepts only `NODE_ENV=development` or `NODE_ENV=test`, preserves an existing owner password and edited role grants, and prints no credential.
+### Frontend
 
-After both seed runs, the verified baseline remained **1 organization, 1 branch, 1 user, 7 roles, and 73 permissions**.
+The production build and live standalone server include:
 
-Migration `0004` makes `login_attempts` append-only for runtime and migration roles and enforces user deactivation instead of hard deletion. Both rules are covered by the real PostgreSQL suite.
+- `/inventory` Product Catalog route
+- server-backed search, filters, pagination, loading, error, empty, and no-
+  result states
+- permission-aware Product Catalog navigation and Add Product action
+- accessible Add Product drawer using exact shared validation limits
+- honest separation between catalog identity and later inventory/pricing data
+- API response validation with no mock fallback
 
-No credential is recorded in Git or this document.
+Evidence:
 
-### End-to-end checkpoint
+- Lint and strict typecheck pass.
+- Production build passes; `/inventory` is generated and live.
+- **7 files / 47 frontend tests pass.**
+- Catalog Playwright flow passes and its screenshot was manually inspected.
+- The owner created one real development product through the live UI
+  (`PH-BRAND-VARIANT`, variant `256gb`); it was preserved. This row did not
+  come from the seed or automated tests.
 
-The E2E package lint, typecheck, and build gates pass. The real-service Playwright health smoke passed **1 file, 2 tests**. The credential-safe browser authentication flow passed **1 file, 1 test**: login → protected workspace → authenticated `me` **200** → logout **204** → `me` **401** → root redirects to login. Its captured workspace was manually inspected and rendered the real user, organization, branch, session, and API state cleanly.
+### Live API and browser checks
 
-## Implemented; verification pending
+The final compiled API was also run against the disposable test database and
+verified through real HTTP and PostgreSQL:
 
-| Area                        | What exists                                                                                                                                      | Still required                                                                                                                        |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Slice 1 authorization/admin | Authenticated actor context, roles, permissions, scopes, owner seed                                                                              | Password/change flow; user/role/admin APIs; PermissionGuard; ScopeGuard; permission-aware navigation; cross-scope authorization tests |
-| Frontend UX                 | Public `/login`, protected `/`, ended-session/cache/credential-mutation purge and exact-expiry handling; lint/typecheck/42 tests/build/live pass | Broader manual responsive/theme/accessibility review                                                                                  |
-| Security hardening          | Auth Origin guard, signed cookie, bounded login limiter, process-level secret allow-lists                                                        | Trusted reverse-proxy/client-IP policy and system-wide CSRF policy before business mutations ship                                     |
-| Browser E2E                 | Real login → protected workspace → logout → denied reuse **passes 1/1**                                                                          | Add broader unauthorized-action coverage after the authorization APIs exist                                                           |
-| Infrastructure              | Docker Compose, split-role provisioning, optional Caddy proxy                                                                                    | Execute on a Docker-capable machine and verify volumes, roles, proxy behavior, and restart                                            |
-| CI                          | GitHub Actions workflow exists                                                                                                                   | Execute on GitHub Actions; local checks are not workflow evidence                                                                     |
+- health 200, login 200, logout 204, unauthenticated Catalog 401
+- category/brand/model/product list responses 200
+- product create 201 and search match
+- duplicate SKU 409 `CATALOG_SKU_DUPLICATE`
+- duplicate barcode 409 `CATALOG_BARCODE_DUPLICATE`
+- duplicate reference 409 `CONFLICT`
+- smuggled tenant/financial/stock fields 422 `VALIDATION_FAILED`
+- untrusted browser Origin 403 with zero product/audit rows
+- Unicode-expanding 200-character brand/alias inputs persist within DB widths
+- duplicate child write rolls back product and audit rows
+- complete product audit snapshot has all 15 expected identity fields and no
+  forbidden financial/tenant/stock/IMEI fields
+
+The complete live Playwright suite passes **4/4**:
+
+- health liveness
+- PostgreSQL readiness
+- login → protected workspace → logout → denied reuse
+- login → Product Catalog → real references/Add drawer → logout
+
+No active headless-test session remains.
+
+## Latest workspace gate
+
+Executed after the final security fixes:
+
+| Gate                                               | Result     |
+| -------------------------------------------------- | ---------- |
+| Prettier format check                              | Pass       |
+| Workspace lint                                     | Pass       |
+| Workspace strict typecheck                         | Pass       |
+| Shared tests                                       | 190 passed |
+| Backend unit tests                                 | 53 passed  |
+| Frontend tests                                     | 47 passed  |
+| Database integration                               | 16 passed  |
+| Backend HTTP integration                           | 23 passed  |
+| Live Playwright                                    | 4 passed   |
+| Shared/database/backend/frontend production builds | Pass       |
+| `git diff --check`                                 | Pass       |
+
+The monolithic `pnpm verify` build phase was not rerun while the live Next
+standalone process held `.next`; the equivalent component builds and all other
+workspace gates above were run successfully.
 
 ## Database migrations
 
-| Migration                                              | Development | Disposable test       | Production     |
-| ------------------------------------------------------ | ----------- | --------------------- | -------------- |
-| `20260715164914_0001_identity_and_access`              | **Applied** | **Applied/rehearsed** | Not configured |
-| `20260715235500_0002_runtime_schema_privileges`        | **Applied** | **Applied/rehearsed** | Not configured |
-| `20260715235600_0003_runtime_object_privileges`        | **Applied** | **Applied/rehearsed** | Not configured |
-| `20260716003000_0004_auth_evidence_and_user_integrity` | **Applied** | **Applied/rehearsed** | Not configured |
+| Migration                                              | Development | Disposable test         | Production     |
+| ------------------------------------------------------ | ----------- | ----------------------- | -------------- |
+| `20260715164914_0001_identity_and_access`              | Applied     | Rehearsed               | Not configured |
+| `20260715235500_0002_runtime_schema_privileges`        | Applied     | Rehearsed               | Not configured |
+| `20260715235600_0003_runtime_object_privileges`        | Applied     | Rehearsed               | Not configured |
+| `20260716003000_0004_auth_evidence_and_user_integrity` | Applied     | Rehearsed               | Not configured |
+| `20260716014200_0005_catalog_core`                     | Applied     | Rehearsed from clean DB | Not configured |
 
-These migrations establish identity/access/system tables and database-enforced security invariants. They do not implement the remaining Slice 1 APIs or later business models.
+No development or production database was reset.
 
-## APIs present
+## Remaining risks and scope
 
-| Endpoint                   | Purpose                                                | Verified status                                                 |
-| -------------------------- | ------------------------------------------------------ | --------------------------------------------------------------- |
-| `GET /api/v1/health`       | Process liveness                                       | Tests pass; live **HTTP 200**                                   |
-| `GET /api/v1/health/ready` | PostgreSQL readiness                                   | Tests pass; live **HTTP 200**, database **up**                  |
-| `POST /api/v1/auth/login`  | Verify credentials and issue server session            | Tests pass; live real-PG **HTTP 200**                           |
-| `POST /api/v1/auth/logout` | Revoke current session and clear cookie                | Tests pass; live real-PG **HTTP 204**                           |
-| `GET /api/v1/auth/me`      | Current user, roles, permissions, branch/scope, expiry | Tests pass; live **200** authenticated and **401** after logout |
+| ID       | Remaining item                                                      | Impact                                             |
+| -------- | ------------------------------------------------------------------- | -------------------------------------------------- |
+| AUTH-001 | Password/change flow, user/role admin, and ScopeGuard absent        | Slice 1 remains incomplete                         |
+| AUTH-002 | Trusted reverse-proxy/client-IP policy not configured               | Production proxy/rate-limit confidence pending     |
+| CAT-001  | Product detail/update/deactivate and reference-management UI absent | Catalog core usable; full Slice 2 incomplete       |
+| CAT-002  | Pricing is intentionally absent                                     | Must be built before POS                           |
+| INV-001  | Physical inventory, IMEIs, batches, balances, and movements absent  | Next core module                                   |
+| CON-008  | Docker unavailable locally                                          | Container/volume/proxy evidence must run elsewhere |
+| ENV-002  | Local Node 25 is outside Prisma-supported release lines             | Repeat release gates on supported Node 24 LTS      |
 
-No catalog, inventory, purchasing, POS, finance, reporting, or recommendation API exists yet.
+## Next smallest executable work
 
-## Frontend routes present
-
-| Route                              | Purpose                                              | Status                                                                                            |
-| ---------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `/login`                           | Real API-backed owner sign-in                        | Lint/typecheck/42 tests/build pass; live **HTTP 200**                                             |
-| `/`                                | Session-protected system workspace/readiness surface | Cache/expiry hardening and real browser auth flow pass; static response exposes no signed-in data |
-| Error/loading/not-found boundaries | Honest application states                            | Type verification and production build pass                                                       |
-
-The root route is not the production dashboard, and no prototype business page is production-ready.
-
-## Tests and checks run
-
-| Suite/check                     | Exact result                                                                                 | Date       |
-| ------------------------------- | -------------------------------------------------------------------------------------------- | ---------- |
-| Shared unit                     | **155 passed, 0 failed**                                                                     | 2026-07-16 |
-| Shared lint/typecheck/build     | **Pass**                                                                                     | 2026-07-16 |
-| Backend unit                    | **36 passed, 0 failed**                                                                      | 2026-07-16 |
-| Backend HTTP integration        | **23 passed, 0 failed**                                                                      | 2026-07-16 |
-| Backend lint/typecheck/build    | **Pass**                                                                                     | 2026-07-16 |
-| Live health/readiness           | **200 / 200**, database up                                                                   | 2026-07-16 |
-| Live real-PG auth flow          | **200 / 200 / 204 / 401**                                                                    | 2026-07-16 |
-| Database PostgreSQL integration | **10 passed, 0 failed**                                                                      | 2026-07-16 |
-| Development seed                | **Pass twice; idempotent**                                                                   | 2026-07-16 |
-| Frontend current gates          | Lint/typecheck/build **pass**; **6 files, 42 passed, 0 failed** after cache/expiry hardening | 2026-07-16 |
-| Frontend current live delivery  | Standalone `/login` **200**; protected root static response contains no signed-in data       | 2026-07-16 |
-| Playwright health smoke         | **1 file, 2 passed, 0 failed**                                                               | 2026-07-15 |
-| Docker Compose                  | **Not run; Docker unavailable locally**                                                      | —          |
-| GitHub Actions workflow         | **Not executed**                                                                             | —          |
-| Browser auth E2E                | **1 file, 1 passed, 0 failed**; `200 → 200 → 204 → 401`, then root redirects to login        | 2026-07-16 |
-| Backup/restore drill            | **Not run**                                                                                  | —          |
-
-## Known issues and risks
-
-| ID       | Issue                                                                                            | Severity/impact                                                    |
-| -------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| CON-008  | Docker is not installed locally                                                                  | Container and clean-environment evidence must run elsewhere        |
-| ENV-002  | Local Node.js 25.2.1 is outside Prisma-supported lines                                           | Repeat release gates on Node 24.x or another supported line        |
-| AUTH-001 | PermissionGuard, ScopeGuard, password/change, and user/role/admin APIs are absent                | **Blocks Slice 1 completion**                                      |
-| AUTH-002 | Trusted reverse-proxy/client-IP policy is not configured                                         | **Blocks production proxy/rate-limit confidence**                  |
-| SEC-001  | Origin checking is Auth-controller-specific, not a system-wide CSRF policy                       | **Must be resolved before other cookie-authenticated writes ship** |
-| E2E-001  | Unauthorized-action browser coverage awaits PermissionGuard, ScopeGuard, and administration APIs | **Blocks full Slice 1 authorization acceptance**                   |
-| UI-001   | Prototype mock/static/toast-only workflows remain non-production                                 | Never copy them as business implementations                        |
-
-CON-009 (missing local database credentials) is resolved. Credentials remain outside Git and documentation.
-
-## Remaining product scope
-
-Complete the rest of Slice 1, then Slices 2–14: catalog, inventory, purchasing/receiving, POS/payments, returns, external services, cash closing, demand, finance/reporting, deterministic recommendations, production dashboard, and launch hardening.
-
-## Next smallest executable steps
-
-1. Add password/change handling and enforce `mustChangePassword`.
-2. Implement user/role/admin APIs with PermissionGuard and ScopeGuard plus PostgreSQL authorization tests.
-3. Add permission-aware operational navigation.
-4. Add unauthorized-action E2E with the authorization APIs.
-5. Define the trusted-proxy/client-IP and system-wide CSRF policies before adding business mutations.
-6. Run the complete workspace gate, Docker Compose, and GitHub Actions on supported environments.
-7. Commit this coherent checkpoint before handing back to another coding agent.
+1. Commit this Catalog checkpoint.
+2. Begin Slice 3 Inventory foundation with contracts and migration first:
+   serialized units/device identifiers, quantity batches, stock locations,
+   immutable movements, and derived balances.
+3. Add real inventory list/receiving surfaces only after their APIs exist.
+4. Continue remaining Slice 1 authorization/admin work in parallel without
+   weakening the Catalog checkpoint.
+5. Add product detail/update/deactivation and pricing in later Catalog work.

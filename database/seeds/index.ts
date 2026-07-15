@@ -27,6 +27,9 @@ const SEED_IDS = Object.freeze({
   organization: "10000000-0000-4000-8000-000000000001",
   branch: "10000000-0000-4000-8000-000000000002",
   location: "10000000-0000-4000-8000-000000000003",
+  smartphoneCategory: "10000000-0000-4000-8000-000000000004",
+  unbrandedBrand: "10000000-0000-4000-8000-000000000005",
+  genericSmartphoneModel: "10000000-0000-4000-8000-000000000006",
 });
 
 const ROLE_DETAILS: Readonly<
@@ -153,6 +156,60 @@ async function seed(): Promise<void> {
             name: "Shop Floor",
             kind: "store",
             isDefault: true,
+          },
+          update: {},
+        });
+
+        // Development-only reference prerequisites for the Add Product flow.
+        // Empty updates deliberately preserve any names/flags edited by the
+        // owner, and no product, price, stock or transaction rows are seeded.
+        const smartphoneCategory = await tx.category.upsert({
+          where: {
+            organizationId_slug: {
+              organizationId: organization.id,
+              slug: "smartphones",
+            },
+          },
+          create: {
+            id: SEED_IDS.smartphoneCategory,
+            organizationId: organization.id,
+            name: "Smartphones",
+            slug: "smartphones",
+          },
+          update: {},
+        });
+
+        const unbrandedBrand = await tx.brand.upsert({
+          where: {
+            organizationId_slug: {
+              organizationId: organization.id,
+              slug: "unbranded",
+            },
+          },
+          create: {
+            id: SEED_IDS.unbrandedBrand,
+            organizationId: organization.id,
+            name: "Unbranded",
+            slug: "unbranded",
+          },
+          update: {},
+        });
+
+        await tx.productModel.upsert({
+          where: {
+            organizationId_brandId_canonicalName: {
+              organizationId: organization.id,
+              brandId: unbrandedBrand.id,
+              canonicalName: "generic smartphone",
+            },
+          },
+          create: {
+            id: SEED_IDS.genericSmartphoneModel,
+            organizationId: organization.id,
+            brandId: unbrandedBrand.id,
+            categoryId: smartphoneCategory.id,
+            name: "Generic smartphone",
+            canonicalName: "generic smartphone",
           },
           update: {},
         });

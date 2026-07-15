@@ -24,6 +24,15 @@ export function ActivityIcon(props: IconProps) {
   );
 }
 
+export function BoxIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="m4 7 8-4 8 4-8 4-8-4Z" />
+      <path d="M4 7v10l8 4 8-4V7M12 11v10" />
+    </svg>
+  );
+}
+
 export function AlertTriangleIcon(props: IconProps) {
   return (
     <svg {...baseProps(props)}>
@@ -123,6 +132,14 @@ export function MenuIcon(props: IconProps) {
   );
 }
 
+export function PlusIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
 export function MoonIcon(props: IconProps) {
   return (
     <svg {...baseProps(props)}>
@@ -136,6 +153,15 @@ export function RefreshIcon(props: IconProps) {
     <svg {...baseProps(props)}>
       <path d="M20 11a8 8 0 1 0-2.3 5.7" />
       <path d="M20 5v6h-6" />
+    </svg>
+  );
+}
+
+export function SearchIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-4-4" />
     </svg>
   );
 }

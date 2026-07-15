@@ -9,6 +9,7 @@
     "lint": "eslint . --max-warnings=0",
     "test": "playwright test",
     "test:auth": "playwright test tests/auth-workspace.spec.ts",
+    "test:catalog": "playwright test tests/catalog-workspace.spec.ts",
     "test:smoke": "playwright test tests/health.spec.ts",
     "test:headed": "playwright test --headed",
     "typecheck": "tsc -p tsconfig.json --noEmit"

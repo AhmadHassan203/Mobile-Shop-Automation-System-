@@ -50,6 +50,12 @@ model Organization {
   auditEvents     AuditEvent[]
   settings        ApplicationSetting[]
   numberSequences NumberSequence[]
+  categories      Category[]
+  brands          Brand[]
+  productModels   ProductModel[]
+  productVariants ProductVariant[]
+  productAliases  ProductAlias[]
+  productBarcodes ProductBarcode[]
 
   @@map("organizations")
 }
@@ -110,6 +116,178 @@ enum StockLocationKind {
   warehouse
   /// Non-physical holding areas: quarantine, repair bench, in-transit.
   virtual
+}
+
+// =============================================================================
+// Catalog
+// =============================================================================
+
+/// Category/subcategory tree. Products remain inactive rather than being
+/// deleted once historical transactions reference them (05_RULES.md §2).
+model Category {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  parentCategoryId String?  @map("parent_category_id") @db.Uuid
+  name             String   @db.VarChar(200)
+  slug             String   @db.VarChar(220)
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  parent        Category?      @relation("CategoryTree", fields: [parentCategoryId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  children      Category[]     @relation("CategoryTree")
+  productModels ProductModel[]
+
+  @@unique([organizationId, slug])
+  @@unique([id, organizationId])
+  @@index([organizationId, parentCategoryId, isActive])
+  @@map("categories")
+}
+
+model Brand {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String   @db.VarChar(200)
+  slug           String   @db.VarChar(220)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  productModels ProductModel[]
+
+  @@unique([organizationId, slug])
+  @@unique([id, organizationId])
+  @@index([organizationId, isActive, name])
+  @@map("brands")
+}
+
+model ProductModel {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  brandId        String   @map("brand_id") @db.Uuid
+  categoryId     String   @map("category_id") @db.Uuid
+  name           String   @db.VarChar(200)
+  canonicalName  String   @map("canonical_name") @db.VarChar(200)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  brand        Brand            @relation(fields: [brandId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  category     Category         @relation(fields: [categoryId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  variants     ProductVariant[]
+
+  @@unique([organizationId, brandId, canonicalName])
+  @@unique([id, organizationId])
+  @@index([organizationId, categoryId, isActive])
+  @@index([organizationId, brandId, isActive])
+  @@map("product_models")
+}
+
+/// Sellable definition. A serialized physical phone is a later
+/// SerializedInventoryUnit, never a ProductVariant (04_DATA_MODEL.md §3).
+model ProductVariant {
+  id                String           @id @default(uuid()) @db.Uuid
+  organizationId    String           @map("organization_id") @db.Uuid
+  productModelId    String           @map("product_model_id") @db.Uuid
+  sku               String           @db.VarChar(100)
+  name              String           @db.VarChar(240)
+  trackingType      TrackingType     @map("tracking_type")
+  condition         ProductCondition
+  ptaStatus         PtaStatus        @map("pta_status")
+  ram               String?          @db.VarChar(100)
+  storage           String?          @db.VarChar(100)
+  color             String?          @db.VarChar(100)
+  region            String?          @db.VarChar(100)
+  warrantyType      WarrantyType     @default(none) @map("warranty_type")
+  warrantyMonths    Int?             @map("warranty_months")
+  attributes        Json?
+  /// Reserved for the pricing slice. Catalog create cannot set these values.
+  defaultPriceMinor BigInt?          @map("default_price_minor")
+  minPriceMinor     BigInt?          @map("min_price_minor")
+  reorderPoint      Int?             @map("reorder_point")
+  casePackSize      Int?             @map("case_pack_size")
+  isActive          Boolean          @default(true) @map("is_active")
+  version           Int              @default(1)
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  productModel ProductModel     @relation(fields: [productModelId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  aliases      ProductAlias[]
+  barcodes     ProductBarcode[]
+
+  @@unique([organizationId, sku])
+  @@unique([id, organizationId])
+  @@index([organizationId, productModelId, isActive])
+  @@index([organizationId, name])
+  @@map("product_variants")
+}
+
+model ProductAlias {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  productVariantId String   @map("product_variant_id") @db.Uuid
+  alias            String   @db.VarChar(200)
+  normalizedAlias  String   @map("normalized_alias") @db.VarChar(200)
+  source           String?  @db.VarChar(40)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  productVariant ProductVariant @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, normalizedAlias])
+  @@index([organizationId, productVariantId])
+  @@map("product_aliases")
+}
+
+model ProductBarcode {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  productVariantId String   @map("product_variant_id") @db.Uuid
+  barcode          String   @db.VarChar(128)
+  /// Vocabulary is intentionally deferred; the first public contract accepts
+  /// the barcode value only and does not invent a barcode taxonomy.
+  barcodeType      String?  @map("barcode_type") @db.VarChar(30)
+  isPrimary        Boolean  @default(false) @map("is_primary")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  productVariant ProductVariant @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, barcode])
+  @@index([organizationId, productVariantId])
+  @@map("product_barcodes")
+}
+
+enum TrackingType {
+  serialized
+  quantity
+}
+
+enum ProductCondition {
+  new
+  used
+  open_box
+  refurbished
+}
+
+enum PtaStatus {
+  pta_approved
+  non_pta
+  pta_pending
+  not_applicable
+  unknown
+}
+
+enum WarrantyType {
+  official
+  local
+  shop
+  none
+  supplier
 }
 
 // =============================================================================

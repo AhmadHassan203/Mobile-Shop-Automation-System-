@@ -25,7 +25,7 @@
     "validate": "prisma validate",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:integration": "vitest run test/identity-migration.integration.spec.ts",
+    "test:integration": "vitest run test",
     "build": "prisma generate && tsc -p tsconfig.build.json"
   },
   "dependencies": {

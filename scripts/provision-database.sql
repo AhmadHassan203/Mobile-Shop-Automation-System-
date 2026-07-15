@@ -108,6 +108,13 @@ WHERE to_regclass('public.login_attempts') IS NOT NULL
 SELECT 'REVOKE DELETE, TRUNCATE ON TABLE users FROM mobileshop_app'
 WHERE to_regclass('public.users') IS NOT NULL
 \gexec
+SELECT format('REVOKE DELETE, TRUNCATE ON TABLE %I FROM mobileshop_app', catalog_table)
+FROM unnest(ARRAY[
+  'categories', 'brands', 'product_models', 'product_variants',
+  'product_aliases', 'product_barcodes'
+]) AS catalog_table
+WHERE to_regclass('public.' || catalog_table) IS NOT NULL
+\gexec
 
 \connect mobileshop_test
 REVOKE CREATE ON SCHEMA public FROM PUBLIC, mobileshop_app;
@@ -133,6 +140,13 @@ WHERE to_regclass('public.login_attempts') IS NOT NULL
 \gexec
 SELECT 'REVOKE DELETE, TRUNCATE ON TABLE users FROM mobileshop_app'
 WHERE to_regclass('public.users') IS NOT NULL
+\gexec
+SELECT format('REVOKE DELETE, TRUNCATE ON TABLE %I FROM mobileshop_app', catalog_table)
+FROM unnest(ARRAY[
+  'categories', 'brands', 'product_models', 'product_variants',
+  'product_aliases', 'product_barcodes'
+]) AS catalog_table
+WHERE to_regclass('public.' || catalog_table) IS NOT NULL
 \gexec
 
 \connect postgres

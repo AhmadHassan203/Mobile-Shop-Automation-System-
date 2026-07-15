@@ -1,10 +1,19 @@
 "use client";
 
+import { PERMISSIONS } from "@mobileshop/shared";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { SessionStatus } from "@/components/auth/session-status";
-import { ActivityIcon, CloseIcon, MenuIcon } from "@/components/ui/icons";
+import {
+  ActivityIcon,
+  BoxIcon,
+  CloseIcon,
+  MenuIcon,
+} from "@/components/ui/icons";
 import { ApiStatusPill } from "@/components/system-status/api-status-pill";
+import { currentAuthQueryOptions } from "@/lib/query/auth-query";
 import { BusinessClock } from "./business-clock";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -13,7 +22,18 @@ export interface AppShellProps {
 }
 
 export function AppShell({ children }: AppShellProps) {
+  const pathname = usePathname();
+  const auth = useQuery(currentAuthQueryOptions);
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const canViewCatalog =
+    auth.data?.permissions.includes(PERMISSIONS.CATALOG_VIEW) === true;
+
+  const navClass = (active: boolean): string =>
+    `flex items-center gap-2.5 rounded-control px-3 py-2 text-[0.84375rem] font-semibold no-underline transition-colors ${
+      active
+        ? "bg-accent text-white"
+        : "text-sidebar-ink hover:bg-sidebar-hover hover:text-white"
+    }`;
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent): void => {
@@ -76,8 +96,8 @@ export function AppShell({ children }: AppShellProps) {
               System
             </p>
             <Link
-              aria-current="page"
-              className="flex items-center gap-2.5 rounded-control bg-accent px-3 py-2 text-[0.84375rem] font-semibold text-white no-underline"
+              aria-current={pathname === "/" ? "page" : undefined}
+              className={navClass(pathname === "/")}
               href="/"
               onClick={() => setNavigationOpen(false)}
             >
@@ -86,9 +106,34 @@ export function AppShell({ children }: AppShellProps) {
             </Link>
           </nav>
 
+          {canViewCatalog ? (
+            <nav className="px-2.5 py-1" aria-label="Stock">
+              <p className="px-2.5 pb-1 pt-3 text-[0.65625rem] font-bold uppercase tracking-[0.09em] text-sidebar-muted">
+                Stock
+              </p>
+              <Link
+                aria-current={
+                  pathname === "/inventory" ||
+                  pathname.startsWith("/inventory/")
+                    ? "page"
+                    : undefined
+                }
+                className={navClass(
+                  pathname === "/inventory" ||
+                    pathname.startsWith("/inventory/"),
+                )}
+                href="/inventory"
+                onClick={() => setNavigationOpen(false)}
+              >
+                <BoxIcon className="size-[1.125rem] shrink-0" />
+                Product catalog
+              </Link>
+            </nav>
+          ) : null}
+
           <div className="mt-auto border-t border-white/10 px-[1.125rem] py-4 text-[0.6875rem] leading-relaxed text-sidebar-muted">
-            Operational routes appear only when their real APIs and permissions
-            are implemented.
+            Navigation is limited to workflows backed by real APIs and your
+            server-provided permissions.
           </div>
         </aside>
 

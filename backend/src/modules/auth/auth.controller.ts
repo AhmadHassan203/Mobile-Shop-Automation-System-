@@ -28,7 +28,6 @@ import type { CookieOptions, Request, Response } from "express";
 import { Public } from "../../common/auth/public.decorator";
 import { AppConfig } from "../../config/app-config.module";
 import { AuthRateLimitGuard } from "./auth-rate-limit.guard";
-import { AuthOriginGuard } from "./auth-origin.guard";
 import { AuthService } from "./auth.service";
 import { LoginAttemptRecorder } from "./login-attempt-recorder.service";
 import {
@@ -37,7 +36,6 @@ import {
 } from "./request-metadata";
 
 @ApiTags("Auth")
-@UseGuards(AuthOriginGuard)
 @Controller("auth")
 export class AuthController {
   constructor(

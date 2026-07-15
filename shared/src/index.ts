@@ -18,3 +18,4 @@ export * from "./datetime";
 export * from "./fee-rules";
 export * from "./constants";
 export * from "./auth";
+export * from "./catalog";

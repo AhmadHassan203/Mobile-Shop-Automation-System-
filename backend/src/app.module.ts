@@ -14,6 +14,9 @@ import { DatabaseModule } from "./database/database.module";
 import { HealthModule } from "./modules/health/health.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { AuthGuard } from "./modules/auth/auth.guard";
+import { AuthOriginGuard } from "./modules/auth/auth-origin.guard";
+import { CatalogModule } from "./modules/catalog/catalog.module";
+import { PermissionGuard } from "./common/auth/permission.guard";
 
 /**
  * Application root.
@@ -98,14 +101,20 @@ import { AuthGuard } from "./modules/auth/auth.guard";
     DatabaseModule,
     HealthModule,
     AuthModule,
+    CatalogModule,
   ],
   providers: [
     // Registered globally so no thrown error can escape to the client unshaped.
     { provide: APP_FILTER, useClass: DomainExceptionFilter },
     // Importing ThrottlerModule configures storage; this guard enforces it.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Cookie-authenticated unsafe methods reject untrusted browser origins.
+    { provide: APP_GUARD, useClass: AuthOriginGuard },
     // Every route is authenticated unless it explicitly opts out with @Public().
     { provide: APP_GUARD, useClass: AuthGuard },
+    // Domain routes opt in with @RequirePermissions; grants come from the
+    // database-backed CurrentAuth assembled by AuthGuard on every request.
+    { provide: APP_GUARD, useClass: PermissionGuard },
   ],
 })
 export class AppModule implements NestModule {

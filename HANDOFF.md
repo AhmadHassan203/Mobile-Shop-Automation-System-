@@ -101,30 +101,45 @@ pnpm --filter ./shared build && pnpm --filter ./database build && pnpm --filter 
   product detail, aliases, barcodes, inline reference creation, URL-backed tabs at
   `/inventory`. Nothing hard-deletes. No fake stock/price/IMEI/KPI anywhere.
 
-## 4. What is IN FLIGHT (verify before trusting)
+## 4. Slice 3 Inventory — DONE at the API layer, NO UI yet
 
-**Slice 3 Inventory foundation** was launched as a background workflow and may be
-incomplete. Check for these files and treat them as UNVERIFIED until you run the gates:
+Committed and verified: `eb5ca2c` (contracts + migration 0007), `44e7918` (real-
+PostgreSQL constraint tests), `d8cb357` (the module, 15 routes, live on :4000).
+Migration 0007 is applied to the disposable test DB and to `mobileshop_dev`.
 
-- `shared/src/inventory.ts` + `shared/src/inventory.spec.ts`
-- `database/prisma/migrations/20260717000000_0007_inventory_foundation/migration.sql`
-- new models in `database/prisma/schema.prisma`
-- `backend/src/modules/inventory/**`
-- `database/test/inventory-migration.integration.spec.ts`
+**What Slice 3 still needs — this is the next work:**
 
-**If 0007 exists but is NOT applied**, apply it to the disposable test DB FIRST, then dev:
+1. **A backend HTTP integration spec** — `backend/test/inventory.e2e-spec.ts` does
+   not exist. Copy `backend/test/catalog.e2e-spec.ts` and prove over real HTTP:
+   401 unauthenticated; 403 without `inventory.adjust`/`reserve`/`transfer` with
+   NO write reaching the DB; cross-tenant id ⇒ 404; untrusted Origin ⇒ 403;
+   smuggled `organizationId`/`costMinor`/`quantityOnHand` ⇒ 422; stale version ⇒
+   409; and a deep key-scan proving no cost/price/org field leaks.
+2. **A frontend inventory surface.** There is none. `/inventory` is the CATALOG
+   workspace — do NOT overload that route; stock belongs on its own route (e.g.
+   `/stock`) with its own nav entry. Until then the APIs are headless.
+3. **Receiving.** Nothing creates a serialized unit or a batch yet — that is
+   Purchasing (Slice 4) goods-receipt, which owns TXN-1. Today inventory is
+   correctly empty; do not seed fake units to make a UI look alive.
 
-```bash
-cd database
-TEST_MIG=$(grep '^TEST_MIGRATION_DATABASE_URL' ../.env | cut -d= -f2- | tr -d '"')
-MIGRATION_DATABASE_URL="$TEST_MIG" npx prisma migrate deploy   # test DB first
-npx prisma migrate deploy                                       # then mobileshop_dev
-npx prisma migrate diff --from-migrations ./prisma/migrations --to-schema ./prisma/schema.prisma --exit-code
-```
+### Inventory decisions already made (do not reverse)
 
-If the workflow left Slice 3 half-built and you cannot verify it quickly,
-**`git checkout -- .` the unverified inventory files and restart that slice cleanly.**
-Do not commit a half-built slice on top of a clean checkpoint.
+- **Quantity endpoints serve quantity-tracked variants only.** A serialized
+  variant sent to `/inventory/adjustments|reservations|transfers` returns
+  `INVENTORY_DIRECT_EDIT_BLOCKED` — its count is derived from unit rows, so
+  writing a counter would invent stock with no handset behind it.
+- **Serialized stock is addressed by unit id**, which is why reserve/release and
+  transition/transfer for units live on `/serialized-units/:id/...` — that is the
+  only place a `SELECT ... FOR UPDATE` lock on the contended row is meaningful.
+- **Balances are derived** from the ledger + unit/batch rows. There is no stored
+  rollup table, deliberately. Do not add one "for performance" without a proven
+  need; a rollup that drifts is exactly the prototype's `DB.stock` bug.
+- `AdjustStockInputSchema.movementType` is restricted to
+  `adjustment_in|adjustment_out` so a sale cannot be posted as an adjustment.
+- `stock_locations` came from migration 0001 and already had a `kind` enum and a
+  `VARCHAR(20)` code — 0007 extended it rather than duplicating it. Contract
+  limits are pinned to the applied column widths: a wider contract would accept
+  values the database rejects and turn a caller error into a 500.
 
 ---
 

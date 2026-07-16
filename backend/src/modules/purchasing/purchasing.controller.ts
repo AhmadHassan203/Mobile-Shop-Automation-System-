@@ -2,13 +2,14 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   Patch,
   Post,
   Query,
   Req,
 } from "@nestjs/common";
-import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { ApiHeader, ApiOperation, ApiTags } from "@nestjs/swagger";
 import {
   CancelPurchaseOrderInputSchema,
   CreateGoodsReceiptInputSchema,
@@ -17,6 +18,7 @@ import {
   DomainError,
   ERROR_CODES,
   GoodsReceiptListQuerySchema,
+  IDEMPOTENCY_KEY_HEADER,
   PERMISSIONS,
   PurchaseOrderListQuerySchema,
   PurchaseOrderTransitionInputSchema,
@@ -56,6 +58,15 @@ import {
 } from "./purchasing.service";
 
 const uuidParam = new ZodValidationPipe(z.uuid());
+
+function requiredIdempotencyKey(value: string | undefined): string {
+  const parsed = z.uuid().safeParse(value);
+  if (parsed.success) return parsed.data;
+  const message = `A UUID ${IDEMPOTENCY_KEY_HEADER} header is required.`;
+  throw new DomainError(ERROR_CODES.VALIDATION_FAILED, message, {
+    details: { idempotencyKey: [message] },
+  });
+}
 
 export function purchasingActorContext(
   request: Request,
@@ -329,14 +340,21 @@ export class GoodsReceiptsController {
   @Post()
   @RequirePermissions(PERMISSIONS.PURCHASES_RECEIVE)
   @ApiOperation({ summary: "Receive purchase stock atomically" })
+  @ApiHeader({
+    name: IDEMPOTENCY_KEY_HEADER,
+    required: true,
+    description: "Client-generated UUID retained across safe retries",
+  })
   create(
     @Req() request: Request,
     @Body(zodBody(CreateGoodsReceiptInputSchema))
     input: CreateGoodsReceiptData,
+    @Headers(IDEMPOTENCY_KEY_HEADER) idempotencyKey: string | undefined,
   ): Promise<GoodsReceiptDetail> {
     return this.purchasing.createGoodsReceipt(
       purchasingActorContext(request),
       input,
+      requiredIdempotencyKey(idempotencyKey),
     );
   }
 

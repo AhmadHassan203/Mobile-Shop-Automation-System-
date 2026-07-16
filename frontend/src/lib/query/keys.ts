@@ -16,4 +16,18 @@ export const queryKeys = Object.freeze({
   catalogModelsRoot: ["catalog", "product-models"] as const,
   catalogModels: (parameters: object) =>
     ["catalog", "product-models", parameters] as const,
+  inventoryBalancesRoot: ["inventory", "balances"] as const,
+  inventoryBalances: (parameters: object) =>
+    ["inventory", "balances", parameters] as const,
+  inventoryMovementsRoot: ["inventory", "movements"] as const,
+  inventoryMovements: (parameters: object) =>
+    ["inventory", "movements", parameters] as const,
+  inventorySerializedUnitsRoot: ["inventory", "serialized-units"] as const,
+  inventorySerializedUnits: (parameters: object) =>
+    ["inventory", "serialized-units", parameters] as const,
+  inventorySerializedUnit: (id: string) =>
+    ["inventory", "serialized-units", "detail", id] as const,
+  inventoryLocationsRoot: ["inventory", "locations"] as const,
+  inventoryLocations: (parameters: object) =>
+    ["inventory", "locations", parameters] as const,
 });

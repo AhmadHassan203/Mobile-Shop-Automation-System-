@@ -35,6 +35,7 @@ const IDS = Object.freeze({
   sequence: "10000000-0000-4000-8000-000000000012",
   payable: "10000000-0000-4000-8000-000000000013",
   landedCost: "10000000-0000-4000-8000-000000000014",
+  idempotency: "10000000-0000-4000-8000-000000000016",
 });
 
 const NOW = new Date("2026-07-16T05:00:00.000Z");
@@ -544,7 +545,10 @@ function receivingTx(options: {
     },
     goodsReceipt: {
       create: vi.fn().mockResolvedValue({ id: IDS.receipt }),
-      findFirst: vi.fn().mockResolvedValue(options.receipt),
+      findFirst: vi
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(options.receipt),
     },
     goodsReceiptLandedCost: {
       createMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -593,7 +597,11 @@ describe("PurchasingService goods receiving", () => {
     });
 
     await expect(
-      serviceFor(interactiveClient(tx)).createGoodsReceipt(CONTEXT, input),
+      serviceFor(interactiveClient(tx)).createGoodsReceipt(
+        CONTEXT,
+        input,
+        IDS.idempotency,
+      ),
     ).rejects.toMatchObject({ code: ERROR_CODES.IMEI_INVALID });
     expect(tx.$queryRaw).not.toHaveBeenCalled();
     expect(tx.goodsReceipt.create).not.toHaveBeenCalled();
@@ -639,7 +647,11 @@ describe("PurchasingService goods receiving", () => {
     });
 
     await expect(
-      serviceFor(interactiveClient(tx)).createGoodsReceipt(CONTEXT, input),
+      serviceFor(interactiveClient(tx)).createGoodsReceipt(
+        CONTEXT,
+        input,
+        IDS.idempotency,
+      ),
     ).rejects.toMatchObject({ code: ERROR_CODES.VALIDATION_FAILED });
     expect(tx.goodsReceipt.create).not.toHaveBeenCalled();
     expect(tx.stockBatch.updateMany).not.toHaveBeenCalled();
@@ -685,7 +697,11 @@ describe("PurchasingService goods receiving", () => {
     });
 
     await expect(
-      serviceFor(interactiveClient(tx)).createGoodsReceipt(CONTEXT, input),
+      serviceFor(interactiveClient(tx)).createGoodsReceipt(
+        CONTEXT,
+        input,
+        IDS.idempotency,
+      ),
     ).rejects.toMatchObject({
       code: ERROR_CODES.VALIDATION_FAILED,
       details: {
@@ -695,7 +711,8 @@ describe("PurchasingService goods receiving", () => {
       },
     });
     expect(tx.goodsReceipt.create).not.toHaveBeenCalled();
-    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).toHaveBeenCalledOnce();
+    expect(sqlTextOf(tx.$executeRaw, 0)).toContain("pg_advisory_xact_lock");
     expect(tx.stockBatch.updateMany).not.toHaveBeenCalled();
     expect(tx.payable.create).not.toHaveBeenCalled();
   });
@@ -747,11 +764,13 @@ describe("PurchasingService goods receiving", () => {
       serviceFor(interactiveClient(tx)).createGoodsReceipt(
         scopedContext,
         input,
+        IDS.idempotency,
       ),
     ).rejects.toMatchObject({ code: ERROR_CODES.NOT_FOUND });
     expect(tx.stockLocation.findMany).not.toHaveBeenCalled();
     expect(tx.goodsReceipt.create).not.toHaveBeenCalled();
-    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).toHaveBeenCalledOnce();
+    expect(sqlTextOf(tx.$executeRaw, 0)).toContain("pg_advisory_xact_lock");
     expect(tx.stockBatch.updateMany).not.toHaveBeenCalled();
     expect(tx.payable.create).not.toHaveBeenCalled();
   });
@@ -814,6 +833,7 @@ describe("PurchasingService goods receiving", () => {
     const result = await serviceFor(interactiveClient(tx)).createGoodsReceipt(
       CONTEXT,
       input,
+      IDS.idempotency,
     );
 
     expect(result.actualCostTotalMinor).toBe(360);
@@ -844,10 +864,105 @@ describe("PurchasingService goods receiving", () => {
       entityType: "goods_receipt",
     });
     expect(sqlTextOf(tx.$executeRaw, 0)).toContain("pg_advisory_xact_lock");
-    expect(sqlTextOf(tx.$executeRaw, 1)).toContain("id,");
-    expect(sqlTextOf(tx.$executeRaw, 1)).toContain("updated_at");
+    expect(sqlTextOf(tx.$executeRaw, 1)).toContain("pg_advisory_xact_lock");
     expect(sqlTextOf(tx.$executeRaw, 2)).toContain("id,");
     expect(sqlTextOf(tx.$executeRaw, 2)).toContain("updated_at");
+    expect(sqlTextOf(tx.$executeRaw, 3)).toContain("id,");
+    expect(sqlTextOf(tx.$executeRaw, 3)).toContain("updated_at");
+  });
+
+  it("replays the same receipt key without a second stock or payable write and rejects changed payload reuse", async () => {
+    const order = receivingOrder([
+      {
+        id: IDS.purchaseLine,
+        variant: QUANTITY_VARIANT,
+        ordered: 10,
+        purchaseCost: 120,
+      },
+    ]);
+    const receipt = receiptDetail({
+      actual: 120,
+      landed: 120,
+      lines: [
+        {
+          id: IDS.receiptLine,
+          purchaseOrderLineId: IDS.purchaseLine,
+          variant: QUANTITY_VARIANT,
+          quantity: 1,
+          unitCost: 120,
+          allocation: 0,
+          batchId: IDS.batch,
+        },
+      ],
+    });
+    const tx = receivingTx({
+      order,
+      receipt,
+      batches: [
+        {
+          id: IDS.batch,
+          quantityOnHand: 2,
+          quantityReserved: 0,
+          actualCostMinor: 100n,
+          landedCostMinor: 100n,
+          version: 5,
+        },
+      ],
+    });
+    const input = CreateGoodsReceiptInputSchema.parse({
+      purchaseOrderId: IDS.purchase,
+      invoiceDueOn: "2030-01-01",
+      lines: [
+        {
+          purchaseOrderLineId: IDS.purchaseLine,
+          trackingType: "quantity",
+          stockLocationId: IDS.location,
+          unitCostMinor: 120,
+          quantity: 1,
+        },
+      ],
+    });
+    const service = serviceFor(interactiveClient(tx));
+
+    const posted = await service.createGoodsReceipt(
+      CONTEXT,
+      input,
+      IDS.idempotency,
+    );
+    const requestHash = dataOf(tx.goodsReceipt.create).requestHash;
+    if (typeof requestHash !== "string") {
+      throw new Error("Receipt creation did not retain its request hash");
+    }
+
+    tx.goodsReceipt.findFirst
+      .mockReset()
+      .mockResolvedValueOnce({ id: IDS.receipt, requestHash })
+      .mockResolvedValue(receipt);
+    const replayed = await service.createGoodsReceipt(
+      CONTEXT,
+      input,
+      IDS.idempotency,
+    );
+
+    expect(replayed).toEqual(posted);
+    expect(tx.goodsReceipt.create).toHaveBeenCalledOnce();
+    expect(tx.inventoryMovement.create).toHaveBeenCalledOnce();
+    expect(tx.payable.create).toHaveBeenCalledOnce();
+    expect(tx.auditEvent.create).toHaveBeenCalledOnce();
+
+    tx.goodsReceipt.findFirst
+      .mockReset()
+      .mockResolvedValueOnce({ id: IDS.receipt, requestHash });
+    const changed = CreateGoodsReceiptInputSchema.parse({
+      ...input,
+      lines: [{ ...input.lines[0], quantity: 2 }],
+    });
+    await expect(
+      service.createGoodsReceipt(CONTEXT, changed, IDS.idempotency),
+    ).rejects.toMatchObject({ code: ERROR_CODES.IDEMPOTENCY_KEY_REUSED });
+    expect(tx.goodsReceipt.create).toHaveBeenCalledOnce();
+    expect(tx.inventoryMovement.create).toHaveBeenCalledOnce();
+    expect(tx.payable.create).toHaveBeenCalledOnce();
   });
 
   it("fully receives serialized stock, keeps initial state immutable, and creates no quantity batch", async () => {
@@ -931,6 +1046,7 @@ describe("PurchasingService goods receiving", () => {
     const result = await serviceFor(interactiveClient(tx)).createGoodsReceipt(
       CONTEXT,
       input,
+      IDS.idempotency,
     );
 
     expect(result.lines[0]?.serializedUnits[0]).toMatchObject({
@@ -1035,7 +1151,7 @@ describe("PurchasingService goods receiving", () => {
     });
 
     await expect(
-      serviceFor(client).createGoodsReceipt(CONTEXT, input),
+      serviceFor(client).createGoodsReceipt(CONTEXT, input, IDS.idempotency),
     ).rejects.toMatchObject({ code: ERROR_CODES.IMEI_DUPLICATE });
     expect(client.$transaction).toHaveBeenCalledOnce();
     expect(tx.goodsReceipt.create).toHaveBeenCalledOnce();
@@ -1130,6 +1246,7 @@ describe("PurchasingService goods receiving", () => {
     const result = await serviceFor(interactiveClient(tx)).createGoodsReceipt(
       CONTEXT,
       input,
+      IDS.idempotency,
     );
 
     const allocations = tx.goodsReceiptLine.create.mock.calls.map((call) =>

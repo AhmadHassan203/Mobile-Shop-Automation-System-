@@ -12,6 +12,7 @@ import {
 import {
   API_VERSION,
   ERROR_CODES,
+  IDEMPOTENCY_KEY_HEADER,
   PERMISSIONS,
   type PermissionKey,
 } from "@mobileshop/shared";
@@ -754,7 +755,10 @@ describe("Purchasing endpoints (HTTP boundary)", () => {
     permissions: readonly PermissionKey[] = ALL_PURCHASING_PERMISSIONS,
   ) {
     grantedPermissions = permissions;
-    return send(route).set("Cookie", signedCookie(MOCK_TOKEN));
+    const pending = send(route).set("Cookie", signedCookie(MOCK_TOKEN));
+    return route.method === "post" && route.path === "/api/v1/goods-receipts"
+      ? pending.set(IDEMPOTENCY_KEY_HEADER, randomUUID())
+      : pending;
   }
 
   function expectNoBusinessWrite(): void {
@@ -766,7 +770,16 @@ describe("Purchasing endpoints (HTTP boundary)", () => {
         ).not.toHaveBeenCalled();
       }
     }
-    expect(client.$executeRaw).not.toHaveBeenCalled();
+    // An authorized receipt attempt may take its transaction-scoped retry-key
+    // lock before discovering a hidden PO/location. That lock writes no
+    // business data; no second raw call (sequence/batch mutation) is allowed.
+    expect(client.$executeRaw.mock.calls.length).toBeLessThanOrEqual(1);
+    if (client.$executeRaw.mock.calls.length === 1) {
+      const template: unknown = client.$executeRaw.mock.calls[0]?.[0];
+      expect(Array.isArray(template) ? template.join(" ") : "").toContain(
+        "pg_advisory_xact_lock",
+      );
+    }
   }
 
   beforeAll(async () => {
@@ -808,7 +821,12 @@ describe("Purchasing endpoints (HTTP boundary)", () => {
 
     client.goodsReceipt.count.mockResolvedValue(1);
     client.goodsReceipt.findMany.mockResolvedValue([receiptRow()]);
-    client.goodsReceipt.findFirst.mockResolvedValue(receiptRow());
+    client.goodsReceipt.findFirst.mockImplementation(
+      (parameters: { readonly where?: { readonly idempotencyKey?: string } }) =>
+        Promise.resolve(
+          parameters.where?.idempotencyKey === undefined ? receiptRow() : null,
+        ),
+    );
     client.inventoryMovement.findMany.mockResolvedValue([
       { serializedUnitId: IDS.unit, toState: "available" },
     ]);
@@ -1055,6 +1073,27 @@ describe("Purchasing endpoints (HTTP boundary)", () => {
       });
       expectNoBusinessWrite();
     });
+  });
+
+  describe("goods receipt idempotency boundary", () => {
+    it.each([undefined, "not-a-uuid"])(
+      "rejects a %s idempotency key before the receiving service",
+      async (key) => {
+        const pending = send({
+          method: "post",
+          path: "/api/v1/goods-receipts",
+          body: quantityReceiptBody(),
+        }).set("Cookie", signedCookie(MOCK_TOKEN));
+        if (key !== undefined) pending.set(IDEMPOTENCY_KEY_HEADER, key);
+
+        const response = await pending.expect(422);
+
+        expect(response.body).toMatchObject({
+          code: ERROR_CODES.VALIDATION_FAILED,
+        });
+        expectNoBusinessWrite();
+      },
+    );
   });
 
   describe("tenant and branch scope", () => {
@@ -1531,11 +1570,18 @@ describe("Purchasing receiving transaction (real PostgreSQL HTTP)", () => {
       .set("Cookie", signedCookie(REAL_TOKEN));
   }
 
-  function realPost(routePath: string, body: Record<string, unknown>) {
-    return request(app.getHttpServer())
+  function realPost(
+    routePath: string,
+    body: Record<string, unknown>,
+    idempotencyKey = randomUUID(),
+  ) {
+    const pending = request(app.getHttpServer())
       .post(routePath)
       .set("Cookie", signedCookie(REAL_TOKEN))
       .send(body);
+    return routePath === "/api/v1/goods-receipts"
+      ? pending.set(IDEMPOTENCY_KEY_HEADER, idempotencyKey)
+      : pending;
   }
 
   async function createOrderedPurchase(
@@ -1662,7 +1708,7 @@ describe("Purchasing receiving transaction (real PostgreSQL HTTP)", () => {
       if (serializedLine === undefined || quantityLine === undefined) {
         throw new Error("Real purchase order lost one of its source lines");
       }
-      const response = await realPost("/api/v1/goods-receipts", {
+      const receiptBody = {
         purchaseOrderId: order.orderId,
         supplierInvoiceReference: `INV-${randomUUID().slice(0, 8)}`,
         invoiceDueOn: "2030-01-01",
@@ -1689,7 +1735,13 @@ describe("Purchasing receiving transaction (real PostgreSQL HTTP)", () => {
             quantity: 2,
           },
         ],
-      }).expect(201);
+      };
+      const idempotencyKey = randomUUID();
+      const response = await realPost(
+        "/api/v1/goods-receipts",
+        receiptBody,
+        idempotencyKey,
+      ).expect(201);
 
       expect(response.body).toMatchObject({
         purchaseOrder: { id: order.orderId },
@@ -1717,6 +1769,31 @@ describe("Purchasing receiving transaction (real PostgreSQL HTTP)", () => {
         state: "pending_verification",
         actualCostMinor: 100_000,
       });
+
+      const replay = await realPost(
+        "/api/v1/goods-receipts",
+        receiptBody,
+        idempotencyKey,
+      ).expect(201);
+      expect(replay.body.id).toBe(response.body.id);
+      const changedReplay = await realPost(
+        "/api/v1/goods-receipts",
+        { ...receiptBody, notes: "different request" },
+        idempotencyKey,
+      ).expect(409);
+      expect(changedReplay.body).toMatchObject({
+        code: ERROR_CODES.IDEMPOTENCY_KEY_REUSED,
+      });
+      expect(
+        await transaction.goodsReceipt.count({
+          where: { organizationId: fixture.organizationId },
+        }),
+      ).toBe(1);
+      expect(
+        await transaction.payable.count({
+          where: { organizationId: fixture.organizationId },
+        }),
+      ).toBe(1);
 
       await transaction.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE");
       await transaction.$executeRawUnsafe("SET CONSTRAINTS ALL DEFERRED");

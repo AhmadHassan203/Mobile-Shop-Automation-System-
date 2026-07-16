@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   Prisma,
   type PurchaseOrderStatus as DatabasePurchaseOrderStatus,
@@ -339,6 +339,45 @@ function purchasingResponse<T>(schema: z.ZodType<T>, value: unknown): T {
     throw new Error("Purchasing response violated its public contract");
   }
   return parsed.data;
+}
+
+/** Stable hash of the normalized business request; the retry key is separate. */
+function goodsReceiptRequestHash(input: CreateGoodsReceiptData): string {
+  const canonical = {
+    purchaseOrderId: input.purchaseOrderId,
+    supplierInvoiceReference: input.supplierInvoiceReference ?? null,
+    invoiceDueOn: input.invoiceDueOn ?? null,
+    notes: input.notes ?? null,
+    landedCosts: input.landedCosts.map((cost) => ({
+      kind: cost.kind,
+      amountMinor: cost.amountMinor,
+      reference: cost.reference ?? null,
+      notes: cost.notes ?? null,
+    })),
+    lines: input.lines.map((line) =>
+      line.trackingType === "quantity"
+        ? {
+            purchaseOrderLineId: line.purchaseOrderLineId,
+            trackingType: line.trackingType,
+            stockLocationId: line.stockLocationId,
+            unitCostMinor: line.unitCostMinor,
+            quantity: line.quantity,
+          }
+        : {
+            purchaseOrderLineId: line.purchaseOrderLineId,
+            trackingType: line.trackingType,
+            stockLocationId: line.stockLocationId,
+            unitCostMinor: line.unitCostMinor,
+            units: line.units.map((unit) => ({
+              imei1: unit.imei1,
+              imei2: unit.imei2 ?? null,
+              serialNumber: unit.serialNumber ?? null,
+              initialState: unit.initialState,
+            })),
+          },
+    ),
+  };
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }
 
 function notFound(label: string): DomainError {
@@ -1058,6 +1097,7 @@ export class PurchasingService {
   async createGoodsReceipt(
     context: PurchasingActorContext,
     input: CreateGoodsReceiptData,
+    idempotencyKey: string,
   ): Promise<GoodsReceiptDetail> {
     try {
       return await this.prisma.client.$transaction(async (tx) => {
@@ -1065,6 +1105,30 @@ export class PurchasingService {
         // transaction owns the actual Luhn/repeated-digit decision so no invalid
         // identity can race past validation into stock.
         this.validateReceiptImeis(input);
+
+        const requestHash = goodsReceiptRequestHash(input);
+        await this.lockGoodsReceiptIdempotency(tx, context, idempotencyKey);
+        const replay = await tx.goodsReceipt.findFirst({
+          where: {
+            organizationId: context.organizationId,
+            branchId: context.branchId,
+            idempotencyKey,
+          },
+          select: { id: true, requestHash: true },
+        });
+        if (replay !== null) {
+          if (replay.requestHash !== requestHash) {
+            throw new DomainError(
+              ERROR_CODES.IDEMPOTENCY_KEY_REUSED,
+              "This idempotency key was already used for a different goods receipt request.",
+            );
+          }
+          const loaded = await this.loadGoodsReceipt(tx, context, replay.id);
+          return this.toGoodsReceiptDetail(
+            loaded.receipt,
+            loaded.initialStates,
+          );
+        }
 
         const locked = await this.lockPurchaseOrder(
           tx,
@@ -1196,6 +1260,8 @@ export class PurchasingService {
             // Landed components capitalize inventory but are not automatically
             // owed to the product supplier. The payable follows invoice cost.
             payableTotalMinor: BigInt(actualTotalMinor),
+            idempotencyKey,
+            requestHash,
           },
           select: { id: true },
         });
@@ -1316,6 +1382,17 @@ export class PurchasingService {
     } catch (error) {
       this.rethrowReceivingFailure(error, input);
     }
+  }
+
+  private async lockGoodsReceiptIdempotency(
+    tx: Prisma.TransactionClient,
+    context: PurchasingActorContext,
+    idempotencyKey: string,
+  ): Promise<void> {
+    const scope = `goods-receipt:${context.organizationId}:${context.branchId}`;
+    await tx.$executeRaw`
+      SELECT pg_advisory_xact_lock(hashtext(${scope}), hashtext(${idempotencyKey}))
+    `;
   }
 
   private async postReceiptLine(

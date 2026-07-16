@@ -718,6 +718,10 @@ model GoodsReceipt {
   actualCostTotalMinor       BigInt                     @map("actual_cost_total_minor")
   landedCostTotalMinor       BigInt                     @map("landed_cost_total_minor")
   payableTotalMinor          BigInt                     @map("payable_total_minor")
+  /// Optional for legacy receipts. New idempotent posting requests persist the
+  /// client key with a lowercase SHA-256 hash of the canonical request (0010).
+  idempotencyKey             String?                    @map("idempotency_key") @db.Uuid
+  requestHash                String?                    @map("request_hash") @db.Char(64)
   /// Child rows must be inserted in this same transaction; the trigger in
   /// 0008 rejects a later INSERT that would rewrite posted receipt history.
   postingTxid                BigInt                     @default(dbgenerated("txid_current()")) @map("posting_txid")
@@ -733,6 +737,7 @@ model GoodsReceipt {
   payable       Payable?
 
   @@unique([organizationId, branchId, number])
+  @@unique([organizationId, branchId, idempotencyKey], map: "goods_receipts_idempotency_scope_key")
   @@unique([id, organizationId])
   @@unique([id, organizationId, branchId])
   @@unique([id, organizationId, branchId, purchaseOrderId])

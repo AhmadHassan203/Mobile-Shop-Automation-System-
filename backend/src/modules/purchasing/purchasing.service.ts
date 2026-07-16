@@ -225,8 +225,15 @@ const goodsReceiptDetailSelect = {
           actualCostMinor: true,
           landedCostMinor: true,
           identifiers: {
-            orderBy: [{ createdAt: "asc" as const }, { id: "asc" as const }],
-            select: { identifierType: true, normalizedValue: true },
+            orderBy: [
+              { identifierType: "asc" as const },
+              { position: "asc" as const },
+            ],
+            select: {
+              identifierType: true,
+              position: true,
+              normalizedValue: true,
+            },
           },
         },
       },
@@ -1444,12 +1451,17 @@ export class PurchasingService {
       }
       const landedUnitCost = sum([toMinor(line.unitCostMinor), allocated]);
       const identifiers = [
-        { identifierType: "imei" as const, normalizedValue: unit.imei1 },
+        {
+          identifierType: "imei" as const,
+          position: 1 as const,
+          normalizedValue: unit.imei1,
+        },
         ...(unit.imei2 === undefined || unit.imei2 === null
           ? []
           : [
               {
                 identifierType: "imei" as const,
+                position: 2 as const,
                 normalizedValue: unit.imei2,
               },
             ]),
@@ -1458,6 +1470,7 @@ export class PurchasingService {
           : [
               {
                 identifierType: "serial" as const,
+                position: 1 as const,
                 normalizedValue: unit.serialNumber,
               },
             ]),
@@ -1674,6 +1687,7 @@ export class PurchasingService {
     serializedUnitId: string,
     identifier: {
       readonly identifierType: "imei" | "serial";
+      readonly position: 1 | 2;
       readonly normalizedValue: string;
     },
   ): Promise<void> {
@@ -1683,6 +1697,7 @@ export class PurchasingService {
           organizationId,
           serializedUnitId,
           identifierType: identifier.identifierType,
+          position: identifier.position,
           normalizedValue: identifier.normalizedValue,
         },
       });
@@ -2208,15 +2223,13 @@ export class PurchasingService {
           if (unit.actualCostMinor === null || unit.landedCostMinor === null) {
             throw new Error("Received serialized unit is missing its cost");
           }
-          const imeis = unit.identifiers
-            .filter((identifier) => identifier.identifierType === "imei")
-            .map((identifier) => identifier.normalizedValue)
-            .sort((left, right) => left.localeCompare(right));
-          const serials = unit.identifiers
-            .filter((identifier) => identifier.identifierType === "serial")
-            .map((identifier) => identifier.normalizedValue)
-            .sort((left, right) => left.localeCompare(right));
-          const imei1 = imeis[0];
+          const identifierAt = (type: "imei" | "serial", position: 1 | 2) =>
+            unit.identifiers.find(
+              (identifier) =>
+                identifier.identifierType === type &&
+                identifier.position === position,
+            )?.normalizedValue;
+          const imei1 = identifierAt("imei", 1);
           const state = initialStates.get(unit.id);
           if (imei1 === undefined || state === undefined) {
             throw new Error(
@@ -2226,8 +2239,8 @@ export class PurchasingService {
           return {
             id: unit.id,
             imei1,
-            imei2: imeis[1] ?? null,
-            serialNumber: serials[0] ?? null,
+            imei2: identifierAt("imei", 2) ?? null,
+            serialNumber: identifierAt("serial", 1) ?? null,
             state,
             actualCostMinor: safeMinor(
               unit.actualCostMinor,

@@ -406,6 +406,7 @@ function receiptDetail(options: {
       readonly landedCost: number;
       readonly identifiers: readonly {
         readonly identifierType: "imei" | "serial";
+        readonly position: 1 | 2;
         readonly normalizedValue: string;
       }[];
     }[];
@@ -878,7 +879,18 @@ describe("PurchasingService goods receiving", () => {
               identifiers: [
                 {
                   identifierType: "imei",
+                  position: 1,
                   normalizedValue: "356938035643809",
+                },
+                {
+                  identifierType: "imei",
+                  position: 2,
+                  normalizedValue: "356938035643817",
+                },
+                {
+                  identifierType: "serial",
+                  position: 1,
+                  normalizedValue: "SNABC123",
                 },
               ],
             },
@@ -907,6 +919,8 @@ describe("PurchasingService goods receiving", () => {
           units: [
             {
               imei1: "356938035643809",
+              imei2: "356938035643817",
+              serialNumber: "SNABC123",
               initialState: "quarantined",
             },
           ],
@@ -921,6 +935,8 @@ describe("PurchasingService goods receiving", () => {
 
     expect(result.lines[0]?.serializedUnits[0]).toMatchObject({
       imei1: "356938035643809",
+      imei2: "356938035643817",
+      serialNumber: "SNABC123",
       state: "quarantined",
       actualCostMinor: 1_000,
       landedCostMinor: 1_002,
@@ -932,6 +948,27 @@ describe("PurchasingService goods receiving", () => {
       actualCostMinor: 1_000n,
       landedCostMinor: 1_002n,
     });
+    expect([
+      dataOf(tx.deviceIdentifier.create, 0),
+      dataOf(tx.deviceIdentifier.create, 1),
+      dataOf(tx.deviceIdentifier.create, 2),
+    ]).toEqual([
+      expect.objectContaining({
+        identifierType: "imei",
+        position: 1,
+        normalizedValue: "356938035643809",
+      }),
+      expect.objectContaining({
+        identifierType: "imei",
+        position: 2,
+        normalizedValue: "356938035643817",
+      }),
+      expect.objectContaining({
+        identifierType: "serial",
+        position: 1,
+        normalizedValue: "SNABC123",
+      }),
+    ]);
     expect(tx.stockBatch.updateMany).not.toHaveBeenCalled();
     expect(dataOf(tx.purchaseOrder.updateMany).status).toBe("received");
     expect(dataOf(tx.inventoryMovement.create)).toMatchObject({

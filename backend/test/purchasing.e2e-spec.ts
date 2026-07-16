@@ -108,12 +108,14 @@ function authUserWith(
     readonly branchId?: string;
     readonly userId?: string;
     readonly roleId?: string;
+    readonly locationId?: string | null;
   } = {},
 ) {
   const organizationId = ids.organizationId ?? IDS.organization;
   const branchId = ids.branchId ?? IDS.branch;
   const userId = ids.userId ?? IDS.user;
   const roleId = ids.roleId ?? IDS.role;
+  const locationId = ids.locationId ?? null;
   return {
     id: userId,
     organizationId,
@@ -169,7 +171,7 @@ function authUserWith(
         organizationId,
         userId,
         branchId,
-        locationId: null,
+        locationId,
         createdAt: NOW,
       },
     ],
@@ -183,6 +185,7 @@ function sessionWith(
     readonly organizationId?: string;
     readonly branchId?: string;
     readonly userId?: string;
+    readonly locationId?: string;
   } = {},
 ) {
   const organizationId = options.organizationId ?? IDS.organization;
@@ -205,7 +208,12 @@ function sessionWith(
       id: branchId,
       organizationId,
     },
-    user: authUserWith(permissions, { organizationId, branchId, userId }),
+    user: authUserWith(permissions, {
+      organizationId,
+      branchId,
+      userId,
+      locationId: options.locationId ?? null,
+    }),
   };
 }
 
@@ -377,6 +385,7 @@ function receiptRow() {
             identifiers: [
               {
                 identifierType: "imei" as const,
+                position: 1,
                 normalizedValue: "356938035643809",
               },
             ],
@@ -1754,6 +1763,96 @@ describe("Purchasing receiving transaction (real PostgreSQL HTTP)", () => {
     });
   });
 
+  it("returns NOT_FOUND without receiving side effects when the session location scope excludes the target", async () => {
+    await withinRollback(async (transaction) => {
+      const fixture = await seedFixture(transaction);
+      const allowedLocationId = randomUUID();
+      await transaction.stockLocation.create({
+        data: {
+          id: allowedLocationId,
+          organizationId: fixture.organizationId,
+          branchId: fixture.branchId,
+          code: "SCOPED",
+          name: "Scoped receiving location",
+          isDefault: false,
+        },
+      });
+      const order = await createOrderedPurchase(fixture, [
+        {
+          productVariantId: fixture.quantityVariantId,
+          quantity: 2,
+          unitCostMinor: 1_000,
+        },
+      ]);
+      const sourceLine = order.lines[0];
+      if (sourceLine === undefined) {
+        throw new Error("Real location-scope PO has no source line");
+      }
+
+      currentSession = sessionWith([PERMISSIONS.PURCHASES_RECEIVE], {
+        token: REAL_TOKEN,
+        organizationId: fixture.organizationId,
+        branchId: fixture.branchId,
+        userId: fixture.userId,
+        locationId: allowedLocationId,
+      });
+      expect(allowedLocationId).not.toBe(fixture.locationId);
+
+      const receivingState = async () => ({
+        receipts: await transaction.goodsReceipt.count({
+          where: { organizationId: fixture.organizationId },
+        }),
+        receiptLines: await transaction.goodsReceiptLine.count({
+          where: { organizationId: fixture.organizationId },
+        }),
+        payables: await transaction.payable.count({
+          where: { organizationId: fixture.organizationId },
+        }),
+        batches: await transaction.stockBatch.count({
+          where: { organizationId: fixture.organizationId },
+        }),
+        units: await transaction.serializedUnit.count({
+          where: { organizationId: fixture.organizationId },
+        }),
+        movements: await transaction.inventoryMovement.count({
+          where: { organizationId: fixture.organizationId },
+        }),
+        receiptSequences: await transaction.numberSequence.count({
+          where: {
+            organizationId: fixture.organizationId,
+            branchId: fixture.branchId,
+            key: "goods_receipt",
+          },
+        }),
+      });
+      const before = await receivingState();
+
+      const response = await realPost("/api/v1/goods-receipts", {
+        purchaseOrderId: order.orderId,
+        supplierInvoiceReference: `INV-SCOPE-${randomUUID().slice(0, 8)}`,
+        invoiceDueOn: "2030-01-01",
+        lines: [
+          {
+            purchaseOrderLineId: sourceLine.id,
+            trackingType: "quantity",
+            stockLocationId: fixture.locationId,
+            unitCostMinor: 1_000,
+            quantity: 2,
+          },
+        ],
+      }).expect(404);
+
+      expect(response.body).toMatchObject({ code: ERROR_CODES.NOT_FOUND });
+      expect(await receivingState()).toEqual(before);
+      const unchanged = await transaction.purchaseOrder.findUniqueOrThrow({
+        where: { id: order.orderId },
+        include: { lines: true },
+      });
+      expect(unchanged).toMatchObject({ status: "ordered", version: 3 });
+      expect(unchanged.lines[0]?.quantityReceived).toBe(0);
+    });
+  });
+
   it("rolls every receiving write back when a concurrent duplicate IMEI wins", async () => {
     await withinRollback(async (transaction) => {
       const fixture = await seedFixture(transaction);
@@ -1781,6 +1880,7 @@ describe("Purchasing receiving transaction (real PostgreSQL HTTP)", () => {
             create: [
               {
                 identifierType: "imei",
+                position: 1,
                 normalizedValue: "356938035643809",
               },
             ],

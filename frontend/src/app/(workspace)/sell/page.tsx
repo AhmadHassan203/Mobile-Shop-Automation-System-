@@ -8,7 +8,7 @@ import {
 export const metadata: Metadata = {
   title: "Sell — Point of Sale | MobileShop OS",
   description:
-    "Counter workflow backed by real catalog identity and derived branch stock.",
+    "Counter workflow for authoritative pricing, exact stock or IMEI selection, split payment, posting, and receipt.",
 };
 
 export default function SellPage(): JSX.Element {

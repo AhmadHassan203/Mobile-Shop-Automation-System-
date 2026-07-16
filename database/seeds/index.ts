@@ -30,7 +30,91 @@ const SEED_IDS = Object.freeze({
   smartphoneCategory: "10000000-0000-4000-8000-000000000004",
   unbrandedBrand: "10000000-0000-4000-8000-000000000005",
   genericSmartphoneModel: "10000000-0000-4000-8000-000000000006",
+  physicalCashAccount: "10000000-0000-4000-8000-000000000007",
+  bankAccount: "10000000-0000-4000-8000-000000000008",
+  digitalWalletAccount: "10000000-0000-4000-8000-000000000009",
+  receivableAccount: "10000000-0000-4000-8000-000000000010",
+  inventoryAccount: "10000000-0000-4000-8000-000000000011",
+  salesRevenueAccount: "10000000-0000-4000-8000-000000000012",
+  salesDiscountAccount: "10000000-0000-4000-8000-000000000013",
+  cogsAccount: "10000000-0000-4000-8000-000000000014",
+  taxPayableAccount: "10000000-0000-4000-8000-000000000015",
 });
+
+const DEFAULT_FINANCIAL_ACCOUNTS = [
+  {
+    id: SEED_IDS.physicalCashAccount,
+    code: "CASH",
+    name: "Physical cash",
+    accountType: "asset",
+    accountSubtype: "physical_cash",
+    normalBalance: "debit",
+  },
+  {
+    id: SEED_IDS.bankAccount,
+    code: "BANK",
+    name: "Bank balance",
+    accountType: "asset",
+    accountSubtype: "bank",
+    normalBalance: "debit",
+  },
+  {
+    id: SEED_IDS.digitalWalletAccount,
+    code: "DIGITAL",
+    name: "Digital wallet balance",
+    accountType: "asset",
+    accountSubtype: "provider_float",
+    normalBalance: "debit",
+  },
+  {
+    id: SEED_IDS.receivableAccount,
+    code: "AR",
+    name: "Customer receivables",
+    accountType: "asset",
+    accountSubtype: "receivable",
+    normalBalance: "debit",
+  },
+  {
+    id: SEED_IDS.inventoryAccount,
+    code: "INVENTORY",
+    name: "Inventory asset",
+    accountType: "asset",
+    accountSubtype: "inventory_asset",
+    normalBalance: "debit",
+  },
+  {
+    id: SEED_IDS.salesRevenueAccount,
+    code: "SALES",
+    name: "Sales revenue",
+    accountType: "revenue",
+    accountSubtype: "sales_revenue",
+    normalBalance: "credit",
+  },
+  {
+    id: SEED_IDS.salesDiscountAccount,
+    code: "SALES-DISCOUNT",
+    name: "Sales discounts",
+    accountType: "revenue",
+    accountSubtype: "sales_discount",
+    normalBalance: "debit",
+  },
+  {
+    id: SEED_IDS.cogsAccount,
+    code: "COGS",
+    name: "Cost of goods sold",
+    accountType: "expense",
+    accountSubtype: "cost_of_goods_sold",
+    normalBalance: "debit",
+  },
+  {
+    id: SEED_IDS.taxPayableAccount,
+    code: "TAX-PAYABLE",
+    name: "Sales tax payable",
+    accountType: "liability",
+    accountSubtype: "tax_payable",
+    normalBalance: "credit",
+  },
+] as const;
 
 const ROLE_DETAILS: Readonly<
   Record<RoleCode, { readonly name: string; readonly description: string }>
@@ -159,6 +243,32 @@ async function seed(): Promise<void> {
           },
           update: {},
         });
+
+        // Structural chart-of-account prerequisites, not sample transactions.
+        // Empty updates preserve owner-renamed accounts while making the seed
+        // safely re-runnable after the Sales foundation migration is applied.
+        for (const account of DEFAULT_FINANCIAL_ACCOUNTS) {
+          await tx.financialAccount.upsert({
+            where: {
+              organizationId_branchId_code: {
+                organizationId: organization.id,
+                branchId: branch.id,
+                code: account.code,
+              },
+            },
+            create: {
+              id: account.id,
+              organizationId: organization.id,
+              branchId: branch.id,
+              code: account.code,
+              name: account.name,
+              accountType: account.accountType,
+              accountSubtype: account.accountSubtype,
+              normalBalance: account.normalBalance,
+            },
+            update: {},
+          });
+        }
 
         // Development-only reference prerequisites for the Add Product flow.
         // Empty updates deliberately preserve any names/flags edited by the

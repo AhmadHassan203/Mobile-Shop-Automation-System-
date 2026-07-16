@@ -1,12 +1,17 @@
 import {
   PERMISSIONS,
-  type ProductSummary,
-  type StockBalance,
+  fromMajor,
+  type CreateSaleDraftInput,
+  type PaymentMethod,
+  type PosQuantityLocationChoice,
+  type PosSellableItem,
+  type PosSerializedUnitChoice,
+  type SalePaymentLegInput,
 } from "@mobileshop/shared";
 
 export interface PosCapabilities {
   readonly canViewCatalog: boolean;
-  readonly canViewInventory: boolean;
+  readonly canManagePricing: boolean;
   readonly canCreateSale: boolean;
   readonly canPostSale: boolean;
   readonly canViewPricing: boolean;
@@ -15,6 +20,7 @@ export interface PosCapabilities {
   readonly canDiscount: boolean;
   readonly canViewCustomers: boolean;
   readonly canManageCustomers: boolean;
+  readonly canRecordDemand: boolean;
 }
 
 export function posCapabilities(
@@ -23,7 +29,7 @@ export function posCapabilities(
   const granted = new Set(permissions ?? []);
   return {
     canViewCatalog: granted.has(PERMISSIONS.CATALOG_VIEW),
-    canViewInventory: granted.has(PERMISSIONS.INVENTORY_VIEW),
+    canManagePricing: granted.has(PERMISSIONS.PRICING_MANAGE),
     canCreateSale: granted.has(PERMISSIONS.SALES_CREATE),
     canPostSale: granted.has(PERMISSIONS.SALES_POST),
     canViewPricing: granted.has(PERMISSIONS.PRICING_VIEW),
@@ -32,237 +38,327 @@ export function posCapabilities(
     canDiscount: granted.has(PERMISSIONS.SALES_DISCOUNT),
     canViewCustomers: granted.has(PERMISSIONS.CUSTOMERS_VIEW),
     canManageCustomers: granted.has(PERMISSIONS.CUSTOMERS_MANAGE),
+    canRecordDemand: granted.has(PERMISSIONS.DEMAND_CREATE),
   };
 }
 
-export interface PosServiceAvailability {
-  readonly pricingRead: boolean;
-  readonly customerRead: boolean;
-  readonly paymentCollect: boolean;
-  readonly salePost: boolean;
-  readonly saleHold: boolean;
-  readonly demandCreate: boolean;
-  readonly receiptDelivery: boolean;
-}
-
-/**
- * These are product boundaries, not feature flags. Changing one to true must
- * happen only when a real, validated HTTP client exists for that service.
- */
-export const POS_SERVICE_AVAILABILITY: PosServiceAvailability = Object.freeze({
-  pricingRead: false,
-  customerRead: false,
-  paymentCollect: false,
-  salePost: false,
-  saleHold: false,
-  demandCreate: false,
-  receiptDelivery: false,
-});
-
-export interface PosProduct {
-  readonly id: string;
+interface CartLineBase {
+  readonly key: string;
+  readonly productVariantId: string;
   readonly sku: string;
   readonly name: string;
   readonly brandName: string;
   readonly modelName: string;
-  readonly categoryName: string;
-  readonly trackingType: "serialized" | "quantity";
-  readonly available: number;
-  readonly onHand: number;
-  readonly reserved: number;
-  readonly locationNames: readonly string[];
+  readonly currency: string;
+  readonly unitPriceMinor: number;
+  readonly priceSource: "price_rule" | "variant_default";
+  readonly priceSourceId: string | null;
+  readonly priceVersion: number;
 }
 
-interface MutableBalanceTotal {
-  available: number;
-  onHand: number;
-  reserved: number;
-  readonly locations: Set<string>;
-}
-
-/** Combines only server-returned catalog and derived stock records. */
-export function buildPosProducts(
-  products: readonly ProductSummary[],
-  balances: readonly StockBalance[],
-): readonly PosProduct[] {
-  const totals = new Map<string, MutableBalanceTotal>();
-
-  for (const balance of balances) {
-    const current = totals.get(balance.productVariant.id) ?? {
-      available: 0,
-      onHand: 0,
-      reserved: 0,
-      locations: new Set<string>(),
-    };
-    current.available += balance.available;
-    current.onHand += balance.onHand;
-    current.reserved += balance.reserved;
-    current.locations.add(balance.locationName);
-    totals.set(balance.productVariant.id, current);
-  }
-
-  return products
-    .filter((product) => product.isActive)
-    .map((product) => {
-      const stock = totals.get(product.id);
-      return {
-        id: product.id,
-        sku: product.sku,
-        name: product.name,
-        brandName: product.productModel.brand.name,
-        modelName: product.productModel.name,
-        categoryName: product.productModel.category.name,
-        trackingType: product.trackingType,
-        available: stock?.available ?? 0,
-        onHand: stock?.onHand ?? 0,
-        reserved: stock?.reserved ?? 0,
-        locationNames: [...(stock?.locations ?? [])].sort((left, right) =>
-          left.localeCompare(right),
-        ),
-      } satisfies PosProduct;
-    })
-    .sort((left, right) => {
-      if ((left.available > 0) !== (right.available > 0)) {
-        return left.available > 0 ? -1 : 1;
-      }
-      return left.sku.localeCompare(right.sku);
-    });
-}
-
-export interface PosCartLine {
-  readonly productId: string;
-  readonly sku: string;
-  readonly name: string;
-  readonly trackingType: "serialized" | "quantity";
+export interface QuantityCartLine extends CartLineBase {
+  readonly trackingType: "quantity";
+  readonly location: PosQuantityLocationChoice["location"];
   readonly quantity: number;
   readonly availableSnapshot: number;
+  readonly stockVersion: number;
 }
 
-export function addCartProduct(
+export interface SerializedCartLine extends CartLineBase {
+  readonly trackingType: "serialized";
+  readonly location: PosSerializedUnitChoice["location"];
+  readonly quantity: 1;
+  readonly serializedUnitId: string;
+  readonly serializedUnitVersion: number;
+  readonly identifiers: PosSerializedUnitChoice["identifiers"];
+}
+
+export type PosCartLine = QuantityCartLine | SerializedCartLine;
+
+function commonLine(item: PosSellableItem): Omit<CartLineBase, "key"> {
+  return {
+    productVariantId: item.productVariantId,
+    sku: item.sku,
+    name: item.name,
+    brandName: item.brandName,
+    modelName: item.modelName,
+    currency: item.effectivePrice.currency,
+    unitPriceMinor: item.effectivePrice.unitPriceMinor,
+    priceSource: item.effectivePrice.source,
+    priceSourceId: item.effectivePrice.sourceId,
+    priceVersion: item.effectivePrice.version,
+  };
+}
+
+export function posAvailableCount(item: PosSellableItem): number {
+  if (item.stock.availability === "out_of_stock") return 0;
+  if (item.trackingType === "quantity") {
+    return item.stock.locationChoices.reduce(
+      (total, choice) => total + choice.availableQuantity,
+      0,
+    );
+  }
+  return item.stock.serializedUnitChoices.length;
+}
+
+/** Adds only a server-returned location or serialized-unit choice. */
+export function addCartSelection(
   lines: readonly PosCartLine[],
-  product: PosProduct,
+  item: PosSellableItem,
+  selectionId: string,
 ): readonly PosCartLine[] {
-  if (product.available <= 0) return lines;
-  const current = lines.find((line) => line.productId === product.id);
-  if (current === undefined) {
+  if (item.stock.availability === "out_of_stock") return lines;
+  const common = commonLine(item);
+  if (item.trackingType === "serialized") {
+    const choice = item.stock.serializedUnitChoices.find(
+      (candidate) => candidate.serializedUnitId === selectionId,
+    );
+    if (choice === undefined) return lines;
+    const key = `S:${choice.serializedUnitId}`;
+    if (lines.some((line) => line.key === key)) return lines;
     return [
       ...lines,
       {
-        productId: product.id,
-        sku: product.sku,
-        name: product.name,
-        trackingType: product.trackingType,
+        ...common,
+        key,
+        trackingType: "serialized",
+        location: choice.location,
         quantity: 1,
-        availableSnapshot: product.available,
+        serializedUnitId: choice.serializedUnitId,
+        serializedUnitVersion: choice.unitVersion,
+        identifiers: choice.identifiers,
       },
     ];
   }
-  if (current.quantity >= product.available) return lines;
-  return lines.map((line) =>
-    line.productId === product.id
-      ? {
-          ...line,
-          quantity: line.quantity + 1,
-          availableSnapshot: product.available,
-        }
-      : line,
+
+  const choice = item.stock.locationChoices.find(
+    (candidate) => candidate.location.id === selectionId,
   );
+  if (choice === undefined) return lines;
+  const key = `Q:${item.productVariantId}:${choice.location.id}`;
+  const existing = lines.find((line) => line.key === key);
+  if (existing?.trackingType === "quantity") {
+    if (existing.quantity >= choice.availableQuantity) return lines;
+    return lines.map((line) =>
+      line.key === key && line.trackingType === "quantity"
+        ? {
+            ...line,
+            quantity: line.quantity + 1,
+            availableSnapshot: choice.availableQuantity,
+            stockVersion: choice.stockVersion,
+          }
+        : line,
+    );
+  }
+  return [
+    ...lines,
+    {
+      ...common,
+      key,
+      trackingType: "quantity",
+      location: choice.location,
+      quantity: 1,
+      availableSnapshot: choice.availableQuantity,
+      stockVersion: choice.stockVersion,
+    },
+  ];
 }
 
 export function setCartQuantity(
   lines: readonly PosCartLine[],
-  productId: string,
+  key: string,
   quantity: number,
 ): readonly PosCartLine[] {
   if (!Number.isSafeInteger(quantity)) return lines;
-  if (quantity <= 0) {
-    return lines.filter((line) => line.productId !== productId);
-  }
-  return lines.map((line) =>
-    line.productId === productId
-      ? {
-          ...line,
-          quantity: Math.min(quantity, line.availableSnapshot),
-        }
-      : line,
-  );
+  if (quantity <= 0) return lines.filter((line) => line.key !== key);
+  return lines.map((line) => {
+    if (line.key !== key || line.trackingType === "serialized") return line;
+    return { ...line, quantity: Math.min(quantity, line.availableSnapshot) };
+  });
 }
 
 export function cartUnitCount(lines: readonly PosCartLine[]): number {
   return lines.reduce((total, line) => total + line.quantity, 0);
 }
 
-export function checkoutBlockers(
-  capabilities: PosCapabilities,
-  services: PosServiceAvailability,
-  lines: readonly PosCartLine[],
-): readonly string[] {
-  const blockers: string[] = [];
-  if (lines.length === 0) blockers.push("Add at least one in-stock product.");
-  if (!capabilities.canCreateSale) {
-    blockers.push("The sales.create permission is required to prepare a sale.");
-  }
-  if (!capabilities.canViewPricing) {
-    blockers.push("The pricing.view permission is required to calculate totals.");
-  } else if (!services.pricingRead) {
-    blockers.push("The pricing read API has not been implemented yet.");
-  }
-  if (!capabilities.canCollectPayment) {
-    blockers.push("The payments.collect permission is required to take payment.");
-  } else if (!services.paymentCollect) {
-    blockers.push("The payment collection API has not been implemented yet.");
-  }
-  if (!capabilities.canPostSale) {
-    blockers.push("The sales.post permission is required to post a sale.");
-  } else if (!services.salePost) {
-    blockers.push("The atomic sale-posting API has not been implemented yet.");
-  }
-  return blockers;
+export interface PosCartTotals {
+  readonly subtotalMinor: number;
+  readonly discountMinor: number;
+  readonly totalMinor: number;
 }
 
-export type PosFlowStatus = "complete" | "current" | "upcoming" | "blocked";
+export function cartTotals(
+  lines: readonly PosCartLine[],
+  discountMinor: number,
+): PosCartTotals | null {
+  if (!Number.isSafeInteger(discountMinor) || discountMinor < 0) return null;
+  const subtotal = lines.reduce(
+    (sum, line) => sum + BigInt(line.unitPriceMinor) * BigInt(line.quantity),
+    0n,
+  );
+  if (subtotal > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+  const subtotalMinor = Number(subtotal);
+  if (discountMinor > subtotalMinor) return null;
+  return {
+    subtotalMinor,
+    discountMinor,
+    totalMinor: subtotalMinor - discountMinor,
+  };
+}
 
-export interface PosFlowStep {
-  readonly id:
-    | "find"
-    | "select"
-    | "cart"
-    | "customer"
-    | "payment"
-    | "review"
-    | "complete";
+export function parsePkrMajorInput(value: string): number | null {
+  const normalized = value.trim();
+  if (normalized.length === 0) return 0;
+  try {
+    return fromMajor(normalized, "PKR") as number;
+  } catch {
+    return null;
+  }
+}
+
+export function buildSaleDraftInput(
+  lines: readonly PosCartLine[],
+  customerId: string | null,
+  discountMinor: number,
+  discountReason: string | null,
+): CreateSaleDraftInput {
+  return {
+    customerId,
+    note: null,
+    requestedDiscountMinor: discountMinor,
+    discountReason,
+    lines: lines.map((line) =>
+      line.trackingType === "serialized"
+        ? {
+            trackingType: "serialized",
+            productVariantId: line.productVariantId,
+            priceSource: line.priceSource,
+            priceSourceId: line.priceSourceId,
+            priceVersion: line.priceVersion,
+            serializedUnitId: line.serializedUnitId,
+            serializedUnitVersion: line.serializedUnitVersion,
+            locationId: line.location.id,
+          }
+        : {
+            trackingType: "quantity",
+            productVariantId: line.productVariantId,
+            priceSource: line.priceSource,
+            priceSourceId: line.priceSourceId,
+            priceVersion: line.priceVersion,
+            locationId: line.location.id,
+            quantity: line.quantity,
+            stockVersion: line.stockVersion,
+          },
+    ),
+  };
+}
+
+export const POS_PAYMENT_OPTIONS = [
+  { label: "Cash", method: "cash", needsReference: false },
+  { label: "Bank", method: "bank_transfer", needsReference: true },
+  { label: "Card", method: "card", needsReference: true },
+  { label: "JazzCash", method: "digital_wallet", needsReference: true },
+] as const satisfies readonly {
   readonly label: string;
-  readonly status: PosFlowStatus;
+  readonly method: PaymentMethod;
+  readonly needsReference: boolean;
+}[];
+
+export interface PosPaymentDraft {
+  readonly method: (typeof POS_PAYMENT_OPTIONS)[number]["method"];
+  readonly amountMinor: number;
+  readonly reference: string | null;
 }
 
-export function posFlowSteps(
-  sourceReady: boolean,
+export function paymentLegs(
+  drafts: readonly PosPaymentDraft[],
+): readonly SalePaymentLegInput[] | null {
+  const legs: SalePaymentLegInput[] = [];
+  for (const draft of drafts) {
+    if (!Number.isSafeInteger(draft.amountMinor) || draft.amountMinor < 0) {
+      return null;
+    }
+    if (draft.amountMinor === 0) continue;
+    const option = POS_PAYMENT_OPTIONS.find(
+      (candidate) => candidate.method === draft.method,
+    );
+    if (option === undefined) return null;
+    const reference = draft.reference?.trim() || null;
+    if (option.needsReference !== (reference !== null)) return null;
+    legs.push({
+      method: draft.method,
+      amountMinor: draft.amountMinor,
+      reference,
+    });
+  }
+  return legs;
+}
+
+export function paymentTotal(
+  legs: readonly SalePaymentLegInput[],
+): number | null {
+  const total = legs.reduce((sum, leg) => sum + BigInt(leg.amountMinor), 0n);
+  return total > BigInt(Number.MAX_SAFE_INTEGER) ? null : Number(total);
+}
+
+/** Cart snapshots are blocked when the latest lookup no longer matches. */
+export function cartStalenessReasons(
   lines: readonly PosCartLine[],
-): readonly PosFlowStep[] {
-  const hasSelection = lines.length > 0;
-  return [
-    {
-      id: "find",
-      label: "Find",
-      status: sourceReady ? "complete" : "current",
-    },
-    {
-      id: "select",
-      label: "Select",
-      status: hasSelection ? "complete" : sourceReady ? "current" : "upcoming",
-    },
-    {
-      id: "cart",
-      label: "Cart",
-      status: hasSelection ? "complete" : "upcoming",
-    },
-    {
-      id: "customer",
-      label: "Customer",
-      status: hasSelection ? "complete" : "upcoming",
-    },
-    { id: "payment", label: "Payment", status: "blocked" },
-    { id: "review", label: "Review", status: "blocked" },
-    { id: "complete", label: "Complete", status: "blocked" },
-  ];
+  items: readonly PosSellableItem[],
+): readonly string[] {
+  const reasons: string[] = [];
+  for (const line of lines) {
+    const item = items.find(
+      (candidate) => candidate.productVariantId === line.productVariantId,
+    );
+    if (item === undefined) {
+      reasons.push(`${line.sku}: product is no longer in the current lookup.`);
+      continue;
+    }
+    if (
+      item.effectivePrice.source !== line.priceSource ||
+      item.effectivePrice.sourceId !== line.priceSourceId ||
+      item.effectivePrice.version !== line.priceVersion ||
+      item.effectivePrice.unitPriceMinor !== line.unitPriceMinor
+    ) {
+      reasons.push(`${line.sku}: authoritative price changed.`);
+      continue;
+    }
+    if (item.stock.availability === "out_of_stock") {
+      reasons.push(`${line.sku}: selected stock is no longer available.`);
+      continue;
+    }
+    if (line.trackingType === "serialized") {
+      if (item.trackingType !== "serialized") {
+        reasons.push(`${line.sku}: tracking type changed.`);
+        continue;
+      }
+      const choice = item.stock.serializedUnitChoices.find(
+        (candidate) => candidate.serializedUnitId === line.serializedUnitId,
+      );
+      if (
+        choice === undefined ||
+        choice.unitVersion !== line.serializedUnitVersion ||
+        choice.location.id !== line.location.id
+      ) {
+        reasons.push(`${line.sku}: selected IMEI/unit changed or was taken.`);
+      }
+      continue;
+    }
+    if (item.trackingType !== "quantity") {
+      reasons.push(`${line.sku}: tracking type changed.`);
+      continue;
+    }
+    const choice = item.stock.locationChoices.find(
+      (candidate) => candidate.location.id === line.location.id,
+    );
+    if (
+      choice === undefined ||
+      choice.stockVersion !== line.stockVersion ||
+      choice.availableQuantity < line.quantity
+    ) {
+      reasons.push(`${line.sku}: location stock changed.`);
+    }
+  }
+  return reasons;
 }

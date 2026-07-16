@@ -20,6 +20,10 @@ import { InventoryModule } from "./modules/inventory/inventory.module";
 import { PurchasingModule } from "./modules/purchasing/purchasing.module";
 import { PermissionGuard } from "./common/auth/permission.guard";
 import { DashboardModule } from "./modules/dashboard/dashboard.module";
+import { PricingModule } from "./modules/pricing/pricing.module";
+import { CustomersModule } from "./modules/customers/customers.module";
+import { SalesModule } from "./modules/sales/sales.module";
+import { DemandModule } from "./modules/demand/demand.module";
 
 /**
  * Application root.
@@ -108,6 +112,10 @@ import { DashboardModule } from "./modules/dashboard/dashboard.module";
     InventoryModule,
     PurchasingModule,
     DashboardModule,
+    PricingModule,
+    CustomersModule,
+    SalesModule,
+    DemandModule,
   ],
   providers: [
     // Registered globally so no thrown error can escape to the client unshaped.

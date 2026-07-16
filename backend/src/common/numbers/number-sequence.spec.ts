@@ -65,4 +65,25 @@ describe("allocateDocumentNumber", () => {
       ),
     ).rejects.toThrow("changed concurrently");
   });
+
+  it("supports one organization-wide sequence with a null branch scope", async () => {
+    const { tx, updateMany } = transaction();
+
+    await expect(
+      allocateDocumentNumber(
+        tx,
+        {
+          organizationId: "10000000-0000-4000-8000-000000000002",
+          branchId: null,
+        },
+        { key: "customer", defaultPrefix: "CUS-", periodKey: "2026" },
+      ),
+    ).resolves.toBe("INV-2026-000042");
+
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ branchId: null, key: "customer" }),
+      }),
+    );
+  });
 });

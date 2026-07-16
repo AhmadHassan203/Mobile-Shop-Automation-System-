@@ -2,6 +2,21 @@ export const queryKeys = Object.freeze({
   health: ["system", "health"] as const,
   currentAuth: ["auth", "current"] as const,
   dashboard: ["reports", "dashboard"] as const,
+  posLookupRoot: ["pricing", "pos-lookup"] as const,
+  posLookup: (parameters: object) =>
+    ["pricing", "pos-lookup", parameters] as const,
+  customersRoot: ["customers"] as const,
+  customers: (parameters: object) => ["customers", parameters] as const,
+  customer: (id: string) => ["customers", "detail", id] as const,
+  salesRoot: ["sales"] as const,
+  sales: (parameters: object) => ["sales", parameters] as const,
+  sale: (id: string) => ["sales", "detail", id] as const,
+  saleReceipt: (id: string, format: string) =>
+    ["sales", "receipt", id, format] as const,
+  demandRoot: ["demand"] as const,
+  demandRequests: (parameters: object) => ["demand", parameters] as const,
+  demandRequest: (id: string) => ["demand", "detail", id] as const,
+  demandConversionCapabilities: ["demand", "conversion-capabilities"] as const,
   catalogProductsRoot: ["catalog", "products"] as const,
   catalogProducts: (parameters: object) =>
     ["catalog", "products", parameters] as const,

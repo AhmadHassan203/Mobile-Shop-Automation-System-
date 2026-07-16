@@ -76,12 +76,19 @@ model Organization {
   customers          Customer[]
   cashSessions       CashSession[]
   financialAccounts  FinancialAccount[]
-  sales               Sale[]
-  saleLines           SaleLine[]
-  payments            Payment[]
-  paymentAllocations  PaymentAllocation[]
-  receivables         Receivable[]
-  financialEntries    FinancialEntry[]
+  sales              Sale[]
+  saleLines          SaleLine[]
+  payments           Payment[]
+  paymentAllocations PaymentAllocation[]
+  receivables        Receivable[]
+  financialEntries   FinancialEntry[]
+  saleReturns        SaleReturn[]
+  returnLines        ReturnLine[]
+  refunds            Refund[]
+
+  demandRequests     DemandRequest[]
+  demandRequestItems DemandRequestItem[]
+  demandFollowUps    DemandFollowUp[]
 
   @@map("organizations")
 }
@@ -118,14 +125,22 @@ model Branch {
   goodsReceiptLandedCosts GoodsReceiptLandedCost[]
   payables                Payable[]
 
-  cashSessions      CashSession[]
-  financialAccounts FinancialAccount[]
-  sales             Sale[]
+  priceEntries       PriceEntry[]
+  cashSessions       CashSession[]
+  financialAccounts  FinancialAccount[]
+  sales              Sale[]
   saleLines          SaleLine[]
   payments           Payment[]
   paymentAllocations PaymentAllocation[]
   receivables        Receivable[]
   financialEntries   FinancialEntry[]
+  saleReturns        SaleReturn[]
+  returnLines        ReturnLine[]
+  refunds            Refund[]
+
+  demandRequests     DemandRequest[]
+  demandRequestItems DemandRequestItem[]
+  demandFollowUps    DemandFollowUp[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId])
@@ -159,7 +174,8 @@ model StockLocation {
   stockBatches    StockBatch[]
   movements       InventoryMovement[]
   receiptLines    GoodsReceiptLine[]
-  sales           Sale[]
+  saleLines       SaleLine[]
+  returnLines     ReturnLine[]
 
   @@unique([organizationId, branchId, code])
   @@unique([id, organizationId, branchId])
@@ -238,10 +254,11 @@ model ProductModel {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  brand        Brand            @relation(fields: [brandId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  category     Category         @relation(fields: [categoryId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  brand        Brand               @relation(fields: [brandId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  category     Category            @relation(fields: [categoryId, organizationId], references: [id, organizationId], onDelete: Restrict)
   variants     ProductVariant[]
+  demandItems  DemandRequestItem[]
 
   @@unique([organizationId, brandId, canonicalName])
   @@unique([id, organizationId])
@@ -290,6 +307,8 @@ model ProductVariant {
   goodsReceiptLines  GoodsReceiptLine[]
   priceEntries       PriceEntry[]
   saleLines          SaleLine[]
+  returnLines        ReturnLine[]
+  demandItems        DemandRequestItem[]
 
   @@unique([organizationId, sku])
   @@unique([id, organizationId])
@@ -396,9 +415,10 @@ model SerializedUnit {
   identifiers DeviceIdentifier[]
   movements   InventoryMovement[]
   saleLines   SaleLine[]
+  returnLines ReturnLine[]
 
   @@unique([id, organizationId])
-  @@unique([id, organizationId, branchId, productVariantId])
+  @@unique([id, organizationId, branchId, productVariantId, stockLocationId])
   @@index([organizationId, productVariantId, state])
   @@index([organizationId, stockLocationId, state])
   @@index([organizationId, receivedAt])
@@ -898,6 +918,829 @@ enum PayableStatus {
 }
 
 // =============================================================================
+// Pricing, customers, sales, settlement and the minimal financial ledger
+// =============================================================================
+
+/// A named, tenant-scoped selling-price policy. Price lists are retired rather
+/// than deleted; dated entries below preserve every price used by a sale.
+model PriceList {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  code           String    @db.VarChar(40)
+  name           String    @db.VarChar(160)
+  effectiveFrom  DateTime  @default(now()) @map("effective_from") @db.Timestamptz(3)
+  effectiveTo    DateTime? @map("effective_to") @db.Timestamptz(3)
+  isActive       Boolean   @default(true) @map("is_active")
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  entries      PriceEntry[]
+
+  @@unique([organizationId, code])
+  @@unique([id, organizationId])
+  @@index([organizationId, isActive, effectiveFrom])
+  @@map("price_lists")
+}
+
+/// Immutable dated price evidence. Changing a price creates a new row; a sale
+/// copies the exact price into its line and may retain this source row's id.
+model PriceEntry {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  branchId         String?   @map("branch_id") @db.Uuid
+  priceListId      String    @map("price_list_id") @db.Uuid
+  productVariantId String    @map("product_variant_id") @db.Uuid
+  priceMinor       BigInt    @map("price_minor")
+  minPriceMinor    BigInt?   @map("min_price_minor")
+  effectiveFrom    DateTime  @map("effective_from") @db.Timestamptz(3)
+  effectiveTo      DateTime? @map("effective_to") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch         Branch?        @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  priceList      PriceList      @relation(fields: [priceListId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  productVariant ProductVariant @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  saleLines      SaleLine[]
+
+  @@unique([organizationId, priceListId, productVariantId, branchId, effectiveFrom])
+  @@unique([id, organizationId, productVariantId])
+  @@index([organizationId, productVariantId, effectiveFrom])
+  @@index([organizationId, branchId, productVariantId, effectiveFrom(sort: Desc)], map: "price_entries_effective_branch_lookup_idx")
+  @@map("price_entries")
+}
+
+/// A real customer master. Walk-in sales deliberately use a NULL customer_id
+/// and an immutable name snapshot; no synthetic "walk-in customer" row exists.
+model Customer {
+  id               String                         @id @default(uuid()) @db.Uuid
+  organizationId   String                         @map("organization_id") @db.Uuid
+  customerNumber   String                         @map("customer_number") @db.VarChar(60)
+  fullName         String                         @map("full_name") @db.VarChar(200)
+  phoneE164        String?                        @map("phone_e164") @db.VarChar(20)
+  phoneRaw         String?                        @map("phone_raw") @db.VarChar(40)
+  email            String?                        @db.VarChar(255)
+  marketingConsent CustomerMarketingConsentStatus @default(pending) @map("marketing_consent")
+  addressLine      String?                        @map("address_line") @db.VarChar(500)
+  creditLimitMinor BigInt                         @default(0) @map("credit_limit_minor")
+  notes            String?                        @db.VarChar(1000)
+  isActive         Boolean                        @default(true) @map("is_active")
+  deletedAt        DateTime?                      @map("deleted_at") @db.Timestamptz(3)
+  version          Int                            @default(1)
+  createdAt        DateTime                       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  sales          Sale[]
+  payments       Payment[]
+  receivables    Receivable[]
+  saleReturns    SaleReturn[]
+  demandRequests DemandRequest[]
+
+  @@unique([organizationId, customerNumber])
+  @@unique([id, organizationId])
+  @@index([organizationId, isActive, fullName])
+  @@map("customers")
+}
+
+/// Minimal drawer lifecycle required by cash sales. Closing evidence remains a
+/// later child table so reopening can never overwrite an earlier count.
+model CashSession {
+  id               String            @id @default(uuid()) @db.Uuid
+  organizationId   String            @map("organization_id") @db.Uuid
+  branchId         String            @map("branch_id") @db.Uuid
+  sessionNumber    String            @map("session_number") @db.VarChar(100)
+  cashierUserId    String            @map("cashier_user_id") @db.Uuid
+  openedByUserId   String            @map("opened_by_user_id") @db.Uuid
+  status           CashSessionStatus @default(open)
+  openingCashMinor BigInt            @map("opening_cash_minor")
+  openedAt         DateTime          @default(now()) @map("opened_at") @db.Timestamptz(3)
+  closedAt         DateTime?         @map("closed_at") @db.Timestamptz(3)
+  businessDate     DateTime          @map("business_date") @db.Date
+  version          Int               @default(1)
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  cashier      User         @relation("CashSessionCashier", fields: [cashierUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  openedBy     User         @relation("CashSessionOpener", fields: [openedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sales        Sale[]
+  payments     Payment[]
+  refunds      Refund[]
+
+  @@unique([organizationId, branchId, sessionNumber])
+  @@unique([id, organizationId, branchId])
+  @@index([organizationId, branchId, businessDate])
+  @@map("cash_sessions")
+}
+
+/// Branch-scoped chart-of-account row. Balances are always derived from the
+/// immutable financial_entries ledger, never stored as a mutable counter here.
+model FinancialAccount {
+  id                       String                  @id @default(uuid()) @db.Uuid
+  organizationId           String                  @map("organization_id") @db.Uuid
+  branchId                 String                  @map("branch_id") @db.Uuid
+  code                     String                  @db.VarChar(60)
+  name                     String                  @db.VarChar(200)
+  accountType              FinancialAccountType    @map("account_type")
+  accountSubtype           FinancialAccountSubtype @map("account_subtype")
+  normalBalance            LedgerDirection         @map("normal_balance")
+  lowBalanceThresholdMinor BigInt?                 @map("low_balance_threshold_minor")
+  isActive                 Boolean                 @default(true) @map("is_active")
+  version                  Int                     @default(1)
+  createdAt                DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch           @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  payments     Payment[]
+  entries      FinancialEntry[]
+  refunds      Refund[]
+
+  @@unique([organizationId, branchId, code])
+  @@unique([id, organizationId, branchId])
+  @@index([organizationId, branchId, accountSubtype, isActive])
+  @@map("financial_accounts")
+}
+
+/// Sale header. Mutable only in draft; posting freezes the request evidence,
+/// invoice, customer/walk-in snapshot and all exact financial totals.
+model Sale {
+  id                       String     @id @default(uuid()) @db.Uuid
+  organizationId           String     @map("organization_id") @db.Uuid
+  branchId                 String     @map("branch_id") @db.Uuid
+  invoiceNumber            String?    @map("invoice_number") @db.VarChar(100)
+  customerId               String?    @map("customer_id") @db.Uuid
+  customerNameSnapshot     String     @map("customer_name_snapshot") @db.VarChar(200)
+  customerPhoneSnapshot    String?    @map("customer_phone_snapshot") @db.VarChar(20)
+  salespersonUserId        String     @map("salesperson_user_id") @db.Uuid
+  cashierUserId            String     @map("cashier_user_id") @db.Uuid
+  cashSessionId            String?    @map("cash_session_id") @db.Uuid
+  status                   SaleStatus @default(draft)
+  subtotalMinor            BigInt     @default(0) @map("subtotal_minor")
+  discountMinor            BigInt     @default(0) @map("discount_minor")
+  taxMinor                 BigInt     @default(0) @map("tax_minor")
+  totalMinor               BigInt     @default(0) @map("total_minor")
+  cogsMinor                BigInt     @default(0) @map("cogs_minor")
+  grossProfitMinor         BigInt     @default(0) @map("gross_profit_minor")
+  discountReason           String?    @map("discount_reason") @db.VarChar(500)
+  note                     String?    @db.VarChar(500)
+  discountApprovedByUserId String?    @map("discount_approved_by_user_id") @db.Uuid
+  heldAt                   DateTime?  @map("held_at") @db.Timestamptz(3)
+  heldByUserId             String?    @map("held_by_user_id") @db.Uuid
+  cancelledAt              DateTime?  @map("cancelled_at") @db.Timestamptz(3)
+  cancelledByUserId        String?    @map("cancelled_by_user_id") @db.Uuid
+  cancellationReason       String?    @map("cancellation_reason") @db.VarChar(500)
+  returnWindowDays         Int        @default(7) @map("return_window_days")
+  postedAt                 DateTime?  @map("posted_at") @db.Timestamptz(3)
+  businessDate             DateTime?  @map("business_date") @db.Date
+  postRequestId            String?    @map("post_request_id") @db.Uuid
+  postRequestHash          String?    @map("post_request_hash") @db.Char(64)
+  /// Complete receipt evidence captured by the posting transaction. Nullable
+  /// only so sales posted before migration 0012 retain a legacy live fallback.
+  receiptSnapshot          Json?      @map("receipt_snapshot")
+  version                  Int        @default(1)
+  createdAt                DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch           Branch              @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  customer         Customer?           @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  salesperson      User                @relation("SaleSalesperson", fields: [salespersonUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  cashier          User                @relation("SaleCashier", fields: [cashierUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  cashSession      CashSession?        @relation(fields: [cashSessionId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  discountApprover User?               @relation("SaleDiscountApprover", fields: [discountApprovedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  heldBy           User?               @relation("SaleHolder", fields: [heldByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  cancelledBy      User?               @relation("SaleCanceller", fields: [cancelledByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lines            SaleLine[]
+  allocations      PaymentAllocation[]
+  receivable       Receivable?
+  returns          SaleReturn[]        @relation("OriginalSaleReturns")
+  returnLines      ReturnLine[]        @relation("ReturnLineSale")
+
+  @@unique([organizationId, branchId, invoiceNumber])
+  @@unique([organizationId, branchId, postRequestId])
+  @@unique([id, organizationId])
+  @@unique([id, organizationId, branchId])
+  @@unique([id, organizationId, branchId, customerId])
+  @@index([organizationId, branchId, businessDate, postedAt])
+  @@index([organizationId, customerId, postedAt])
+  @@map("sales")
+}
+
+/// Immutable posted product/identifier/price/cost/warranty snapshot. Draft
+/// lines remain editable until the parent sale is posted in one transaction.
+model SaleLine {
+  id                     String       @id @default(uuid()) @db.Uuid
+  organizationId         String       @map("organization_id") @db.Uuid
+  branchId               String       @map("branch_id") @db.Uuid
+  saleId                 String       @map("sale_id") @db.Uuid
+  stockLocationId        String       @map("stock_location_id") @db.Uuid
+  lineNumber             Int          @map("line_number")
+  productVariantId       String       @map("product_variant_id") @db.Uuid
+  priceEntryId           String?      @map("price_entry_id") @db.Uuid
+  serializedUnitId       String?      @map("serialized_unit_id") @db.Uuid
+  trackingTypeSnapshot   TrackingType @map("tracking_type_snapshot")
+  productNameSnapshot    String       @map("product_name_snapshot") @db.VarChar(240)
+  skuSnapshot            String       @map("sku_snapshot") @db.VarChar(100)
+  imeiSnapshot           String?      @map("imei_snapshot") @db.VarChar(140)
+  quantity               Int
+  unitPriceMinor         BigInt       @map("unit_price_minor")
+  priceVersionSnapshot   Int          @map("price_version_snapshot")
+  discountMinor          BigInt       @default(0) @map("discount_minor")
+  discountReason         String?      @map("discount_reason") @db.VarChar(500)
+  taxMinor               BigInt       @default(0) @map("tax_minor")
+  lineTotalMinor         BigInt       @map("line_total_minor")
+  unitCogsMinor          BigInt       @map("unit_cogs_minor")
+  cogsMinor              BigInt       @map("cogs_minor")
+  grossProfitMinor       BigInt       @map("gross_profit_minor")
+  warrantyTypeSnapshot   WarrantyType @map("warranty_type_snapshot")
+  warrantyMonthsSnapshot Int?         @map("warranty_months_snapshot")
+  isManualLine           Boolean      @default(false) @map("is_manual_line")
+  unitSaleActive         Boolean      @default(false) @map("unit_sale_active")
+  createdAt              DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch         Branch          @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sale           Sale            @relation(fields: [saleId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  stockLocation  StockLocation   @relation(fields: [stockLocationId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  productVariant ProductVariant  @relation(fields: [productVariantId, organizationId, trackingTypeSnapshot], references: [id, organizationId, trackingType], onDelete: Restrict)
+  priceEntry     PriceEntry?     @relation(fields: [priceEntryId, organizationId, productVariantId], references: [id, organizationId, productVariantId], onDelete: Restrict)
+  serializedUnit SerializedUnit? @relation(fields: [serializedUnitId, organizationId, branchId, productVariantId, stockLocationId], references: [id, organizationId, branchId, productVariantId, stockLocationId], onDelete: Restrict)
+  returnLines    ReturnLine[]
+
+  @@unique([organizationId, saleId, lineNumber])
+  @@unique([id, organizationId])
+  @@unique([id, organizationId, saleId])
+  @@index([organizationId, productVariantId])
+  @@index([organizationId, serializedUnitId])
+  @@map("sale_lines")
+}
+
+/// Return intake and refund header. Draft rows capture observed customer
+/// evidence; posting freezes policy, settlement and approval evidence.
+model SaleReturn {
+  id                       String       @id @default(uuid()) @db.Uuid
+  organizationId           String       @map("organization_id") @db.Uuid
+  branchId                 String       @map("branch_id") @db.Uuid
+  saleId                   String       @map("sale_id") @db.Uuid
+  customerId               String?      @map("customer_id") @db.Uuid
+  returnNumber             String?      @map("return_number") @db.VarChar(100)
+  status                   ReturnStatus @default(draft)
+  reason                   String       @db.VarChar(500)
+  evidenceNote             String       @map("evidence_note") @db.VarChar(1000)
+  totalRefundMinor         BigInt       @default(0) @map("total_refund_minor")
+  totalCogsReversalMinor   BigInt       @default(0) @map("total_cogs_reversal_minor")
+  receivableCreditMinor    BigInt       @default(0) @map("receivable_credit_minor")
+  refundedMinor            BigInt       @default(0) @map("refunded_minor")
+  returnWindowDaysSnapshot Int          @map("return_window_days_snapshot")
+  returnDeadline           DateTime     @map("return_deadline") @db.Timestamptz(3)
+  policyCheckedAt          DateTime     @map("policy_checked_at") @db.Timestamptz(3)
+  policyExpired            Boolean      @map("policy_expired")
+  policyOverridden         Boolean      @default(false) @map("policy_overridden")
+  policyOverrideReason     String?      @map("policy_override_reason") @db.VarChar(500)
+  policyOverriddenByUserId String?      @map("policy_overridden_by_user_id") @db.Uuid
+  policyOverriddenAt       DateTime?    @map("policy_overridden_at") @db.Timestamptz(3)
+  approvedByUserId         String?      @map("approved_by_user_id") @db.Uuid
+  createdByUserId          String       @map("created_by_user_id") @db.Uuid
+  postRequestId            String?      @map("post_request_id") @db.Uuid
+  postRequestHash          String?      @map("post_request_hash") @db.Char(64)
+  postedAt                 DateTime?    @map("posted_at") @db.Timestamptz(3)
+  businessDate             DateTime?    @map("business_date") @db.Date
+  version                  Int          @default(1)
+  createdAt                DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch             Branch       @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sale               Sale         @relation("OriginalSaleReturns", fields: [saleId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  customer           Customer?    @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  createdBy          User         @relation("ReturnCreator", fields: [createdByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  approvedBy         User?        @relation("ReturnApprover", fields: [approvedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  policyOverriddenBy User?        @relation("ReturnPolicyOverrider", fields: [policyOverriddenByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lines              ReturnLine[]
+  refund             Refund?
+
+  @@unique([organizationId, branchId, returnNumber])
+  @@unique([organizationId, branchId, postRequestId])
+  @@unique([id, organizationId, branchId])
+  @@index([organizationId, branchId, status, createdAt(sort: Desc)])
+  @@index([organizationId, saleId, status])
+  @@index([organizationId, customerId, createdAt(sort: Desc)])
+  @@map("returns")
+}
+
+/// Immutable original-sale allocation for a returned unit or quantity.
+model ReturnLine {
+  id                   String              @id @default(uuid()) @db.Uuid
+  organizationId       String              @map("organization_id") @db.Uuid
+  branchId             String              @map("branch_id") @db.Uuid
+  returnId             String              @map("return_id") @db.Uuid
+  saleId               String              @map("sale_id") @db.Uuid
+  saleLineId           String              @map("sale_line_id") @db.Uuid
+  productVariantId     String              @map("product_variant_id") @db.Uuid
+  stockLocationId      String              @map("stock_location_id") @db.Uuid
+  serializedUnitId     String?             @map("serialized_unit_id") @db.Uuid
+  trackingTypeSnapshot TrackingType        @map("tracking_type_snapshot")
+  productNameSnapshot  String              @map("product_name_snapshot") @db.VarChar(240)
+  skuSnapshot          String              @map("sku_snapshot") @db.VarChar(100)
+  identifierSnapshot   String?             @map("identifier_snapshot") @db.VarChar(140)
+  quantity             Int
+  refundMinor          BigInt              @map("refund_minor")
+  cogsReversalMinor    BigInt              @map("cogs_reversal_minor")
+  condition            ReturnItemCondition
+  /// Null means inspection is pending; posting never invents an outcome.
+  outcome              ReturnOutcome?
+  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch         Branch          @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  saleReturn     SaleReturn      @relation(fields: [returnId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  sale           Sale            @relation("ReturnLineSale", fields: [saleId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  saleLine       SaleLine        @relation(fields: [saleLineId, organizationId, saleId], references: [id, organizationId, saleId], onDelete: Restrict)
+  productVariant ProductVariant  @relation(fields: [productVariantId, organizationId, trackingTypeSnapshot], references: [id, organizationId, trackingType], onDelete: Restrict)
+  stockLocation  StockLocation   @relation(fields: [stockLocationId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  serializedUnit SerializedUnit? @relation(fields: [serializedUnitId, organizationId, branchId, productVariantId, stockLocationId], references: [id, organizationId, branchId, productVariantId, stockLocationId], onDelete: Restrict)
+
+  @@unique([organizationId, returnId, saleLineId])
+  @@unique([organizationId, returnId, serializedUnitId])
+  @@unique([id, organizationId])
+  @@index([organizationId, saleId, saleLineId])
+  @@index([organizationId, serializedUnitId])
+  @@map("return_lines")
+}
+
+/// Immutable external refund evidence. Return credit against an outstanding
+/// receivable is stored separately on the return/receivable, never as a refund.
+model Refund {
+  id                 String        @id @default(uuid()) @db.Uuid
+  organizationId     String        @map("organization_id") @db.Uuid
+  branchId           String        @map("branch_id") @db.Uuid
+  returnId           String        @map("return_id") @db.Uuid
+  refundNumber       String        @map("refund_number") @db.VarChar(100)
+  paymentMethod      PaymentMethod @map("payment_method")
+  amountMinor        BigInt        @map("amount_minor")
+  financialAccountId String        @map("financial_account_id") @db.Uuid
+  reference          String?       @db.VarChar(200)
+  cashSessionId      String?       @map("cash_session_id") @db.Uuid
+  refundedAt         DateTime      @default(now()) @map("refunded_at") @db.Timestamptz(3)
+  businessDate       DateTime      @map("business_date") @db.Date
+  processedByUserId  String        @map("processed_by_user_id") @db.Uuid
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch           Branch           @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  saleReturn       SaleReturn       @relation(fields: [returnId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  financialAccount FinancialAccount @relation(fields: [financialAccountId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  cashSession      CashSession?     @relation(fields: [cashSessionId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  processedBy      User             @relation("RefundProcessor", fields: [processedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, branchId, returnId])
+  @@unique([returnId, organizationId, branchId])
+  @@unique([organizationId, branchId, refundNumber])
+  @@unique([id, organizationId, branchId])
+  @@index([organizationId, branchId, businessDate, refundedAt])
+  @@map("refunds")
+}
+
+/// Immutable receipt of money. Every payment is allocated exactly once across
+/// a sale or receivable inside the same organization and branch.
+model Payment {
+  id                 String        @id @default(uuid()) @db.Uuid
+  organizationId     String        @map("organization_id") @db.Uuid
+  branchId           String        @map("branch_id") @db.Uuid
+  paymentNumber      String        @map("payment_number") @db.VarChar(100)
+  customerId         String?       @map("customer_id") @db.Uuid
+  paymentMethod      PaymentMethod @map("payment_method")
+  amountMinor        BigInt        @map("amount_minor")
+  financialAccountId String        @map("financial_account_id") @db.Uuid
+  reference          String?       @db.VarChar(200)
+  receivedAt         DateTime      @default(now()) @map("received_at") @db.Timestamptz(3)
+  businessDate       DateTime      @map("business_date") @db.Date
+  cashSessionId      String?       @map("cash_session_id") @db.Uuid
+  receivedByUserId   String        @map("received_by_user_id") @db.Uuid
+  idempotencyKey     String        @map("idempotency_key") @db.Uuid
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch           Branch              @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  customer         Customer?           @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  financialAccount FinancialAccount    @relation(fields: [financialAccountId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  cashSession      CashSession?        @relation(fields: [cashSessionId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  receivedBy       User                @relation("PaymentReceiver", fields: [receivedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  allocations      PaymentAllocation[]
+
+  @@unique([organizationId, branchId, paymentNumber])
+  @@unique([organizationId, branchId, idempotencyKey])
+  @@unique([id, organizationId, branchId])
+  @@index([organizationId, branchId, businessDate, receivedAt])
+  @@index([organizationId, cashSessionId])
+  @@map("payments")
+}
+
+/// Customer credit created with a posted sale. Source and original amount are
+/// immutable; only paid/balance/status/version advance during collection.
+model Receivable {
+  id               String           @id @default(uuid()) @db.Uuid
+  organizationId   String           @map("organization_id") @db.Uuid
+  branchId         String           @map("branch_id") @db.Uuid
+  customerId       String           @map("customer_id") @db.Uuid
+  saleId           String           @map("sale_id") @db.Uuid
+  amountMinor      BigInt           @map("amount_minor")
+  paidMinor        BigInt           @default(0) @map("paid_minor")
+  /// Return credit reduces debt without pretending the customer paid cash.
+  creditedMinor    BigInt           @default(0) @map("credited_minor")
+  balanceMinor     BigInt           @map("balance_minor")
+  dueOn            DateTime         @map("due_on") @db.Date
+  status           ReceivableStatus @default(open)
+  approvedByUserId String           @map("approved_by_user_id") @db.Uuid
+  version          Int              @default(1)
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch              @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  customer     Customer            @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sale         Sale                @relation(fields: [saleId, organizationId, branchId, customerId], references: [id, organizationId, branchId, customerId], onDelete: Restrict)
+  approvedBy   User                @relation("ReceivableApprover", fields: [approvedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  allocations  PaymentAllocation[]
+
+  @@unique([organizationId, saleId])
+  @@unique([saleId, organizationId, branchId, customerId])
+  @@unique([id, organizationId, branchId])
+  @@index([organizationId, branchId, status, dueOn])
+  @@index([organizationId, customerId, status])
+  @@map("receivables")
+}
+
+/// One immutable allocation targets exactly one sale or one receivable.
+model PaymentAllocation {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  branchId       String   @map("branch_id") @db.Uuid
+  paymentId      String   @map("payment_id") @db.Uuid
+  saleId         String?  @map("sale_id") @db.Uuid
+  receivableId   String?  @map("receivable_id") @db.Uuid
+  amountMinor    BigInt   @map("amount_minor")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  payment      Payment      @relation(fields: [paymentId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  sale         Sale?        @relation(fields: [saleId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  receivable   Receivable?  @relation(fields: [receivableId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+
+  @@unique([organizationId, paymentId, saleId])
+  @@unique([organizationId, paymentId, receivableId])
+  @@unique([id, organizationId])
+  @@index([organizationId, saleId])
+  @@index([organizationId, receivableId])
+  @@map("payment_allocations")
+}
+
+/// Append-only financial ledger leg. Corrections are compensating entries;
+/// source_key makes every posting leg idempotent across retries.
+model FinancialEntry {
+  id                 String                   @id @default(uuid()) @db.Uuid
+  organizationId     String                   @map("organization_id") @db.Uuid
+  branchId           String                   @map("branch_id") @db.Uuid
+  entryGroupId       String                   @map("entry_group_id") @db.Uuid
+  sourceType         FinancialEntrySourceType @map("source_type")
+  sourceId           String?                  @map("source_id") @db.Uuid
+  sourceKey          String                   @map("source_key") @db.VarChar(240)
+  financialAccountId String                   @map("financial_account_id") @db.Uuid
+  direction          LedgerDirection
+  amountMinor        BigInt                   @map("amount_minor")
+  description        String                   @db.VarChar(500)
+  occurredAt         DateTime                 @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  businessDate       DateTime                 @map("business_date") @db.Date
+  actorUserId        String                   @map("actor_user_id") @db.Uuid
+  createdAt          DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch           Branch           @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  financialAccount FinancialAccount @relation(fields: [financialAccountId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  actor            User             @relation("FinancialEntryActor", fields: [actorUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, sourceKey])
+  @@unique([id, organizationId])
+  @@index([organizationId, financialAccountId, businessDate])
+  @@index([organizationId, sourceType, sourceId])
+  @@index([organizationId, entryGroupId])
+  @@map("financial_entries")
+}
+
+/// Mirrors shared/src/enums.ts SALE_STATUSES exactly.
+enum SaleStatus {
+  draft
+  posted
+  cancelled
+  partially_returned
+  returned
+}
+
+/// Mirrors shared/src/enums.ts RETURN_STATUSES exactly.
+enum ReturnStatus {
+  draft
+  posted
+  cancelled
+}
+
+/// Physical condition observed during return intake.
+enum ReturnItemCondition {
+  like_new
+  new
+  used
+  faulty
+  damaged
+}
+
+/// Mirrors shared/src/enums.ts RETURN_OUTCOMES exactly.
+enum ReturnOutcome {
+  restock
+  quarantine
+  supplier_warranty
+  write_off
+  repair
+}
+
+/// Mirrors shared/src/enums.ts PAYMENT_METHODS exactly.
+enum PaymentMethod {
+  cash
+  bank_transfer
+  card
+  digital_wallet
+  credit
+}
+
+/// Mirrors shared/src/enums.ts CASH_SESSION_STATUSES exactly.
+enum CashSessionStatus {
+  open
+  closing_pending
+  closed
+  reviewed
+  reopened_with_authorization
+}
+
+/// Mirrors shared/src/enums.ts LEDGER_DIRECTIONS exactly.
+enum LedgerDirection {
+  debit
+  credit
+}
+
+enum FinancialAccountType {
+  asset
+  liability
+  equity
+  revenue
+  expense
+}
+
+enum FinancialAccountSubtype {
+  physical_cash
+  bank
+  provider_float
+  receivable
+  inventory_asset
+  sales_revenue
+  sales_discount
+  cost_of_goods_sold
+  tax_payable
+  other
+}
+
+enum FinancialEntrySourceType {
+  sale
+  return
+  refund
+  payment
+  receivable
+  opening_balance
+}
+
+enum ReceivableStatus {
+  open
+  partially_paid
+  paid
+  cancelled
+}
+
+/// Mirrors shared/src/customers.ts CUSTOMER_MARKETING_CONSENT_STATUSES.
+enum CustomerMarketingConsentStatus {
+  pending
+  granted
+  declined
+  withdrawn
+}
+
+// =============================================================================
+// Customer demand and missed-sale evidence
+// =============================================================================
+
+/// One customer interaction. Anonymous walk-ins deliberately carry neither a
+/// customer id nor a phone. Request numbers are allocated by the server inside
+/// the branch scope; version is the optimistic-concurrency token.
+model DemandRequest {
+  id                        String                           @id @default(uuid()) @db.Uuid
+  organizationId            String                           @map("organization_id") @db.Uuid
+  branchId                  String                           @map("branch_id") @db.Uuid
+  requestNumber             String                           @map("request_number") @db.VarChar(40)
+  customerId                String?                          @map("customer_id") @db.Uuid
+  customerName              String?                          @map("customer_name") @db.VarChar(200)
+  contactPhoneE164          String?                          @map("contact_phone_e164") @db.VarChar(20)
+  quantity                  Int                              @default(1)
+  budgetMinMinor            BigInt?                          @map("budget_min_minor")
+  budgetMaxMinor            BigInt?                          @map("budget_max_minor")
+  ptaPreference             DemandPtaPreference              @default(no_preference) @map("pta_preference")
+  urgency                   DemandUrgency                    @default(within_week)
+  channel                   DemandChannel                    @default(walk_in)
+  status                    DemandStatus                     @default(new)
+  outcome                   DemandOutcome                    @default(unknown)
+  availabilityState         DemandAvailabilityState          @default(unknown) @map("availability_state")
+  availabilityUnknownReason DemandUnknownAvailabilityReason? @map("availability_unknown_reason")
+  availableQuantitySnapshot Int?                             @map("available_quantity_snapshot")
+  availabilityCheckedAt     DateTime?                        @map("availability_checked_at") @db.Timestamptz(3)
+  unitPriceMinorSnapshot    BigInt?                          @map("unit_price_minor_snapshot")
+  followUpOn                DateTime?                        @map("follow_up_on") @db.Date
+  consentToContact          Boolean                          @default(false) @map("consent_to_contact")
+  tradeInInterest           Boolean                          @default(false) @map("trade_in_interest")
+  note                      String?                          @db.VarChar(500)
+  lostSaleReason            String?                          @map("lost_sale_reason") @db.VarChar(500)
+  dedupeGroupId             String?                          @map("dedupe_group_id") @db.Uuid
+  convertedTargetType       DemandConversionTargetType?      @map("converted_target_type")
+  convertedTargetId         String?                          @map("converted_target_id") @db.Uuid
+  convertedAt               DateTime?                        @map("converted_at") @db.Timestamptz(3)
+  salespersonUserId         String                           @map("salesperson_user_id") @db.Uuid
+  version                   Int                              @default(1)
+  createdAt                 DateTime                         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                 DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch              @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  customer     Customer?           @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  salesperson  User                @relation("DemandSalesperson", fields: [salespersonUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  items        DemandRequestItem[]
+  followUps    DemandFollowUp[]
+
+  @@unique([organizationId, branchId, requestNumber])
+  @@unique([id, organizationId, branchId])
+  @@index([organizationId, branchId, status, followUpOn])
+  @@index([organizationId, branchId, outcome, createdAt(sort: Desc)])
+  @@index([organizationId, branchId, urgency, createdAt(sort: Desc)])
+  @@index([organizationId, branchId, channel, createdAt(sort: Desc)])
+  @@index([organizationId, customerId, createdAt(sort: Desc)])
+  @@index([organizationId, branchId, dedupeGroupId])
+  @@index([organizationId, branchId, convertedTargetType, convertedTargetId])
+  @@map("demand_requests")
+}
+
+/// Requested product detail. A match may be attached later, but the customer's
+/// original wording is immutable evidence and is never replaced by catalog text.
+model DemandRequestItem {
+  id                      String            @id @default(uuid()) @db.Uuid
+  organizationId          String            @map("organization_id") @db.Uuid
+  branchId                String            @map("branch_id") @db.Uuid
+  demandRequestId         String            @map("demand_request_id") @db.Uuid
+  lineNumber              Int               @map("line_number")
+  rawRequestText          String            @map("raw_request_text") @db.VarChar(500)
+  matchedProductVariantId String?           @map("matched_product_variant_id") @db.Uuid
+  matchedProductModelId   String?           @map("matched_product_model_id") @db.Uuid
+  desiredBrand            String?           @map("desired_brand") @db.VarChar(120)
+  desiredModel            String?           @map("desired_model") @db.VarChar(120)
+  desiredVariant          String?           @map("desired_variant") @db.VarChar(120)
+  desiredRam              String?           @map("desired_ram") @db.VarChar(120)
+  desiredStorage          String?           @map("desired_storage") @db.VarChar(120)
+  desiredColor            String?           @map("desired_color") @db.VarChar(120)
+  conditionPreference     ProductCondition? @map("condition_preference")
+  createdAt               DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization          Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch                Branch          @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  demandRequest         DemandRequest   @relation(fields: [demandRequestId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  matchedProductVariant ProductVariant? @relation(fields: [matchedProductVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  matchedProductModel   ProductModel?   @relation(fields: [matchedProductModelId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, demandRequestId, lineNumber])
+  @@unique([id, organizationId, branchId])
+  @@index([organizationId, matchedProductVariantId, createdAt(sort: Desc)])
+  @@index([organizationId, matchedProductModelId, createdAt(sort: Desc)])
+  @@index([organizationId, branchId, demandRequestId])
+  @@map("demand_request_items")
+}
+
+/// Append-only contact/reminder/history evidence. Completion or correction is
+/// represented by another row, never by rewriting an earlier interaction.
+model DemandFollowUp {
+  id              String               @id @default(uuid()) @db.Uuid
+  organizationId  String               @map("organization_id") @db.Uuid
+  branchId        String               @map("branch_id") @db.Uuid
+  demandRequestId String               @map("demand_request_id") @db.Uuid
+  occurredAt      DateTime             @map("occurred_at") @db.Timestamptz(3)
+  channel         DemandChannel
+  result          DemandFollowUpResult
+  note            String               @db.VarChar(1000)
+  nextFollowUpOn  DateTime?            @map("next_follow_up_on") @db.Date
+  actorUserId     String               @map("actor_user_id") @db.Uuid
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch        Branch        @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  demandRequest DemandRequest @relation(fields: [demandRequestId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  actor         User          @relation("DemandFollowUpActor", fields: [actorUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([id, organizationId, branchId])
+  @@index([organizationId, branchId, demandRequestId, createdAt])
+  @@index([organizationId, branchId, nextFollowUpOn])
+  @@index([organizationId, actorUserId, createdAt])
+  @@map("demand_follow_ups")
+}
+
+/// Mirrors shared/src/enums.ts DEMAND_STATUSES exactly.
+enum DemandStatus {
+  new
+  contacted
+  sourcing
+  available
+  customer_notified
+  converted_to_sale
+  not_interested
+  closed
+}
+
+/// Mirrors shared/src/enums.ts DEMAND_OUTCOMES exactly.
+enum DemandOutcome {
+  sold_immediately
+  reserved
+  quotation_sent
+  unavailable
+  price_too_high
+  customer_postponed
+  bought_elsewhere
+  incompatible_requirement
+  invalid_or_fraudulent
+  unknown
+}
+
+/// Mirrors shared/src/enums.ts DEMAND_URGENCIES exactly.
+enum DemandUrgency {
+  immediate
+  within_week
+  within_month
+  flexible
+}
+
+/// Mirrors shared/src/enums.ts DEMAND_CHANNELS exactly.
+enum DemandChannel {
+  walk_in
+  phone
+  whatsapp
+  referral
+  other
+}
+
+enum DemandPtaPreference {
+  pta_only
+  non_pta_ok
+  no_preference
+}
+
+enum DemandAvailabilityState {
+  available
+  unavailable
+  not_in_catalog
+  unknown
+}
+
+enum DemandUnknownAvailabilityReason {
+  not_checked
+  permission_denied
+  lookup_failed
+}
+
+enum DemandConversionTargetType {
+  catalog_entry
+  quotation
+  reservation
+  supplier_inquiry
+  purchase_recommendation
+  sale
+}
+
+enum DemandFollowUpResult {
+  reached
+  no_answer
+  message_sent
+  customer_replied
+  reminder_set
+  other
+}
+
+// =============================================================================
 // Users, roles and permissions
 // =============================================================================
 
@@ -940,6 +1783,23 @@ model User {
   closedPurchaseOrders    PurchaseOrder[] @relation("PurchaseOrderCloser")
   cancelledPurchaseOrders PurchaseOrder[] @relation("PurchaseOrderCanceller")
   receivedGoodsReceipts   GoodsReceipt[]  @relation("GoodsReceiptReceiver")
+
+  cashierCashSessions       CashSession[]    @relation("CashSessionCashier")
+  openedCashSessions        CashSession[]    @relation("CashSessionOpener")
+  salespersonSales          Sale[]           @relation("SaleSalesperson")
+  cashierSales              Sale[]           @relation("SaleCashier")
+  approvedSaleDiscounts     Sale[]           @relation("SaleDiscountApprover")
+  heldSales                 Sale[]           @relation("SaleHolder")
+  cancelledSales            Sale[]           @relation("SaleCanceller")
+  receivedPayments          Payment[]        @relation("PaymentReceiver")
+  approvedReceivables       Receivable[]     @relation("ReceivableApprover")
+  authoredFinancialEntries  FinancialEntry[] @relation("FinancialEntryActor")
+  salespersonDemandRequests DemandRequest[]  @relation("DemandSalesperson")
+  authoredDemandFollowUps   DemandFollowUp[] @relation("DemandFollowUpActor")
+  createdReturns            SaleReturn[]     @relation("ReturnCreator")
+  approvedReturns           SaleReturn[]     @relation("ReturnApprover")
+  policyOverriddenReturns   SaleReturn[]     @relation("ReturnPolicyOverrider")
+  processedRefunds          Refund[]         @relation("RefundProcessor")
 
   @@unique([organizationId, email])
   @@unique([id, organizationId])

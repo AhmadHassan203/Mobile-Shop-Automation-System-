@@ -69,6 +69,8 @@ const {
   catalogReadErrorCopy,
   orderedProductBarcodes,
   productIdentityRows,
+  productPriceFromLookup,
+  productPricingLookupParameters,
 } = await import("./product-detail-drawer");
 const {
   ProductFormDrawer,
@@ -416,8 +418,10 @@ describe("product detail drawer", () => {
     const html = render(
       client,
       createElement(ProductDetailDrawer, {
+        canManagePricing: false,
         canUpdate: true,
         canView: true,
+        canViewPricing: false,
         onClose: vi.fn(),
         onEdit: vi.fn(),
         productId: PRODUCT_ID,
@@ -433,27 +437,71 @@ describe("product detail drawer", () => {
     expect(html).toContain("Edit product");
   });
 
-  it("states that inventory and pricing are unavailable instead of faking them", () => {
+  it("links to live Stock and shows the exact product's authoritative price", () => {
     const client = newQueryClient();
     client.setQueryData(
       queryKeys.catalogProductDetail(PRODUCT_ID),
       productDetail,
     );
+    const pricePage = {
+      items: [
+        {
+          productVariantId: PRODUCT_ID,
+          sku: productDetail.sku,
+          name: productDetail.name,
+          brandName: productDetail.productModel.brand.name,
+          modelName: productDetail.productModel.name,
+          categoryName: productDetail.productModel.category.name,
+          trackingType: "serialized" as const,
+          condition: "new" as const,
+          ptaStatus: "pta_approved" as const,
+          productVersion: productDetail.version,
+          effectivePrice: {
+            currency: "PKR",
+            unitPriceMinor: 12_500_000,
+            minimumUnitPriceMinor: 12_000_000,
+            source: "variant_default" as const,
+            sourceId: null,
+            version: productDetail.version,
+            effectiveAt: "2026-07-16T10:00:00.000Z",
+          },
+          stock: { availability: "out_of_stock" as const },
+        },
+      ],
+      page: 1,
+      pageSize: PAGINATION.MAX_PAGE_SIZE,
+      total: 1,
+      totalPages: 1,
+    };
+    client.setQueryData(
+      queryKeys.posLookup(productPricingLookupParameters(productDetail)),
+      pricePage,
+    );
 
     const html = render(
       client,
       createElement(ProductDetailDrawer, {
+        canManagePricing: false,
         canUpdate: false,
         canView: true,
+        canViewPricing: true,
         onClose: vi.fn(),
         onEdit: vi.fn(),
         productId: PRODUCT_ID,
       }),
     );
 
-    expect(html).toContain("Inventory and pricing are unavailable");
-    expect(html).toContain("have not been built yet");
+    expect(html).toContain("Stock and pricing are live");
+    expect(html).toContain(`/stock?q=${productDetail.sku}`);
+    expect(html).toContain("PKR 125,000.00");
+    expect(html).toContain("Product default");
+    expect(html).toContain("pricing.manage");
+    expect(html).not.toContain("have not been built yet");
     expect(html).not.toContain("Edit product");
+
+    expect(productPriceFromLookup(pricePage, PRODUCT_ID)).toEqual(
+      pricePage.items[0]?.effectivePrice,
+    );
   });
 
   it("orders barcodes primary-first regardless of stored order", () => {
@@ -469,8 +517,10 @@ describe("product detail drawer", () => {
     const html = render(
       client,
       createElement(ProductDetailDrawer, {
+        canManagePricing: false,
         canUpdate: false,
         canView: false,
+        canViewPricing: false,
         onClose: vi.fn(),
         onEdit: vi.fn(),
         productId: PRODUCT_ID,

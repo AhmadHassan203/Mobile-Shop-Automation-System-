@@ -1,6 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { formatMoney, PAGINATION, toMinor } from "@mobileshop/shared";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import type { JSX } from "react";
 import { CatalogDrawer } from "./catalog-drawer";
 import {
@@ -8,10 +10,14 @@ import {
   CatalogForbiddenState,
   CatalogTableSkeleton,
 } from "./catalog-states";
+import { ProductPricingForm } from "./product-pricing-form";
 import { ShieldCheckIcon } from "@/components/ui/icons";
 import type { CatalogProductDetail } from "@/lib/api/catalog";
 import { toApiError, type ApiError } from "@/lib/api/client";
+import type { PosLookupPage, PosLookupParameters } from "@/lib/api/pricing";
 import { catalogProductDetailQueryOptions } from "@/lib/query/catalog-query";
+import { queryKeys } from "@/lib/query/keys";
+import { posLookupQueryOptions } from "@/lib/query/pos-query";
 
 function titleCase(value: string): string {
   return value
@@ -130,18 +136,35 @@ export function orderedProductBarcodes(
   );
 }
 
-function UnavailableModulesNote(): JSX.Element {
+function LiveOperationsNote({
+  product,
+}: {
+  readonly product: CatalogProductDetail;
+}): JSX.Element {
   return (
     <div className="mt-6 flex items-start gap-2.5 rounded-card border border-info/20 bg-info-soft px-4 py-3 text-[0.8125rem] text-info">
       <ShieldCheckIcon className="mt-0.5 size-[1.125rem] shrink-0" />
       <div>
-        <p className="font-semibold">Inventory and pricing are unavailable</p>
+        <p className="font-semibold">Stock and pricing are live</p>
         <p className="mt-1">
-          Stock on hand, IMEI and serial records, supplier cost, selling price,
-          sales history and demand are deliberately absent from this drawer.
-          Those modules have not been built yet, so this system holds no such
-          values for this product. Nothing is estimated or shown in their place.
+          Catalog identity stays separate from operational records. Review this
+          product in Stock, or manage its live default selling price below.
+          Supplier cost remains outside this drawer.
         </p>
+        <div className="mt-2 flex flex-wrap gap-3 font-semibold">
+          <Link
+            className="underline underline-offset-2 hover:text-ink"
+            href={`/stock?q=${encodeURIComponent(product.sku)}`}
+          >
+            Open Stock
+          </Link>
+          <a
+            className="underline underline-offset-2 hover:text-ink"
+            href="#product-pricing"
+          >
+            Open Pricing
+          </a>
+        </div>
       </div>
     </div>
   );
@@ -223,8 +246,150 @@ function ProductIdentity({
         )}
       </div>
 
-      <UnavailableModulesNote />
+      <LiveOperationsNote product={product} />
     </div>
+  );
+}
+
+/** Lookup is fuzzy by SKU, but only the requested immutable id may be shown. */
+export function productPriceFromLookup(
+  page: PosLookupPage | undefined,
+  productVariantId: string,
+) {
+  return (
+    page?.items.find((item) => item.productVariantId === productVariantId)
+      ?.effectivePrice ?? null
+  );
+}
+
+export function productPricingLookupParameters(
+  product: CatalogProductDetail,
+): PosLookupParameters {
+  return {
+    page: 1,
+    pageSize: PAGINATION.MAX_PAGE_SIZE,
+    q: product.sku,
+  };
+}
+
+function ProductPricing({
+  product,
+  canView,
+  canManage,
+}: {
+  readonly product: CatalogProductDetail;
+  readonly canView: boolean;
+  readonly canManage: boolean;
+}): JSX.Element {
+  const queryClient = useQueryClient();
+  const lookup = useQuery(
+    posLookupQueryOptions(productPricingLookupParameters(product), canView),
+  );
+  const effectivePrice = productPriceFromLookup(lookup.data, product.id);
+  const lookupError = lookup.error === null ? null : toApiError(lookup.error);
+
+  const invalidatePricingAndCatalog = (): void => {
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.posLookupRoot,
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.catalogProductsRoot,
+    });
+  };
+
+  return (
+    <section
+      className="mt-6 border-t border-line-subtle pt-5"
+      id="product-pricing"
+    >
+      <h3 className="text-sm font-semibold text-ink">Pricing</h3>
+      <p className="mt-1 text-xs text-ink-muted">
+        Authoritative selling price for this product and current branch.
+      </p>
+
+      {!canView ? (
+        <p className="mt-3 rounded-control bg-surface-subtle px-3 py-2.5 text-xs text-ink-muted">
+          Viewing the current price requires the pricing.view permission. No
+          pricing request was sent.
+        </p>
+      ) : lookup.isPending ? (
+        <div
+          className="mt-3 h-16 animate-pulse rounded-control bg-line-subtle"
+          role="status"
+        >
+          <span className="sr-only">Loading current price</span>
+        </div>
+      ) : lookupError !== null ? (
+        <div
+          className="mt-3 rounded-control border border-negative/20 bg-negative-soft p-3 text-xs text-negative"
+          role="alert"
+        >
+          <p className="font-semibold">Current price could not be loaded.</p>
+          <p className="mt-1">{lookupError.message}</p>
+          <button
+            className="mt-2 font-semibold underline underline-offset-2"
+            onClick={() => {
+              void lookup.refetch();
+            }}
+            type="button"
+          >
+            Retry pricing
+          </button>
+        </div>
+      ) : effectivePrice === null ? (
+        <div className="mt-3 rounded-control border border-warning/25 bg-warning-soft p-3 text-xs text-warning">
+          <p className="font-semibold">Not configured</p>
+          <p className="mt-1">
+            No active rule or default selling price was returned for this exact
+            product.
+          </p>
+        </div>
+      ) : (
+        <dl className="mt-3 grid gap-3 rounded-control border border-line-subtle bg-surface-subtle p-3 sm:grid-cols-3">
+          <div>
+            <dt className="text-[0.6875rem] font-semibold uppercase tracking-wide text-ink-muted">
+              Effective price
+            </dt>
+            <dd className="mt-0.5 text-sm font-bold text-ink">
+              {formatMoney(
+                toMinor(effectivePrice.unitPriceMinor, "effective price"),
+                effectivePrice.currency,
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[0.6875rem] font-semibold uppercase tracking-wide text-ink-muted">
+              Minimum price
+            </dt>
+            <dd className="mt-0.5 text-sm font-semibold text-ink-subtle">
+              {formatMoney(
+                toMinor(effectivePrice.minimumUnitPriceMinor, "minimum price"),
+                effectivePrice.currency,
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[0.6875rem] font-semibold uppercase tracking-wide text-ink-muted">
+              Source
+            </dt>
+            <dd className="mt-0.5 text-sm font-semibold text-ink-subtle">
+              {effectivePrice.source === "price_rule"
+                ? "Active price rule"
+                : "Product default"}
+            </dd>
+          </div>
+        </dl>
+      )}
+
+      <ProductPricingForm
+        canManage={canManage}
+        effectivePrice={effectivePrice}
+        key={`${product.id}:${product.version}:${effectivePrice?.source ?? "none"}:${effectivePrice?.version ?? 0}`}
+        onSaved={invalidatePricingAndCatalog}
+        productVariantId={product.id}
+        productVersion={product.version}
+      />
+    </section>
   );
 }
 
@@ -232,6 +397,8 @@ export interface ProductDetailDrawerProps {
   readonly productId: string;
   readonly canView: boolean;
   readonly canUpdate: boolean;
+  readonly canViewPricing: boolean;
+  readonly canManagePricing: boolean;
   readonly onClose: () => void;
   readonly onEdit: (productId: string) => void;
 }
@@ -247,6 +414,8 @@ export function ProductDetailDrawer({
   productId,
   canView,
   canUpdate,
+  canViewPricing,
+  canManagePricing,
   onClose,
   onEdit,
 }: ProductDetailDrawerProps): JSX.Element {
@@ -278,7 +447,7 @@ export function ProductDetailDrawer({
 
   return (
     <CatalogDrawer
-      description="Catalog identity for this variant. This drawer holds no stock, IMEI, cost or price data."
+      description="Catalog identity with live selling-price configuration. Physical stock remains in Stock inventory."
       onClose={onClose}
       title="Product details"
       titleId="product-detail-title"
@@ -302,7 +471,14 @@ export function ProductDetailDrawer({
           }}
         />
       ) : (
-        <ProductIdentity product={product} />
+        <>
+          <ProductIdentity product={product} />
+          <ProductPricing
+            canManage={canManagePricing}
+            canView={canViewPricing}
+            product={product}
+          />
+        </>
       )}
     </CatalogDrawer>
   );

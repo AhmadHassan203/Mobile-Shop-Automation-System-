@@ -1,156 +1,217 @@
-import type { ProductSummary, StockBalance } from "@mobileshop/shared";
+import type { PosSellableItem } from "@mobileshop/shared";
 import { describe, expect, it } from "vitest";
 import {
-  POS_SERVICE_AVAILABILITY,
-  addCartProduct,
-  buildPosProducts,
+  addCartSelection,
+  buildSaleDraftInput,
+  cartStalenessReasons,
+  cartTotals,
   cartUnitCount,
-  checkoutBlockers,
+  parsePkrMajorInput,
+  paymentLegs,
+  paymentTotal,
+  posAvailableCount,
   posCapabilities,
-  posFlowSteps,
   setCartQuantity,
 } from "./pos-state";
 
 const PRODUCT_ID = "11111111-1111-4111-8111-111111111111";
-const LOCATION_ID = "22222222-2222-4222-8222-222222222222";
+const UNIT_ID = "22222222-2222-4222-8222-222222222222";
+const LOCATION_ID = "33333333-3333-4333-8333-333333333333";
+const RULE_ID = "44444444-4444-4444-8444-444444444444";
+const NOW = "2026-07-16T08:00:00.000Z";
 
-const product = {
-  id: PRODUCT_ID,
-  productModel: {
-    id: "33333333-3333-4333-8333-333333333333",
-    name: "Galaxy A55",
-    brand: {
-      id: "44444444-4444-4444-8444-444444444444",
-      name: "Samsung",
-    },
-    category: {
-      id: "55555555-5555-4555-8555-555555555555",
-      name: "Phones",
-    },
-  },
+const common = {
+  productVariantId: PRODUCT_ID,
   sku: "PH-SAMSUNG-A55-256",
   name: "256 GB Navy",
-  trackingType: "serialized",
-  condition: "new",
-  ptaStatus: "pta_approved",
-  ram: "8 GB",
-  storage: "256 GB",
-  color: "Navy",
-  region: "PK",
-  warrantyType: "official",
-  warrantyMonths: 12,
-  isActive: true,
-  version: 1,
-  createdAt: "2026-07-16T08:00:00.000Z",
-  updatedAt: "2026-07-16T08:00:00.000Z",
-} satisfies ProductSummary;
-
-const balance: StockBalance = {
-  productVariant: {
-    id: PRODUCT_ID,
-    sku: product.sku,
-    name: product.name,
+  brandName: "Samsung",
+  modelName: "Galaxy A55",
+  categoryName: "Phones",
+  condition: "new" as const,
+  ptaStatus: "pta_approved" as const,
+  productVersion: 4,
+  effectivePrice: {
+    currency: "PKR",
+    unitPriceMinor: 12_500_000,
+    minimumUnitPriceMinor: 12_000_000,
+    source: "price_rule" as const,
+    sourceId: RULE_ID,
+    version: 7,
+    effectiveAt: NOW,
   },
-  locationId: LOCATION_ID,
-  locationName: "Main counter",
+};
+
+const quantityLocation = {
+  location: { id: LOCATION_ID, code: "MAIN", name: "Main counter" },
+  availableQuantity: 3,
+  stockVersion: 8,
+};
+
+const quantityItem: PosSellableItem = {
+  ...common,
+  trackingType: "quantity",
+  stock: {
+    availability: "saleable",
+    locationChoices: [quantityLocation],
+  },
+};
+
+const serializedItem: PosSellableItem = {
+  ...common,
   trackingType: "serialized",
-  onHand: 3,
-  reserved: 1,
-  available: 2,
+  stock: {
+    availability: "saleable",
+    serializedUnitChoices: [
+      {
+        serializedUnitId: UNIT_ID,
+        unitVersion: 9,
+        location: { id: LOCATION_ID, code: "MAIN", name: "Main counter" },
+        condition: "new",
+        ptaStatus: "pta_approved",
+        identifiers: [{ type: "imei", value: "356789012345678" }],
+      },
+    ],
+  },
 };
 
 describe("POS permission boundaries", () => {
-  it("maps every counter affordance to its exact server permission", () => {
+  it("maps every prototype affordance to an exact server permission", () => {
     expect(
       posCapabilities([
         "catalog.view",
-        "inventory.view",
+        "pricing.manage",
         "sales.create",
+        "sales.post",
+        "pricing.view",
         "payments.collect",
+        "sales.view_profit",
+        "sales.discount",
+        "customers.view",
+        "customers.manage",
+        "demand.create",
       ]),
     ).toEqual({
       canViewCatalog: true,
-      canViewInventory: true,
+      canManagePricing: true,
       canCreateSale: true,
-      canPostSale: false,
-      canViewPricing: false,
+      canPostSale: true,
+      canViewPricing: true,
       canCollectPayment: true,
-      canViewProfit: false,
-      canDiscount: false,
-      canViewCustomers: false,
-      canManageCustomers: false,
+      canViewProfit: true,
+      canDiscount: true,
+      canViewCustomers: true,
+      canManageCustomers: true,
+      canRecordDemand: true,
     });
-  });
-
-  it("keeps posting blocked even for a fully authorized user while APIs are absent", () => {
-    const capabilities = posCapabilities([
-      "catalog.view",
-      "inventory.view",
-      "sales.create",
-      "sales.post",
-      "pricing.view",
-      "payments.collect",
-    ]);
-    const products = buildPosProducts([product], [balance]);
-    const cart = addCartProduct([], products[0]!);
-
-    expect(
-      checkoutBlockers(capabilities, POS_SERVICE_AVAILABILITY, cart),
-    ).toEqual([
-      "The pricing read API has not been implemented yet.",
-      "The payment collection API has not been implemented yet.",
-      "The atomic sale-posting API has not been implemented yet.",
-    ]);
   });
 });
 
 describe("POS stock and cart state", () => {
-  it("builds products only from real catalog identity and derived balances", () => {
-    expect(buildPosProducts([product], [balance])).toEqual([
-      {
-        id: PRODUCT_ID,
-        sku: product.sku,
-        name: product.name,
-        brandName: "Samsung",
-        modelName: "Galaxy A55",
-        categoryName: "Phones",
-        trackingType: "serialized",
-        available: 2,
-        onHand: 3,
-        reserved: 1,
-        locationNames: ["Main counter"],
-      },
-    ]);
+  it("keeps priced out-of-stock rows visible but never adds them", () => {
+    const out: PosSellableItem = {
+      ...quantityItem,
+      stock: { availability: "out_of_stock" },
+    };
+    expect(posAvailableCount(out)).toBe(0);
+    expect(addCartSelection([], out, LOCATION_ID)).toEqual([]);
   });
 
-  it("never lets a local draft exceed the server-returned stock snapshot", () => {
-    const posProduct = buildPosProducts([product], [balance])[0]!;
-    let cart = addCartProduct([], posProduct);
-    cart = addCartProduct(cart, posProduct);
-    cart = addCartProduct(cart, posProduct);
+  it("adds and caps an exact quantity location with its stock version", () => {
+    let cart = addCartSelection([], quantityItem, LOCATION_ID);
+    cart = addCartSelection(cart, quantityItem, LOCATION_ID);
+    cart = setCartQuantity(cart, cart[0]!.key, 99);
 
-    expect(cartUnitCount(cart)).toBe(2);
-    expect(setCartQuantity(cart, PRODUCT_ID, 99)[0]?.quantity).toBe(2);
-    expect(setCartQuantity(cart, PRODUCT_ID, 0)).toEqual([]);
+    expect(cartUnitCount(cart)).toBe(3);
+    expect(cart[0]).toMatchObject({
+      trackingType: "quantity",
+      quantity: 3,
+      stockVersion: 8,
+      location: { id: LOCATION_ID },
+    });
+    expect(buildSaleDraftInput(cart, null, 0, null).lines[0]).toEqual({
+      trackingType: "quantity",
+      productVariantId: PRODUCT_ID,
+      priceSource: "price_rule",
+      priceSourceId: RULE_ID,
+      priceVersion: 7,
+      locationId: LOCATION_ID,
+      quantity: 3,
+      stockVersion: 8,
+    });
   });
 
-  it("shows the complete seven-step workflow and blocks unsafe stages", () => {
-    const posProduct = buildPosProducts([product], [balance])[0]!;
-    const cart = addCartProduct([], posProduct);
+  it("adds only the real serialized unit returned by pricing and never duplicates it", () => {
+    let cart = addCartSelection([], serializedItem, "not-a-unit");
+    expect(cart).toEqual([]);
+    cart = addCartSelection(cart, serializedItem, UNIT_ID);
+    cart = addCartSelection(cart, serializedItem, UNIT_ID);
 
-    expect(posFlowSteps(true, cart).map((step) => step.label)).toEqual([
-      "Find",
-      "Select",
-      "Cart",
-      "Customer",
-      "Payment",
-      "Review",
-      "Complete",
+    expect(cart).toHaveLength(1);
+    expect(cart[0]).toMatchObject({
+      trackingType: "serialized",
+      serializedUnitId: UNIT_ID,
+      serializedUnitVersion: 9,
+      identifiers: [{ type: "imei", value: "356789012345678" }],
+    });
+  });
+
+  it("uses exact minor-unit totals and one sale-level discount", () => {
+    const cart = setCartQuantity(
+      addCartSelection([], quantityItem, LOCATION_ID),
+      `Q:${PRODUCT_ID}:${LOCATION_ID}`,
+      2,
+    );
+    expect(parsePkrMajorInput("1,000")).toBeNull();
+    expect(parsePkrMajorInput("1000.50")).toBe(100_050);
+    expect(cartTotals(cart, 100_000)).toEqual({
+      subtotalMinor: 25_000_000,
+      discountMinor: 100_000,
+      totalMinor: 24_900_000,
+    });
+    expect(cartTotals(cart, 25_000_001)).toBeNull();
+  });
+
+  it("maps split payment labels to backend methods and validates references", () => {
+    const valid = paymentLegs([
+      { method: "cash", amountMinor: 5_000, reference: null },
+      { method: "digital_wallet", amountMinor: 7_500, reference: "JC-42" },
     ]);
-    expect(posFlowSteps(true, cart).slice(-3).map((step) => step.status)).toEqual([
-      "blocked",
-      "blocked",
-      "blocked",
+    expect(valid).toEqual([
+      { method: "cash", amountMinor: 5_000, reference: null },
+      { method: "digital_wallet", amountMinor: 7_500, reference: "JC-42" },
     ]);
+    expect(paymentTotal(valid!)).toBe(12_500);
+    expect(
+      paymentLegs([{ method: "card", amountMinor: 100, reference: null }]),
+    ).toBeNull();
+  });
+
+  it("detects changed authoritative price and stock snapshots", () => {
+    const cart = addCartSelection([], quantityItem, LOCATION_ID);
+    expect(cartStalenessReasons(cart, [quantityItem])).toEqual([]);
+    expect(
+      cartStalenessReasons(cart, [
+        {
+          ...quantityItem,
+          effectivePrice: { ...quantityItem.effectivePrice, version: 8 },
+        },
+      ]),
+    ).toEqual([`${quantityItem.sku}: authoritative price changed.`]);
+    expect(
+      cartStalenessReasons(cart, [
+        {
+          ...quantityItem,
+          stock: {
+            availability: "saleable",
+            locationChoices: [
+              {
+                ...quantityLocation,
+                stockVersion: 9,
+              },
+            ],
+          },
+        },
+      ]),
+    ).toEqual([`${quantityItem.sku}: location stock changed.`]);
   });
 });

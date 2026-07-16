@@ -1,20 +1,17 @@
 import { z } from "zod";
 import { createPageEnvelopeSchema } from "./catalog";
 import { LIMITS, PAGINATION } from "./constants";
-import {
-  PRODUCT_CONDITIONS,
-  PTA_STATUSES,
-  TRACKING_TYPES,
-} from "./enums";
+import { PRODUCT_CONDITIONS, PTA_STATUSES, TRACKING_TYPES } from "./enums";
 import { DeviceIdentifierSchema } from "./inventory";
 
 /**
  * Permission-safe POS pricing and stock-choice read contracts.
  *
  * The response is an authoritative server snapshot: every returned item has an
- * effective price and at least one currently saleable location/unit choice.
- * Cost and margin are deliberately absent. Tenant, branch and actor scope come
- * exclusively from the authenticated request context.
+ * effective price, while `stock.availability` explicitly distinguishes real
+ * saleable choices from a priced out-of-stock catalog row. Cost and margin are
+ * deliberately absent. Tenant, branch and actor scope come exclusively from
+ * the authenticated request context.
  */
 export const PRICING_CONTRACT_LIMITS = Object.freeze({
   NAME_LENGTH: 240,
@@ -30,8 +27,7 @@ export const EFFECTIVE_PRICE_SOURCES = [
   "price_rule",
   "variant_default",
 ] as const;
-export type EffectivePriceSource =
-  (typeof EFFECTIVE_PRICE_SOURCES)[number];
+export type EffectivePriceSource = (typeof EFFECTIVE_PRICE_SOURCES)[number];
 
 function normalizeSearch(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ");
@@ -111,13 +107,46 @@ export const EffectiveSalePriceSchema = z
   });
 export type EffectiveSalePrice = z.infer<typeof EffectiveSalePriceSchema>;
 
+/**
+ * Set the organization-level fallback price stored on one catalog variant.
+ * The browser supplies only money and the product version it actually read;
+ * tenant, branch and actor identity remain authenticated server context.
+ */
+export const SetVariantDefaultPriceInputSchema = z
+  .object({
+    unitPriceMinor: responseMoneySchema,
+    minimumUnitPriceMinor: responseMoneySchema,
+    productVersion: responseVersionSchema,
+  })
+  .strict()
+  .superRefine((price, context) => {
+    if (price.minimumUnitPriceMinor > price.unitPriceMinor) {
+      context.addIssue({
+        code: "custom",
+        message: "Minimum price cannot exceed the default unit price.",
+        path: ["minimumUnitPriceMinor"],
+      });
+    }
+  });
+export type SetVariantDefaultPriceInput = z.infer<
+  typeof SetVariantDefaultPriceInputSchema
+>;
+
+/** Safe write acknowledgement; it contains price evidence and no cost data. */
+export const VariantDefaultPriceResponseSchema = z
+  .object({
+    productVariantId: z.uuid(),
+    effectivePrice: EffectiveSalePriceSchema,
+  })
+  .strict();
+export type VariantDefaultPriceResponse = z.infer<
+  typeof VariantDefaultPriceResponseSchema
+>;
+
 export const PosStockLocationSchema = z
   .object({
     id: z.uuid(),
-    code: z
-      .string()
-      .min(1)
-      .max(PRICING_CONTRACT_LIMITS.LOCATION_CODE_LENGTH),
+    code: z.string().min(1).max(PRICING_CONTRACT_LIMITS.LOCATION_CODE_LENGTH),
     name: z.string().min(1).max(200),
   })
   .strict();
@@ -137,6 +166,42 @@ export const PosQuantityLocationChoiceSchema = z
   .strict();
 export type PosQuantityLocationChoice = z.infer<
   typeof PosQuantityLocationChoiceSchema
+>;
+
+const outOfStockAvailabilitySchema = z
+  .object({ availability: z.literal("out_of_stock") })
+  .strict();
+
+export const PosQuantityAvailabilitySchema = z.discriminatedUnion(
+  "availability",
+  [
+    z
+      .object({
+        availability: z.literal("saleable"),
+        locationChoices: z
+          .array(PosQuantityLocationChoiceSchema)
+          .min(1)
+          .max(PRICING_CONTRACT_LIMITS.MAX_LOCATION_CHOICES),
+      })
+      .strict()
+      .superRefine((stock, context) => {
+        const locations = new Set<string>();
+        stock.locationChoices.forEach((choice, index) => {
+          if (locations.has(choice.location.id)) {
+            context.addIssue({
+              code: "custom",
+              message: "A quantity location can appear only once.",
+              path: ["locationChoices", index, "location", "id"],
+            });
+          }
+          locations.add(choice.location.id);
+        });
+      }),
+    outOfStockAvailabilitySchema,
+  ],
+);
+export type PosQuantityAvailability = z.infer<
+  typeof PosQuantityAvailabilitySchema
 >;
 
 /** A real shelf unit, never a generated or browser-entered IMEI choice. */
@@ -169,6 +234,38 @@ export type PosSerializedUnitChoice = z.infer<
   typeof PosSerializedUnitChoiceSchema
 >;
 
+export const PosSerializedAvailabilitySchema = z.discriminatedUnion(
+  "availability",
+  [
+    z
+      .object({
+        availability: z.literal("saleable"),
+        serializedUnitChoices: z
+          .array(PosSerializedUnitChoiceSchema)
+          .min(1)
+          .max(PRICING_CONTRACT_LIMITS.MAX_SERIALIZED_CHOICES),
+      })
+      .strict()
+      .superRefine((stock, context) => {
+        const units = new Set<string>();
+        stock.serializedUnitChoices.forEach((choice, index) => {
+          if (units.has(choice.serializedUnitId)) {
+            context.addIssue({
+              code: "custom",
+              message: "A serialized unit can appear only once.",
+              path: ["serializedUnitChoices", index, "serializedUnitId"],
+            });
+          }
+          units.add(choice.serializedUnitId);
+        });
+      }),
+    outOfStockAvailabilitySchema,
+  ],
+);
+export type PosSerializedAvailability = z.infer<
+  typeof PosSerializedAvailabilitySchema
+>;
+
 const sellableIdentityShape = {
   productVariantId: z.uuid(),
   sku: z
@@ -190,49 +287,17 @@ const quantitySellableSchema = z
   .object({
     ...sellableIdentityShape,
     trackingType: z.literal("quantity"),
-    locationChoices: z
-      .array(PosQuantityLocationChoiceSchema)
-      .min(1)
-      .max(PRICING_CONTRACT_LIMITS.MAX_LOCATION_CHOICES),
+    stock: PosQuantityAvailabilitySchema,
   })
-  .strict()
-  .superRefine((item, context) => {
-    const locations = new Set<string>();
-    item.locationChoices.forEach((choice, index) => {
-      if (locations.has(choice.location.id)) {
-        context.addIssue({
-          code: "custom",
-          message: "A quantity location can appear only once.",
-          path: ["locationChoices", index, "location", "id"],
-        });
-      }
-      locations.add(choice.location.id);
-    });
-  });
+  .strict();
 
 const serializedSellableSchema = z
   .object({
     ...sellableIdentityShape,
     trackingType: z.literal("serialized"),
-    serializedUnitChoices: z
-      .array(PosSerializedUnitChoiceSchema)
-      .min(1)
-      .max(PRICING_CONTRACT_LIMITS.MAX_SERIALIZED_CHOICES),
+    stock: PosSerializedAvailabilitySchema,
   })
-  .strict()
-  .superRefine((item, context) => {
-    const units = new Set<string>();
-    item.serializedUnitChoices.forEach((choice, index) => {
-      if (units.has(choice.serializedUnitId)) {
-        context.addIssue({
-          code: "custom",
-          message: "A serialized unit can appear only once.",
-          path: ["serializedUnitChoices", index, "serializedUnitId"],
-        });
-      }
-      units.add(choice.serializedUnitId);
-    });
-  });
+  .strict();
 
 export const PosSellableItemSchema = z.discriminatedUnion("trackingType", [
   serializedSellableSchema,

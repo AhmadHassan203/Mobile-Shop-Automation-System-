@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { Suspense, type JSX } from "react";
 import {
-  ServiceRouteFallback,
-  ServiceWorkspace,
-} from "@/components/service/service-workspace";
+  UsedIntakeRouteFallback,
+  UsedIntakeWorkspace,
+} from "@/components/used-intake/used-intake-workspace";
 
 export const metadata: Metadata = {
   title: "Used Device Intake | MobileShop OS",
@@ -13,8 +13,8 @@ export const metadata: Metadata = {
 
 export default function UsedIntakePage(): JSX.Element {
   return (
-    <Suspense fallback={<ServiceRouteFallback />}>
-      <ServiceWorkspace moduleId="used-intake" />
+    <Suspense fallback={<UsedIntakeRouteFallback />}>
+      <UsedIntakeWorkspace />
     </Suspense>
   );
 }

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inventory · MobileShop OS</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="inventory">
+  <div class="layout">
+    <aside id="sidebar"></aside>
+    <div class="main">
+      <header id="topbar"></header>
+      <main class="content">
+
+        <div class="page-head">
+          <div>
+            <h1>Inventory &amp; Catalog</h1>
+            <div class="subtitle" id="headSub">Loading catalog…</div>
+          </div>
+          <div class="actions">
+            <div style="position:relative">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="position:absolute;left:11px;top:10px;color:var(--ink-3);pointer-events:none"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+              <input id="searchInput" class="input" placeholder="Search product, SKU, brand…" style="width:220px;padding-left:34px" oninput="render()">
+            </div>
+            <button class="btn" id="btn-mv" onclick="Shell.open('mvDrawer')"></button>
+            <button class="btn btn-primary" id="btn-add" onclick="Shell.toast('Add-product form is illustrative in this prototype')"></button>
+          </div>
+        </div>
+
+        <!-- Catalog vs stock explainer -->
+        <div class="callout info" style="margin-bottom:18px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.6" r="0.7" fill="currentColor"/></svg>
+          <div><strong>Catalog vs stock.</strong> A <strong>variant</strong> is a sellable definition — one SKU, one price. A serialized phone variant is backed by individual <strong>IMEI-level units</strong> you can open from its product page; batch accessories are tracked by quantity, not IMEI. The rows below roll up units into per-variant stock and demand.</div>
+        </div>
+
+        <!-- KPI row -->
+        <div class="grid cols-4" id="kpiRow" style="margin-bottom:20px"></div>
+
+        <!-- Catalog + stock table -->
+        <div class="card" id="catalogCard">
+          <div class="card-head">
+            <h3>Catalog &amp; stock</h3>
+            <span class="hint" id="shownCount"></span>
+          </div>
+          <div style="padding:12px 18px;border-bottom:1px solid var(--line-2);display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <div class="seg" id="segFilter">
+              <button data-f="all" class="active" onclick="applyFilter('all')">All</button>
+              <button data-f="phones" onclick="applyFilter('phones')">Phones</button>
+              <button data-f="acc" onclick="applyFilter('acc')">Accessories</button>
+              <button data-f="out" onclick="applyFilter('out')">Out of stock</button>
+              <button data-f="aged" onclick="applyFilter('aged')">Aged 30d+</button>
+            </div>
+            <span class="small muted nowrap" style="margin-left:auto">Click any row to open the product →</span>
+          </div>
+          <div id="filterNote"></div>
+          <div class="table-wrap">
+            <table class="data" id="catalogTable">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>SKU</th>
+                  <th>Band</th>
+                  <th class="num">Price</th>
+                  <th class="num">Avg cost</th>
+                  <th class="num">Stock</th>
+                  <th class="num">30d sold</th>
+                  <th>Unmet</th>
+                  <th>Days of cover</th>
+                  <th>Age</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Stock movements drawer -->
+  <div class="overlay" id="mvDrawer" onclick="if(event.target===this)Shell.close('mvDrawer')">
+    <div class="drawer">
+      <div class="drawer-head"><h3>Stock movements</h3><div class="x-close" onclick="Shell.close('mvDrawer')">✕</div></div>
+      <div class="drawer-body">
+        <div class="callout info" style="margin-bottom:16px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.6" r="0.7" fill="currentColor"/></svg>
+          <div>Recent quantity changes with reason and actor. The full, immutable ledger lives in <a href="reports.html">Reports → Stock movement ledger</a>.</div>
+        </div>
+        <div class="timeline" id="mvTimeline"></div>
+      </div>
+      <div class="drawer-foot">
+        <a class="btn btn-ghost" href="reports.html">Open full ledger</a>
+        <button class="btn btn-primary" onclick="Shell.close('mvDrawer')">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/data.js"></script>
+  <script src="assets/shell.js"></script>
+  <script>
+    // ---- Header buttons --------------------------------------------------
+    document.getElementById("btn-add").innerHTML = Shell.svg("inventory") + " Add product";
+    document.getElementById("btn-mv").innerHTML = Shell.svg("reports") + " Stock movements";
+
+    var variants = DB.variants, stock = DB.stock;
+    function st(id){ return stock[id] || { available:0, reserved:0, inbound:0, sold30:0, unmet:0, coverDays:0, ageDays:0, returns:0 }; }
+
+    // ---- Derived counts --------------------------------------------------
+    var phoneCount = variants.filter(function(v){ return v.serialized; }).length;
+    var accCount = variants.length - phoneCount;
+    var outRows = variants.filter(function(v){ return st(v.id).available === 0; });
+    var outCount = outRows.length;
+    var outUnmet = outRows.reduce(function(a,v){ return a + (st(v.id).unmet || 0); }, 0);
+    var agedRows = variants.filter(function(v){ return st(v.id).ageDays >= 30; });
+    var agedCount = agedRows.length;
+    var agedCapital = agedRows.reduce(function(a,v){ return a + st(v.id).available * v.avgCost; }, 0);
+
+    document.getElementById("headSub").textContent =
+      variants.length + " catalog variants · " + phoneCount + " serialized phones · " + accCount + " batch accessories at " + DB.SHOP.branch;
+
+    // ---- KPI tiles -------------------------------------------------------
+    var kpis = [
+      { label: "Catalog SKUs", value: fmt.num(variants.length), meta: phoneCount + " serialized · " + accCount + " batch", onclick: "applyFilter('all')", accent: true },
+      { label: "Stock value", value: fmt.pkrShort(DB.KPI.inventoryValue), meta: "at recorded cost", onclick: "location.href='reports.html'" },
+      { label: "Out of stock", value: fmt.num(outCount), valcls: outCount > 0 ? "neg-text" : "", meta: outUnmet + " customers waiting", onclick: "applyFilter('out')" },
+      { label: "Aged stock", value: fmt.num(agedCount), meta: "≥30 days · " + fmt.pkrShort(agedCapital) + " tied up", onclick: "applyFilter('aged')" }
+    ];
+    document.getElementById("kpiRow").innerHTML = kpis.map(function(t){
+      return '<div class="kpi' + (t.accent ? " accent" : "") + '" style="cursor:pointer" onclick="' + t.onclick + '">'
+        + '<div class="label">' + t.label + '</div>'
+        + '<div class="value' + (t.valcls ? " " + t.valcls : "") + '">' + t.value + '</div>'
+        + '<div class="meta">' + t.meta + '</div></div>';
+    }).join("");
+
+    // ---- Row helpers -----------------------------------------------------
+    function coverInfo(s){
+      var d = s.coverDays, cls = "pos";
+      if (d <= 3) cls = "neg"; else if (d <= 7) cls = "warn";
+      return { cls: cls, pct: Math.max(0, Math.min(100, Math.round(d / 21 * 100))), days: d };
+    }
+
+    function statusBadges(s){
+      var out = [];
+      if (s.available === 0) out.push({ cls: "neg", text: s.unmet > 0 ? "Out of stock · demand" : "Out of stock" });
+      else if (s.available <= 3 || s.coverDays <= 3) out.push({ cls: "warn", text: "Low stock" });
+      else out.push({ cls: "pos", text: "In stock" });
+      if (s.available > 0 && s.ageDays >= 30) out.push({ cls: "warn", text: "Aged" });
+      return out;
+    }
+
+    function rowHtml(v){
+      var s = st(v.id);
+      var subParts = [v.storage, v.color, v.ram].filter(function(x){ return x && x !== "—"; });
+      var cover = coverInfo(s);
+      var coverLabelCls = (s.available === 0 || cover.days <= 3) ? "neg-text" : "muted";
+      var coverLabel = s.available === 0 ? "0 days · stockout" : cover.days + " days";
+      var holds = [];
+      if (s.reserved > 0) holds.push(s.reserved + " reserved");
+      if (s.inbound > 0) holds.push(s.inbound + " inbound");
+      var statusHtml = statusBadges(s).map(function(b){ return '<span class="badge ' + b.cls + '">' + b.text + '</span>'; }).join("");
+      var unmetHtml = s.unmet > 0 ? '<span class="badge neg">' + s.unmet + ' unmet</span>' : '<span class="muted">—</span>';
+      var ageHtml;
+      if (s.available === 0) ageHtml = '<span class="muted">—</span>';
+      else if (s.ageDays >= 30) ageHtml = '<span class="badge warn">' + s.ageDays + 'd</span>';
+      else ageHtml = '<span class="muted">' + s.ageDays + 'd</span>';
+      var tag = v.serialized ? "Serialized" : "Batch";
+      var condTag = (v.condition && v.condition !== "New") ? '<span class="badge info">' + v.condition + '</span>' : "";
+
+      return '<tr class="row-link" onclick="location.href=\'product.html?id=' + v.id + '\'">'
+        + '<td><div class="strong">' + v.brand + ' ' + v.model + '</div>'
+        +   '<div class="tiny muted">' + subParts.join(' · ') + '</div>'
+        +   '<div class="tag-list" style="margin-top:5px"><span class="badge plain">' + tag + '</span>' + condTag + '</div></td>'
+        + '<td class="mono">' + v.sku + '</td>'
+        + '<td><span class="badge plain">' + v.band + '</span></td>'
+        + '<td class="num strong">' + fmt.pkr(v.price) + '</td>'
+        + '<td class="num muted">' + fmt.pkr(v.avgCost) + '</td>'
+        + '<td class="num"><div class="strong">' + s.available + '</div>' + (holds.length ? '<div class="tiny muted nowrap">' + holds.join(' · ') + '</div>' : '') + '</td>'
+        + '<td class="num">' + s.sold30 + '</td>'
+        + '<td>' + unmetHtml + '</td>'
+        + '<td><div style="min-width:104px"><div class="meter ' + cover.cls + '"><span style="width:' + cover.pct + '%"></span></div>'
+        +   '<div class="tiny ' + coverLabelCls + '" style="margin-top:4px">' + coverLabel + '</div></div></td>'
+        + '<td>' + ageHtml + '</td>'
+        + '<td><div class="stack g6" style="align-items:flex-start">' + statusHtml + '</div></td>'
+        + '</tr>';
+    }
+
+    // ---- Filter + search + render ---------------------------------------
+    var currentFilter = "all";
+
+    function matchFilter(v){
+      var s = st(v.id);
+      if (currentFilter === "phones") return v.serialized;
+      if (currentFilter === "acc") return !v.serialized;
+      if (currentFilter === "out") return s.available === 0;
+      if (currentFilter === "aged") return s.ageDays >= 30;
+      return true;
+    }
+    function matchSearch(v, q){
+      if (!q) return true;
+      return (v.brand + " " + v.model + " " + v.storage + " " + v.color + " " + v.sku + " " + v.band).toLowerCase().indexOf(q) >= 0;
+    }
+
+    function filterNoteHtml(list){
+      if (currentFilter === "out" && list.length){
+        var u = list.reduce(function(a,v){ return a + (st(v.id).unmet || 0); }, 0);
+        return '<div style="padding:12px 18px 0"><div class="callout neg">'
+          + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>'
+          + '<div>' + list.length + ' line' + (list.length !== 1 ? 's' : '') + ' out of stock · <strong>' + u + ' customers waiting</strong>. <a href="intelligence.html">Review the reorder plan →</a></div></div></div>';
+      }
+      if (currentFilter === "aged" && list.length){
+        var cap = list.reduce(function(a,v){ return a + st(v.id).available * v.avgCost; }, 0);
+        return '<div style="padding:12px 18px 0"><div class="callout warn">'
+          + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
+          + '<div>' + list.length + ' line' + (list.length !== 1 ? 's' : '') + ' aged ≥30 days · <strong>' + fmt.pkrShort(cap) + ' tied up</strong> in slow stock. Consider a clearance or price drop.</div></div></div>';
+      }
+      return "";
+    }
+
+    function render(){
+      var q = document.getElementById("searchInput").value.trim().toLowerCase();
+      var list = variants.filter(function(v){ return matchFilter(v) && matchSearch(v, q); });
+      var tb = document.querySelector("#catalogTable tbody");
+      document.getElementById("filterNote").innerHTML = filterNoteHtml(list);
+      if (!list.length){
+        tb.innerHTML = '<tr><td colspan="11"><div class="empty"><div class="icn" style="font-size:38px">🔍</div>'
+          + '<h4>No matching products</h4><p class="small">Try a different search term or clear the filter.</p></div></td></tr>';
+      } else {
+        tb.innerHTML = list.map(rowHtml).join("");
+      }
+      document.getElementById("shownCount").textContent = list.length + " of " + variants.length + " shown";
+    }
+
+    function applyFilter(f){
+      currentFilter = f;
+      var btns = document.querySelectorAll("#segFilter button");
+      for (var i = 0; i < btns.length; i++) btns[i].classList.toggle("active", btns[i].getAttribute("data-f") === f);
+      render();
+      document.getElementById("catalogCard").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    // ---- Stock movements timeline ---------------------------------------
+    document.getElementById("mvTimeline").innerHTML = DB.audit.map(function(a){
+      return '<div class="tl-item done"><div class="tl-time">' + a.time + ' · ' + a.actor + '</div>'
+        + '<div class="tl-title">' + a.action + ' — <span class="mono">' + a.entity + '</span></div>'
+        + '<div class="tl-desc">' + a.detail + '</div></div>';
+    }).join("");
+
+    // ---- Boot ------------------------------------------------------------
+    render();
+  </script>
+</body>
+</html>

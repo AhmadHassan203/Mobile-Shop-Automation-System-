@@ -61,4 +61,9 @@ export const queryKeys = Object.freeze({
     ["purchasing", "receipts", parameters] as const,
   purchasingReceipt: (id: string) =>
     ["purchasing", "receipts", "detail", id] as const,
+  returnsRoot: ["returns"] as const,
+  returns: (parameters: object) => ["returns", parameters] as const,
+  return: (id: string) => ["returns", "detail", id] as const,
+  returnEligibility: (query: object) =>
+    ["returns", "eligibility", query] as const,
 });

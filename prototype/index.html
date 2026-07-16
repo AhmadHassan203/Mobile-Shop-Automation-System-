@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard · MobileShop OS</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="dashboard">
+  <div class="layout">
+    <aside id="sidebar"></aside>
+    <div class="main">
+      <header id="topbar"></header>
+      <main class="content">
+
+        <div class="page-head">
+          <div>
+            <h1>Good afternoon, Haseeb</h1>
+            <div class="subtitle">Here's what happened at Al-Madina Mobiles today — Tuesday, 14 July 2026</div>
+          </div>
+          <div class="actions">
+            <a class="btn" href="demand.html" id="btn-demand"></a>
+            <a class="btn btn-primary" href="pos.html" id="btn-sell"></a>
+          </div>
+        </div>
+
+        <!-- KPI row -->
+        <div class="grid cols-6" id="kpiRow" style="margin-bottom:22px"></div>
+
+        <div class="grid cols-3" style="align-items:start">
+          <!-- Owner attention (spans 2) -->
+          <div style="grid-column: span 2" class="stack g16">
+            <div class="card">
+              <div class="card-head">
+                <h3>Needs your attention</h3>
+                <span class="hint">Ranked by impact · click to open</span>
+              </div>
+              <div class="card-pad stack g10" id="attnList"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <h3>Recent sales</h3>
+                <a class="btn btn-sm btn-ghost" href="finance.html">View all →</a>
+              </div>
+              <div class="table-wrap">
+                <table class="data" id="salesTable">
+                  <thead><tr><th>Invoice</th><th>Time</th><th>Customer</th><th>Method</th><th class="num">Total</th><th class="num">Profit</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Demand & buying + tasks -->
+          <div class="stack g16">
+            <div class="card">
+              <div class="card-head"><h3>Demand &amp; buying</h3></div>
+              <div class="card-pad">
+                <div class="small muted" style="margin-bottom:8px">Top requested items you couldn't sell</div>
+                <div id="unmetList" class="stack g6"></div>
+                <div class="divider"></div>
+                <div class="kv"><span class="k">Recommended budget</span><span class="v" id="budTotal"></span></div>
+                <div class="kv"><span class="k">Selected investment</span><span class="v" id="budSel"></span></div>
+                <div class="kv"><span class="k">Expected gross profit</span><span class="v pos-text" id="budProfit"></span></div>
+                <a class="btn btn-primary btn-block" href="intelligence.html" style="margin-top:14px">Review buying plan →</a>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head"><h3>Digital Services</h3><a class="hint" href="digital-services.html">New transaction</a></div>
+              <div class="card-pad" id="digitalSummary"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-head"><h3>Today's tasks</h3><a class="hint" href="tasks.html">All tasks</a></div>
+              <div class="card-pad stack g10" id="taskList"></div>
+            </div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <script src="assets/data.js"></script>
+  <script src="assets/digital.js"></script>
+  <script src="assets/shell.js"></script>
+  <script>
+    // Header action buttons (with icons)
+    document.getElementById("btn-sell").innerHTML = Shell.svg("sell") + " New sale";
+    document.getElementById("btn-demand").innerHTML = Shell.svg("demand") + " Record demand";
+
+    // ---- KPI tiles -------------------------------------------------------
+    const k = DB.KPI;
+    const kpis = [
+      { label: "Sales today", value: fmt.pkr(k.salesToday), trend: k.salesTrendPct, meta: "vs yesterday", href: "finance.html", accent: true },
+      { label: "Gross profit", value: fmt.pkr(k.grossProfitToday), trend: k.profitTrendPct, meta: k.grossMarginPct + "% margin", href: "finance.html" },
+      { label: "Expenses", value: fmt.pkr(k.expensesToday), meta: "5 entries today", href: "finance.html" },
+      { label: "Net operating", value: fmt.pkr(k.netOperatingToday), meta: "estimated", href: "finance.html" },
+      { label: "Cash position", value: fmt.pkr(k.cashPosition), meta: "drawer · session open", href: "closing.html" },
+      { label: "Inventory value", value: fmt.pkrShort(k.inventoryValue), meta: "at recorded cost", href: "inventory.html" }
+    ];
+    document.getElementById("kpiRow").innerHTML = kpis.map(function (t) {
+      let trend = "";
+      if (t.trend !== undefined) {
+        const up = t.trend >= 0;
+        trend = '<span class="trend ' + (up ? "up" : "down") + '">' + (up ? "▲" : "▼") + " " + fmt.pct(t.trend) + '</span> ';
+      }
+      return '<a class="kpi' + (t.accent ? " accent" : "") + '" href="' + t.href + '" style="text-decoration:none">'
+        + '<div class="label">' + t.label + '</div>'
+        + '<div class="value">' + t.value + '</div>'
+        + '<div class="meta">' + trend + t.meta + '</div></a>';
+    }).join("");
+
+    // ---- Attention cards -------------------------------------------------
+    document.getElementById("attnList").innerHTML = DB.attention.map(function (a) {
+      return '<a class="attn-card ' + a.severity + '" href="' + a.link + '" style="text-decoration:none">'
+        + '<div class="rankdot">' + a.rank + '</div>'
+        + '<div><div class="t">' + a.title + '</div><div class="d">' + a.detail + '</div></div>'
+        + '<div class="chev">' + Shell.svg("demand", "") + '</div></a>';
+    }).join("");
+    // simpler chevron
+    document.querySelectorAll("#attnList .chev").forEach(function (c) { c.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>'; });
+
+    // ---- Recent sales ----------------------------------------------------
+    document.querySelector("#salesTable tbody").innerHTML = DB.sales.slice(0, 6).map(function (s) {
+      return '<tr class="row-link" onclick="location.href=\'finance.html\'">'
+        + '<td class="mono">' + s.id + '</td>'
+        + '<td class="muted">' + s.time + '</td>'
+        + '<td>' + s.customer + '</td>'
+        + '<td><span class="badge plain">' + s.method + '</span></td>'
+        + '<td class="num strong">' + fmt.pkr(s.total) + '</td>'
+        + '<td class="num pos-text">' + fmt.pkr(s.profit) + '</td></tr>';
+    }).join("");
+
+    // ---- Top unmet demand ------------------------------------------------
+    const unmet = DB.demand.filter(function (d) { return !d.available; });
+    const byVar = {};
+    unmet.forEach(function (d) { const key = d.variantId ? fmt.variantName(d.variantId) : d.request; byVar[key] = (byVar[key] || 0) + d.qty; });
+    const unmetSorted = Object.keys(byVar).map(function (k2) { return { name: k2, n: byVar[k2] }; }).sort(function (a, b) { return b.n - a.n; }).slice(0, 4);
+    document.getElementById("unmetList").innerHTML = unmetSorted.map(function (u) {
+      return '<div class="spread"><span class="small">' + u.name + '</span><span class="badge neg">' + u.n + ' waiting</span></div>';
+    }).join("");
+
+    document.getElementById("budTotal").textContent = fmt.pkr(DB.budget.total);
+    document.getElementById("budSel").textContent = fmt.pkr(DB.budget.selected);
+    document.getElementById("budProfit").textContent = fmt.pkr(DB.budget.expectedReturn);
+
+    // ---- Digital services ----------------------------------------------
+    (function () {
+      const ds = Digital.load();
+      const settled = ds.digitalServiceTransactions.filter(function (t) { return t.status === "SUCCESSFUL"; });
+      const sent = settled.filter(function (t) { return t.direction === Digital.DIRECTIONS.SENT; }).reduce(function (a, t) { return a + t.principalAmount; }, 0);
+      const received = settled.filter(function (t) { return t.direction === Digital.DIRECTIONS.RECEIVED; }).reduce(function (a, t) { return a + t.principalAmount; }, 0);
+      const fees = settled.reduce(function (a, t) { return a + t.customerServiceFee; }, 0);
+      const netCommission = settled.reduce(function (a, t) { return a + t.providerNetCommission; }, 0);
+      const netEarn = settled.reduce(function (a, t) { return a + t.netServiceEarnings; }, 0);
+      const pending = ds.digitalServiceTransactions.filter(function (t) { return t.status === "PENDING"; }).length;
+      const missingRef = ds.digitalServiceTransactions.filter(function (t) { return t.status === "SUCCESSFUL" && !t.providerTransactionId; }).length;
+      const lows = Digital.balanceSummary().filter(function (b) { return b.low; });
+      const reconOpen = (ds.digitalServiceReconciliations || []).length === 0;
+      const queue = [];
+      if (pending) queue.push('<a class="spread" href="digital-history.html" style="text-decoration:none;color:inherit"><span class="small">Pending digital transactions</span><span class="badge warn">' + pending + '</span></a>');
+      if (missingRef) queue.push('<a class="spread" href="digital-history.html" style="text-decoration:none;color:inherit"><span class="small">Provider references missing</span><span class="badge neg">' + missingRef + '</span></a>');
+      if (lows.length) queue.push('<a class="spread" href="digital-balances.html" style="text-decoration:none;color:inherit"><span class="small">Float warnings</span><span class="badge neg">' + lows.length + '</span></a>');
+      if (reconOpen) queue.push('<a class="spread" href="digital-reconciliation.html" style="text-decoration:none;color:inherit"><span class="small">Digital reconciliation incomplete</span><span class="badge warn">Open</span></a>');
+      document.getElementById("digitalSummary").innerHTML =
+          '<div class="kv"><span class="k">Sent today</span><span class="v">' + fmt.pkr(sent) + '</span></div>'
+        + '<div class="kv"><span class="k">Received today</span><span class="v">' + fmt.pkr(received) + '</span></div>'
+        + '<div class="kv"><span class="k">Customer fees today</span><span class="v pos-text">' + fmt.pkr(fees) + '</span></div>'
+        + '<div class="kv"><span class="k">Provider net commission</span><span class="v pos-text">' + fmt.pkr(netCommission) + '</span></div>'
+        + '<div class="kv"><span class="k">Net digital-service earnings</span><span class="v pos-text">' + fmt.pkr(netEarn) + '</span></div>'
+        + '<div class="kv"><span class="k">Pending transactions</span><span class="v">' + pending + '</span></div>'
+        + '<div class="divider"></div>'
+        + (queue.length ? '<div class="stack g6">' + queue.join("") + '</div>' : '<div class="small muted">No digital-service action items.</div>')
+        + '<a class="btn btn-primary btn-block" href="digital-services.html" style="margin-top:14px">Record digital service →</a>';
+    })();
+
+    // ---- Tasks -----------------------------------------------------------
+    document.getElementById("taskList").innerHTML = DB.tasks.slice(0, 4).map(function (t) {
+      const cls = t.priority === "High" ? "neg" : t.priority === "Medium" ? "warn" : "plain";
+      return '<a class="spread" href="' + t.link + '" style="text-decoration:none;color:inherit">'
+        + '<span class="small" style="max-width:76%">' + t.title + '</span>'
+        + '<span class="badge ' + cls + '">' + t.due + '</span></a>';
+    }).join("");
+  </script>
+</body>
+</html>

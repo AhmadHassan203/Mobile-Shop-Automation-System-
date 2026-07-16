@@ -139,7 +139,7 @@ const MODULE_NAVIGATION: readonly ModuleNavigationGroup[] = [
         label: "Returns / warranty",
         href: "/returns",
         icon: ReturnIcon,
-        status: "building",
+        status: "ready",
         permissions: [PERMISSIONS.RETURNS_VIEW],
       },
       {

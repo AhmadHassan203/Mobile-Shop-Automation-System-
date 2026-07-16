@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Repairs · MobileShop OS</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="repairs">
+  <div class="layout">
+    <aside id="sidebar"></aside>
+    <div class="main">
+      <header id="topbar"></header>
+      <main class="content">
+
+        <!-- Page-scoped kanban styling (design tokens only, scoped classes) -->
+        <style>
+          .kanban { display: flex; gap: 14px; overflow-x: auto; padding: 2px 2px 10px; }
+          .kb-col {
+            flex: 0 0 262px; min-width: 262px; background: var(--surface-2);
+            border: 1px solid var(--line); border-radius: var(--radius);
+            display: flex; flex-direction: column; transition: box-shadow .15s, border-color .15s;
+          }
+          .kb-col.focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+          .kb-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line-2); }
+          .kb-head .ico { font-size: 15px; line-height: 1; }
+          .kb-head .nm { font-weight: 650; font-size: 13px; }
+          .kb-head .kb-count { margin-left: auto; }
+          .kb-body { padding: 12px; display: flex; flex-direction: column; gap: 10px; min-height: 96px; flex: 1; }
+          .rep-card {
+            background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
+            padding: 12px; cursor: pointer; box-shadow: var(--shadow-sm); transition: border-color .12s, box-shadow .12s, transform .12s;
+          }
+          .rep-card:hover { border-color: var(--accent); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+          .rep-card .rc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+          .rep-card .dev { font-weight: 650; font-size: 13.5px; margin: 7px 0 2px; }
+          .rep-card .issue { font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 5px; }
+          .rep-cost { font-variant-numeric: tabular-nums; font-weight: 650; font-size: 13px; }
+          .rep-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line-2); }
+          .rep-tech { display: flex; align-items: center; gap: 6px; }
+          .rep-empty { text-align: center; color: var(--ink-3); padding: 18px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px; border: 1px dashed var(--line); border-radius: var(--radius-sm); }
+          .rep-empty .icn { font-size: 24px; opacity: .8; }
+        </style>
+
+        <div class="page-head">
+          <div>
+            <h1>Repairs</h1>
+            <div class="subtitle">Repairs are optional at launch — this board shows the flow: intake → parts → bench → pickup.</div>
+          </div>
+          <div class="actions">
+            <a class="btn btn-ghost" href="returns.html">Returns / warranty →</a>
+            <button class="btn btn-primary" id="btn-new" onclick="openNew()"></button>
+          </div>
+        </div>
+
+        <div class="callout info" id="introCallout" style="margin-bottom:18px">
+          <div>Every job here carries an <b>IMEI</b>, a <b>technician</b> and a <b>promised date</b>. Repair charges post to <a href="finance.html">Finance</a>; warranty jobs cross-link to <a href="returns.html">Returns</a>.</div>
+        </div>
+
+        <!-- KPI row -->
+        <div class="grid cols-4" id="kpiRow" style="margin-bottom:20px"></div>
+
+        <!-- Kanban board -->
+        <div class="card">
+          <div class="card-head">
+            <h3>Workshop board</h3>
+            <span class="hint">Drag-free prototype · click a job for full detail</span>
+          </div>
+          <div class="card-pad">
+            <div class="kanban" id="board"></div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- ============ Job detail drawer ============ -->
+  <div class="overlay" id="detailDrawer">
+    <div class="drawer">
+      <div class="drawer-head">
+        <h3 id="detailTitle">Repair</h3>
+        <div class="x-close" onclick="Shell.close('detailDrawer')">✕</div>
+      </div>
+      <div class="drawer-body" id="detailBody"></div>
+      <div class="drawer-foot" id="detailFoot"></div>
+    </div>
+  </div>
+
+  <!-- ============ New repair drawer ============ -->
+  <div class="overlay" id="newDrawer">
+    <div class="drawer">
+      <div class="drawer-head">
+        <h3>Book a repair</h3>
+        <div class="x-close" onclick="Shell.close('newDrawer')">✕</div>
+      </div>
+      <div class="drawer-body">
+        <div class="field">
+          <label>Device</label>
+          <input class="input" id="nrDevice" placeholder="e.g. Galaxy A16 128GB" oninput="refreshImpact()">
+        </div>
+        <div class="field">
+          <label>IMEI</label>
+          <input class="input mono" id="nrImei" placeholder="15-digit IMEI">
+          <div class="help">Ties the job to a specific handset for warranty and audit.</div>
+        </div>
+        <div class="field">
+          <label>Reported issue</label>
+          <select class="input" id="nrIssue" oninput="refreshImpact()">
+            <option value="">— Select the fault —</option>
+            <option>Cracked screen</option>
+            <option>Battery replacement</option>
+            <option>Charging port</option>
+            <option>Water damage</option>
+            <option>Speaker / microphone</option>
+            <option>Camera fault</option>
+            <option>Software / setup</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Technician</label>
+            <select class="input" id="nrTech" oninput="refreshImpact()">
+              <option>Usman</option>
+              <option>Bilal</option>
+              <option>Adeel</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Promised date</label>
+            <input class="input" id="nrPromise" type="date" oninput="refreshImpact()">
+          </div>
+        </div>
+        <div class="field">
+          <label>Estimated repair charge</label>
+          <input class="input" id="nrCost" type="number" min="0" placeholder="e.g. 5000" oninput="refreshImpact()">
+          <div class="help">Customer-facing charge (labour + parts). Posts to Finance when the job completes.</div>
+        </div>
+        <div class="impact" id="nrImpact"></div>
+      </div>
+      <div class="drawer-foot">
+        <button class="btn btn-ghost" onclick="Shell.close('newDrawer')">Cancel</button>
+        <button class="btn btn-primary" onclick="addRepair()">Book repair</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/data.js"></script>
+  <script src="assets/shell.js"></script>
+  <script>
+    // ---- Stage model -----------------------------------------------------
+    var STAGES = ["Received", "Awaiting parts", "In repair", "Ready", "Delivered"];
+    var STAGE_ICON = { "Received": "📥", "Awaiting parts": "⏳", "In repair": "🔧", "Ready": "✅", "Delivered": "📦" };
+    var CURRENT_LABEL = {
+      "Received": "Just booked in", "Awaiting parts": "Waiting on parts",
+      "In repair": "On the bench now", "Ready": "Ready — awaiting pickup", "Delivered": "Delivered"
+    };
+    // Synthetic intake times (not in DB — derived for the timeline)
+    var RECEIVED = { "REP-018": "13 Jul · 09:45 AM", "REP-017": "12 Jul · 11:20 AM", "REP-016": "12 Jul · 05:10 PM" };
+
+    var state = { rows: DB.repairs.map(function (r) { var c = Object.assign({}, r); c.receivedAt = RECEIVED[r.id] || "Today · just now"; return c; }) };
+    var seq = 19; // next REP-0xx id (seed max REP-018)
+
+    // ---- Helpers ---------------------------------------------------------
+    var MON = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+    var TODAY = new Date(2026, 6, 13);
+    function pd(s) { var p = (s || "").split(" "); if (p.length < 3 || !(p[1] in MON)) return null; return new Date(+p[2], MON[p[1]], +p[0]); }
+    function daysFromToday(s) { var d = pd(s); return d ? Math.round((d - TODAY) / 86400000) : null; }
+    function fmtDate(iso) { try { var d = new Date(iso + "T00:00"); return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); } catch (e) { return iso; } }
+    function initials(name) { return (name || "?").split(" ").map(function (w) { return w[0]; }).join("").slice(0, 2).toUpperCase(); }
+    function stageIndex(s) { return STAGES.indexOf(s); }
+    function stageCls(s) { return ({ "Received": "info", "Awaiting parts": "warn", "In repair": "accent", "Ready": "pos", "Delivered": "plain" })[s] || "plain"; }
+    function nextStage(s) { var i = stageIndex(s); return i > -1 && i < STAGES.length - 1 ? STAGES[i + 1] : null; }
+    function find(id) { return state.rows.find(function (r) { return r.id === id; }); }
+    function esc(s) { return String(s).replace(/'/g, "\\'"); }
+
+    // ---- KPI tiles -------------------------------------------------------
+    function renderKpis() {
+      var r = state.rows;
+      var active = r.filter(function (x) { return x.stage !== "Delivered"; }).length;
+      var awaiting = r.filter(function (x) { return x.stage === "Awaiting parts"; }).length;
+      var ready = r.filter(function (x) { return x.stage === "Ready"; }).length;
+      var revenue = r.reduce(function (a, x) { return a + (x.cost || 0); }, 0);
+      var tiles = [
+        { label: "Active jobs", value: active, meta: "in the workshop ▾", accent: true, act: "scrollBoard()" },
+        { label: "Awaiting parts", value: awaiting, meta: "waiting on supplier ▸", act: "focusCol('Awaiting parts')" },
+        { label: "Ready for pickup", value: ready, valcls: "pos-text", meta: "notify customers ▸", act: "focusCol('Ready')" },
+        { label: "Repair revenue", value: fmt.pkr(revenue), meta: "charged across open jobs →", href: "finance.html" }
+      ];
+      document.getElementById("kpiRow").innerHTML = tiles.map(function (t) {
+        var inner = '<div class="label">' + t.label + '</div>'
+          + '<div class="value' + (t.valcls ? " " + t.valcls : "") + '">' + t.value + '</div>'
+          + '<div class="meta">' + t.meta + '</div>';
+        if (t.href) return '<a class="kpi' + (t.accent ? " accent" : "") + '" href="' + t.href + '" style="text-decoration:none">' + inner + '</a>';
+        return '<div class="kpi' + (t.accent ? " accent" : "") + '" onclick="' + t.act + '">' + inner + '</div>';
+      }).join("");
+    }
+
+    // ---- Kanban board ----------------------------------------------------
+    function jobCard(r) {
+      var late = daysFromToday(r.promised);
+      var promBadge;
+      if (r.stage === "Ready") promBadge = '<span class="badge pos">Ready</span>';
+      else if (r.stage === "Delivered") promBadge = '<span class="badge plain">Done</span>';
+      else if (late !== null && late < 0) promBadge = '<span class="badge neg">Overdue</span>';
+      else promBadge = '<span class="badge plain">' + r.promised + '</span>';
+      return '<div class="rep-card" onclick="openDetail(\'' + esc(r.id) + '\')">'
+        + '<div class="rc-top"><span class="mono tiny muted">' + r.id + '</span><span class="rep-cost">' + fmt.pkr(r.cost) + '</span></div>'
+        + '<div class="dev">' + r.device + '</div>'
+        + '<div class="mono tiny muted">' + r.imei + '</div>'
+        + '<div class="issue" style="margin-top:7px">🔧 ' + r.issue + '</div>'
+        + '<div class="rep-foot">'
+        +   '<span class="rep-tech"><span class="avatar-sm">' + initials(r.technician) + '</span><span class="tiny muted">' + r.technician + '</span></span>'
+        +   promBadge
+        + '</div>'
+        + '</div>';
+    }
+
+    function colEmpty(stage) {
+      if (stage === "Received") {
+        return '<div class="rep-empty"><span class="icn">📥</span><span class="small">No new intakes waiting</span>'
+          + '<button class="btn btn-sm" onclick="openNew()">+ Book repair</button></div>';
+      }
+      if (stage === "Delivered") {
+        return '<div class="rep-empty"><span class="icn">📦</span><span class="small">Completed jobs land here once handed over</span></div>';
+      }
+      return '<div class="rep-empty"><span class="icn">—</span><span class="small">No jobs in this stage</span></div>';
+    }
+
+    function renderBoard() {
+      document.getElementById("board").innerHTML = STAGES.map(function (stage) {
+        var jobs = state.rows.filter(function (r) { return r.stage === stage; });
+        var body = jobs.length ? jobs.map(jobCard).join("") : colEmpty(stage);
+        return '<div class="kb-col" data-stage="' + stage + '">'
+          + '<div class="kb-head"><span class="ico">' + STAGE_ICON[stage] + '</span><span class="nm">' + stage + '</span>'
+          +   '<span class="kb-count badge ' + stageCls(stage) + '">' + jobs.length + '</span></div>'
+          + '<div class="kb-body">' + body + '</div>'
+          + '</div>';
+      }).join("");
+    }
+
+    // ---- Detail drawer ---------------------------------------------------
+    function openDetail(id) {
+      var r = find(id);
+      if (!r) return;
+      var si = stageIndex(r.stage);
+      var late = daysFromToday(r.promised);
+
+      // Promised vs actual box
+      var pva;
+      if (r.stage === "Ready" || r.stage === "Delivered") {
+        var onTime = (pd(r.promised) === null) || (TODAY <= pd(r.promised));
+        pva = '<div class="callout pos">' + Shell.svg("check")
+          + '<div>' + (r.stage === "Delivered" ? "Delivered" : "Ready for pickup") + ' today (13 Jul 2026) · promised <b>' + r.promised + '</b> — '
+          + (onTime ? "on time." : "completed after the promised date.") + '</div></div>';
+      } else if (late !== null && late < 0) {
+        pva = '<div class="callout neg">' + Shell.svg("bell")
+          + '<div>Promised <b>' + r.promised + '</b> — <b>overdue by ' + Math.abs(late) + ' day' + (Math.abs(late) === 1 ? "" : "s") + '</b>. Call the customer.</div></div>';
+      } else {
+        pva = '<div class="callout info">' + Shell.svg("demand")
+          + '<div>Promised <b>' + r.promised + '</b> · currently <b>' + r.stage.toLowerCase() + '</b>'
+          + (late !== null ? ' — ' + (late === 0 ? "due today" : late + " day" + (late === 1 ? "" : "s") + " to go") : "") + '.</div></div>';
+      }
+
+      // Status-history timeline
+      var steps = [
+        { stage: "Received", desc: "Booked in · fault logged: " + r.issue },
+        { stage: "Awaiting parts", desc: (r.parts && r.parts !== "—") ? (r.parts + " ordered from supplier") : "No parts required for this job" },
+        { stage: "In repair", desc: "Technician " + r.technician + " working on the fix" },
+        { stage: "Ready", desc: "Repair complete · QC passed · ready for pickup" },
+        { stage: "Delivered", desc: "Handed to customer · charge collected" }
+      ];
+      var tl = '<div class="timeline">' + steps.map(function (s, i) {
+        var done = i <= si;
+        var time;
+        if (s.stage === "Received") time = r.receivedAt;
+        else if (i < si) time = "Completed";
+        else if (i === si) time = CURRENT_LABEL[r.stage];
+        else time = "Pending";
+        return '<div class="tl-item' + (done ? " done" : "") + '">'
+          + '<div class="tl-time">' + time + '</div>'
+          + '<div class="tl-title">' + s.stage + '</div>'
+          + '<div class="tl-desc">' + s.desc + '</div></div>';
+      }).join("") + '</div>';
+
+      var html = ""
+        + '<div class="row wrap" style="margin-bottom:14px">'
+        +   '<span class="badge ' + stageCls(r.stage) + '"><span class="dot-i"></span>' + r.stage + '</span>'
+        +   '<span class="badge plain"><span class="avatar-sm" style="width:18px;height:18px;font-size:9px">' + initials(r.technician) + '</span> ' + r.technician + '</span>'
+        + '</div>'
+        + '<div class="card" style="margin-bottom:14px"><div class="card-pad">'
+        +   '<div class="small muted">Device in for repair</div>'
+        +   '<div style="font-weight:650;font-size:15px;margin:2px 0 6px">' + r.device + '</div>'
+        +   '<div class="mono small muted">IMEI ' + r.imei + '</div>'
+        + '</div></div>'
+        + pva
+        + '<div style="height:14px"></div>'
+        + '<div class="kv"><span class="k">Job ID</span><span class="v mono">' + r.id + '</span></div>'
+        + '<div class="kv"><span class="k">Reported issue</span><span class="v">' + r.issue + '</span></div>'
+        + '<div class="kv"><span class="k">Parts</span><span class="v">' + (r.parts && r.parts !== "—" ? r.parts : "None required") + '</span></div>'
+        + '<div class="kv"><span class="k">Technician</span><span class="v">' + r.technician + '</span></div>'
+        + '<div class="kv"><span class="k">Booked in</span><span class="v">' + r.receivedAt + '</span></div>'
+        + '<div class="kv"><span class="k">Promised</span><span class="v">' + r.promised + '</span></div>'
+        + '<div class="kv"><span class="k">Repair charge (customer)</span><span class="v" style="font-variant-numeric:tabular-nums">' + fmt.pkr(r.cost) + '</span></div>'
+        + '<div class="divider"></div>'
+        + '<div class="small muted" style="font-weight:600;margin-bottom:10px">Status history</div>'
+        + tl;
+
+      // Footer actions
+      var ns = nextStage(r.stage);
+      var advBtn = "";
+      if (ns) {
+        var advLabel = ns === "Delivered" ? "Mark delivered" : "Advance to " + ns;
+        advBtn = '<button class="btn" onclick="advance(\'' + esc(r.id) + '\')">' + advLabel + ' →</button>';
+      } else {
+        advBtn = '<span class="badge pos" style="align-self:center">' + Shell.svg("check") + ' Job closed</span>';
+      }
+      document.getElementById("detailFoot").innerHTML = advBtn
+        + '<button class="btn btn-primary" onclick="notifyCustomer(\'' + esc(r.id) + '\')">' + Shell.svg("bell") + ' Notify customer</button>';
+
+      document.getElementById("detailTitle").textContent = r.id + " · " + r.device;
+      document.getElementById("detailBody").innerHTML = html;
+      Shell.open("detailDrawer");
+    }
+
+    function advance(id) {
+      var r = find(id);
+      if (!r) return;
+      var ns = nextStage(r.stage);
+      if (!ns) return;
+      r.stage = ns;
+      if (ns === "Ready" || ns === "Delivered") { /* completion moment */ }
+      renderBoard(); renderKpis();
+      openDetail(id); // rebuild drawer to reflect new stage
+      Shell.toast(r.id + " moved to " + ns, true);
+    }
+
+    function notifyCustomer(id) {
+      var r = find(id);
+      var msg = r && r.stage === "Ready"
+        ? "Pickup reminder sent — " + r.id + " is ready for collection"
+        : "Status update sent to the customer for " + (r ? r.id : "job");
+      Shell.toast(msg, true);
+    }
+
+    // ---- New repair ------------------------------------------------------
+    function openNew() { refreshImpact(); Shell.open("newDrawer"); }
+
+    function refreshImpact() {
+      var dev = document.getElementById("nrDevice").value.trim() || "the device";
+      var tech = document.getElementById("nrTech").value || "a technician";
+      var prom = document.getElementById("nrPromise").value;
+      var costRaw = parseInt(document.getElementById("nrCost").value, 10);
+      var promTxt = prom ? fmtDate(prom) : "no date set yet";
+      var costTxt = isNaN(costRaw) ? "an estimated charge" : fmt.pkr(costRaw);
+      document.getElementById("nrImpact").innerHTML =
+        'Books <b>' + dev + '</b> into the workshop as <b>REP-0' + seq + '</b>, assigns <b>' + tech + '</b>, promised <b>' + promTxt + '</b>.'
+        + '<ul><li>Card appears in the <b>Received</b> column.</li>'
+        + '<li>Adds <b>' + costTxt + '</b> to expected repair revenue on completion.</li></ul>';
+    }
+
+    function addRepair() {
+      var dev = document.getElementById("nrDevice").value.trim();
+      var imei = document.getElementById("nrImei").value.trim();
+      var issue = document.getElementById("nrIssue").value;
+      var tech = document.getElementById("nrTech").value || "Usman";
+      var prom = document.getElementById("nrPromise").value;
+      var cost = parseInt(document.getElementById("nrCost").value, 10);
+      if (!dev) { Shell.toast("Enter the device first", false); return; }
+      if (!issue) { Shell.toast("Select the reported issue first", false); return; }
+      var rec = {
+        id: "REP-0" + (seq++),
+        device: dev, imei: imei || "—", issue: issue, technician: tech,
+        stage: "Received", parts: "—", promised: prom ? fmtDate(prom) : "—",
+        cost: isNaN(cost) ? 0 : cost, receivedAt: "Today · just now"
+      };
+      state.rows.unshift(rec);
+      renderBoard(); renderKpis();
+      Shell.close("newDrawer");
+      Shell.toast("Repair booked — " + rec.id + " added to Received", true);
+      resetNew();
+      focusCol("Received");
+    }
+
+    function resetNew() {
+      document.getElementById("nrDevice").value = "";
+      document.getElementById("nrImei").value = "";
+      document.getElementById("nrIssue").value = "";
+      document.getElementById("nrTech").selectedIndex = 0;
+      document.getElementById("nrPromise").value = "";
+      document.getElementById("nrCost").value = "";
+    }
+
+    // ---- Board focus / scroll -------------------------------------------
+    function scrollBoard() { document.getElementById("board").scrollIntoView({ behavior: "smooth", block: "center" }); }
+    function focusCol(stage) {
+      var col = document.querySelector('.kb-col[data-stage="' + stage + '"]');
+      if (!col) return;
+      col.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+      col.classList.add("focus");
+      setTimeout(function () { col.classList.remove("focus"); }, 1600);
+    }
+
+    // ---- Boot ------------------------------------------------------------
+    document.getElementById("btn-new").innerHTML = Shell.svg("repairs") + " New repair";
+    document.getElementById("introCallout").insertAdjacentHTML("afterbegin", Shell.svg("finance"));
+    renderKpis();
+    renderBoard();
+  </script>
+</body>
+</html>

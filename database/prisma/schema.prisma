@@ -90,6 +90,9 @@ model Organization {
   demandRequestItems DemandRequestItem[]
   demandFollowUps    DemandFollowUp[]
 
+  externalTransactions ExternalTransaction[]
+  expenses             Expense[]
+
   @@map("organizations")
 }
 
@@ -141,6 +144,9 @@ model Branch {
   demandRequests     DemandRequest[]
   demandRequestItems DemandRequestItem[]
   demandFollowUps    DemandFollowUp[]
+
+  externalTransactions ExternalTransaction[]
+  expenses             Expense[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId])
@@ -991,12 +997,13 @@ model Customer {
   createdAt        DateTime                       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  sales          Sale[]
-  payments       Payment[]
-  receivables    Receivable[]
-  saleReturns    SaleReturn[]
-  demandRequests DemandRequest[]
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  sales                Sale[]
+  payments             Payment[]
+  receivables          Receivable[]
+  saleReturns          SaleReturn[]
+  demandRequests       DemandRequest[]
+  externalTransactions ExternalTransaction[]
 
   @@unique([organizationId, customerNumber])
   @@unique([id, organizationId])
@@ -1007,28 +1014,38 @@ model Customer {
 /// Minimal drawer lifecycle required by cash sales. Closing evidence remains a
 /// later child table so reopening can never overwrite an earlier count.
 model CashSession {
-  id               String            @id @default(uuid()) @db.Uuid
-  organizationId   String            @map("organization_id") @db.Uuid
-  branchId         String            @map("branch_id") @db.Uuid
-  sessionNumber    String            @map("session_number") @db.VarChar(100)
-  cashierUserId    String            @map("cashier_user_id") @db.Uuid
-  openedByUserId   String            @map("opened_by_user_id") @db.Uuid
-  status           CashSessionStatus @default(open)
-  openingCashMinor BigInt            @map("opening_cash_minor")
-  openedAt         DateTime          @default(now()) @map("opened_at") @db.Timestamptz(3)
-  closedAt         DateTime?         @map("closed_at") @db.Timestamptz(3)
-  businessDate     DateTime          @map("business_date") @db.Date
-  version          Int               @default(1)
-  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id                   String            @id @default(uuid()) @db.Uuid
+  organizationId       String            @map("organization_id") @db.Uuid
+  branchId             String            @map("branch_id") @db.Uuid
+  sessionNumber        String            @map("session_number") @db.VarChar(100)
+  cashierUserId        String            @map("cashier_user_id") @db.Uuid
+  openedByUserId       String            @map("opened_by_user_id") @db.Uuid
+  status               CashSessionStatus @default(open)
+  openingCashMinor     BigInt            @map("opening_cash_minor")
+  openedAt             DateTime          @default(now()) @map("opened_at") @db.Timestamptz(3)
+  closedAt             DateTime?         @map("closed_at") @db.Timestamptz(3)
+  businessDate         DateTime          @map("business_date") @db.Date
+  /// Closing evidence is set once, only at close. Counted is the physical count,
+  /// expected is the server-derived drawer balance, variance is counted-expected.
+  closingCountedMinor  BigInt?           @map("closing_counted_minor")
+  closingExpectedMinor BigInt?           @map("closing_expected_minor")
+  closingVarianceMinor BigInt?           @map("closing_variance_minor")
+  closingNote          String?           @map("closing_note") @db.VarChar(500)
+  closedByUserId       String?           @map("closed_by_user_id") @db.Uuid
+  version              Int               @default(1)
+  createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch       Branch       @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  cashier      User         @relation("CashSessionCashier", fields: [cashierUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  openedBy     User         @relation("CashSessionOpener", fields: [openedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  sales        Sale[]
-  payments     Payment[]
-  refunds      Refund[]
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch               Branch                @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  cashier              User                  @relation("CashSessionCashier", fields: [cashierUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  openedBy             User                  @relation("CashSessionOpener", fields: [openedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  closedBy             User?                 @relation("CashSessionCloser", fields: [closedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sales                Sale[]
+  payments             Payment[]
+  refunds              Refund[]
+  externalTransactions ExternalTransaction[]
+  expenses             Expense[]
 
   @@unique([organizationId, branchId, sessionNumber])
   @@unique([id, organizationId, branchId])
@@ -1053,11 +1070,13 @@ model FinancialAccount {
   createdAt                DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt                DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch       Branch           @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  payments     Payment[]
-  entries      FinancialEntry[]
-  refunds      Refund[]
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch               Branch                @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  payments             Payment[]
+  entries              FinancialEntry[]
+  refunds              Refund[]
+  externalTransactions ExternalTransaction[]
+  expenses             Expense[]
 
   @@unique([organizationId, branchId, code])
   @@unique([id, organizationId, branchId])
@@ -1434,6 +1453,125 @@ model FinancialEntry {
   @@map("financial_entries")
 }
 
+/// Append-only external money-service record (13_ §13, §23.15). The principal is
+/// customer money passing through and is never revenue; only the fee is, and
+/// service_profit = fee_charged - provider_charge. Immutable: no version and no
+/// updatedAt — a correction is a new compensating record, never a mutation.
+model ExternalTransaction {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  organizationId        String                  @map("organization_id") @db.Uuid
+  branchId              String                  @map("branch_id") @db.Uuid
+  txnNumber             String                  @map("txn_number") @db.VarChar(100)
+  provider              ExternalProvider        @map("provider")
+  transactionType       ExternalTransactionType @map("transaction_type")
+  direction             ExternalCashDirection
+  principalMinor        BigInt                  @map("principal_minor")
+  feeChargedMinor       BigInt                  @map("fee_charged_minor")
+  providerChargeMinor   BigInt                  @default(0) @map("provider_charge_minor")
+  serviceProfitMinor    BigInt                  @map("service_profit_minor")
+  cashImpactMinor       BigInt                  @map("cash_impact_minor")
+  paymentMethod         PaymentMethod           @map("payment_method")
+  financialAccountId    String                  @map("financial_account_id") @db.Uuid
+  cashSessionId         String?                 @map("cash_session_id") @db.Uuid
+  customerId            String?                 @map("customer_id") @db.Uuid
+  customerNameSnapshot  String?                 @map("customer_name_snapshot") @db.VarChar(200)
+  customerPhoneSnapshot String?                 @map("customer_phone_snapshot") @db.VarChar(20)
+  /// The provider's receipt / reference number for this transaction.
+  providerReference     String?                 @map("provider_reference") @db.VarChar(200)
+  /// The target number or bill reference the transaction was performed against.
+  accountReference      String?                 @map("account_reference") @db.VarChar(200)
+  note                  String?                 @db.VarChar(500)
+  businessDate          DateTime                @map("business_date") @db.Date
+  /// Client idempotency key plus a canonical request hash, mirroring posted sales.
+  requestId             String?                 @map("request_id") @db.Uuid
+  requestHash           String?                 @map("request_hash") @db.Char(64)
+  createdByUserId       String                  @map("created_by_user_id") @db.Uuid
+  createdAt             DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch           Branch           @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  customer         Customer?        @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  financialAccount FinancialAccount @relation(fields: [financialAccountId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  cashSession      CashSession?     @relation(fields: [cashSessionId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  createdBy        User             @relation("ExternalTransactionCreator", fields: [createdByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, branchId, txnNumber])
+  @@unique([organizationId, branchId, requestId])
+  @@unique([id, organizationId, branchId])
+  @@index([organizationId, branchId, businessDate, createdAt(sort: Desc)])
+  @@index([organizationId, transactionType, businessDate])
+  @@map("external_transactions")
+}
+
+/// Append-only operating-expense record. Immutable: no version and no updatedAt —
+/// a correction is a new compensating record, never a mutation.
+model Expense {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @map("organization_id") @db.Uuid
+  branchId           String          @map("branch_id") @db.Uuid
+  expenseNumber      String          @map("expense_number") @db.VarChar(100)
+  category           ExpenseCategory
+  amountMinor        BigInt          @map("amount_minor")
+  paymentMethod      PaymentMethod   @map("payment_method")
+  financialAccountId String          @map("financial_account_id") @db.Uuid
+  cashSessionId      String?         @map("cash_session_id") @db.Uuid
+  note               String          @db.VarChar(500)
+  businessDate       DateTime        @map("business_date") @db.Date
+  spentAt            DateTime        @map("spent_at") @db.Timestamptz(3)
+  recordedByUserId   String          @map("recorded_by_user_id") @db.Uuid
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch           Branch           @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  financialAccount FinancialAccount @relation(fields: [financialAccountId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  cashSession      CashSession?     @relation(fields: [cashSessionId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  recordedBy       User             @relation("ExpenseRecorder", fields: [recordedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, branchId, expenseNumber])
+  @@unique([id, organizationId, branchId])
+  @@index([organizationId, branchId, businessDate])
+  @@map("expenses")
+}
+
+/// Mirrors shared/src/external.ts EXTERNAL_PROVIDERS exactly.
+enum ExternalProvider {
+  jazzcash
+  easypaisa
+  bank
+  electricity
+  gas
+  jazz
+  zong
+  other
+}
+
+/// Mirrors shared/src/external.ts EXTERNAL_TRANSACTION_TYPES exactly.
+enum ExternalTransactionType {
+  money_send
+  money_withdrawal
+  bank_transfer
+  utility_bill
+  mobile_load
+}
+
+/// Mirrors shared/src/external.ts EXTERNAL_CASH_DIRECTIONS exactly.
+enum ExternalCashDirection {
+  cash_in
+  cash_out
+}
+
+/// Mirrors shared/src/expenses.ts EXPENSE_CATEGORIES exactly.
+enum ExpenseCategory {
+  rent
+  utilities
+  salaries
+  supplies
+  transport
+  marketing
+  maintenance
+  other
+}
+
 /// Mirrors shared/src/enums.ts SALE_STATUSES exactly.
 enum SaleStatus {
   draft
@@ -1511,6 +1649,9 @@ enum FinancialAccountSubtype {
   cost_of_goods_sold
   tax_payable
   other
+  service_revenue
+  service_float
+  expense
 }
 
 enum FinancialEntrySourceType {
@@ -1520,6 +1661,8 @@ enum FinancialEntrySourceType {
   payment
   receivable
   opening_balance
+  external_transaction
+  expense
 }
 
 enum ReceivableStatus {
@@ -1784,22 +1927,25 @@ model User {
   cancelledPurchaseOrders PurchaseOrder[] @relation("PurchaseOrderCanceller")
   receivedGoodsReceipts   GoodsReceipt[]  @relation("GoodsReceiptReceiver")
 
-  cashierCashSessions       CashSession[]    @relation("CashSessionCashier")
-  openedCashSessions        CashSession[]    @relation("CashSessionOpener")
-  salespersonSales          Sale[]           @relation("SaleSalesperson")
-  cashierSales              Sale[]           @relation("SaleCashier")
-  approvedSaleDiscounts     Sale[]           @relation("SaleDiscountApprover")
-  heldSales                 Sale[]           @relation("SaleHolder")
-  cancelledSales            Sale[]           @relation("SaleCanceller")
-  receivedPayments          Payment[]        @relation("PaymentReceiver")
-  approvedReceivables       Receivable[]     @relation("ReceivableApprover")
-  authoredFinancialEntries  FinancialEntry[] @relation("FinancialEntryActor")
-  salespersonDemandRequests DemandRequest[]  @relation("DemandSalesperson")
-  authoredDemandFollowUps   DemandFollowUp[] @relation("DemandFollowUpActor")
-  createdReturns            SaleReturn[]     @relation("ReturnCreator")
-  approvedReturns           SaleReturn[]     @relation("ReturnApprover")
-  policyOverriddenReturns   SaleReturn[]     @relation("ReturnPolicyOverrider")
-  processedRefunds          Refund[]         @relation("RefundProcessor")
+  cashierCashSessions         CashSession[]         @relation("CashSessionCashier")
+  openedCashSessions          CashSession[]         @relation("CashSessionOpener")
+  salespersonSales            Sale[]                @relation("SaleSalesperson")
+  cashierSales                Sale[]                @relation("SaleCashier")
+  approvedSaleDiscounts       Sale[]                @relation("SaleDiscountApprover")
+  heldSales                   Sale[]                @relation("SaleHolder")
+  cancelledSales              Sale[]                @relation("SaleCanceller")
+  receivedPayments            Payment[]             @relation("PaymentReceiver")
+  approvedReceivables         Receivable[]          @relation("ReceivableApprover")
+  authoredFinancialEntries    FinancialEntry[]      @relation("FinancialEntryActor")
+  salespersonDemandRequests   DemandRequest[]       @relation("DemandSalesperson")
+  authoredDemandFollowUps     DemandFollowUp[]      @relation("DemandFollowUpActor")
+  createdReturns              SaleReturn[]          @relation("ReturnCreator")
+  approvedReturns             SaleReturn[]          @relation("ReturnApprover")
+  policyOverriddenReturns     SaleReturn[]          @relation("ReturnPolicyOverrider")
+  processedRefunds            Refund[]              @relation("RefundProcessor")
+  closedCashSessions          CashSession[]         @relation("CashSessionCloser")
+  createdExternalTransactions ExternalTransaction[] @relation("ExternalTransactionCreator")
+  recordedExpenses            Expense[]             @relation("ExpenseRecorder")
 
   @@unique([organizationId, email])
   @@unique([id, organizationId])

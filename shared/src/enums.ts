@@ -335,25 +335,10 @@ export const DEMAND_CHANNELS = [
 export type DemandChannel = (typeof DEMAND_CHANNELS)[number];
 
 /**
- * External money service direction (13_ §13).
- *
- * The approved prototype (assets/digital.js) names these SENT_FROM_SHOP and
- * RECEIVED_INTO_SHOP, describing the movement of the shop's provider float:
- *   send       = customer sends money  -> shop float goes OUT, cash comes IN
- *   withdrawal = customer takes money  -> shop float comes IN, cash goes OUT
- * The cash leg is never inferred from this; it is configured explicitly per rule
- * (13_ §13: "Do not assume every send or withdrawal affects physical cash the same way").
+ * External money-service vocabulary (service types, cash direction, the
+ * per-thousand fee model and its contracts) lives in shared/src/external.ts,
+ * alongside the ExternalTransaction contract it describes (13_ §13).
  */
-export const EXTERNAL_SERVICE_TYPES = ["send", "withdrawal"] as const;
-export type ExternalServiceType = (typeof EXTERNAL_SERVICE_TYPES)[number];
-
-/** Prototype direction codes, retained for import/mapping fidelity. */
-export const EXTERNAL_DIRECTION_BY_SERVICE_TYPE: Readonly<
-  Record<ExternalServiceType, string>
-> = Object.freeze({
-  send: "SENT_FROM_SHOP",
-  withdrawal: "RECEIVED_INTO_SHOP",
-});
 
 /**
  * Provider float/balance accounts tracked per service (prototype digital-balances.html).

@@ -1,162 +1,366 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import {
+  formatMoney,
+  fromMajor,
+  PERMISSIONS,
+  toMinor,
+  type CashSession,
+} from "@mobileshop/shared";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState, type JSX } from "react";
-import { CatalogDrawer } from "@/components/catalog/catalog-drawer";
+import {
+  CatalogErrorState,
+  CatalogForbiddenState,
+  CatalogTableSkeleton,
+} from "@/components/catalog/catalog-states";
 import { ShieldCheckIcon } from "@/components/ui/icons";
+import { closeCashSession, openCashSession } from "@/lib/api/cash";
+import { toApiError, type ApiError } from "@/lib/api/client";
 import { currentAuthQueryOptions } from "@/lib/query/auth-query";
-import { financeCapabilities } from "./finance-state";
+import { currentCashSessionQueryOptions } from "@/lib/query/cash-query";
+import { queryKeys } from "@/lib/query/keys";
 
-const CASH_LADDER = [
-  ["Opening cash (float)", ""],
-  ["Cash sales", "+"],
-  ["Cash refunds", "−"],
-  ["Expenses paid from drawer", "−"],
-  ["Cash removed / deposited to bank", "−"],
-] as const;
+function money(minor: number, currency: string): string {
+  return formatMoney(toMinor(minor, "cash session amount"), currency);
+}
 
-const TENDERS = [
-  "Cash",
-  "Card",
-  "JazzCash / Easypaisa",
-  "Bank transfer",
-] as const;
+/** Parse a major-unit PKR string to non-negative minor units, or null. */
+function parseMinor(value: string): number | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  try {
+    const minor = fromMajor(trimmed);
+    return Number.isSafeInteger(minor) && minor >= 0 ? minor : null;
+  } catch {
+    return null;
+  }
+}
 
-function DrilldownDrawer({
-  kind,
-  onClose,
+function mutationMessage(error: ApiError, verb: string): string {
+  if (error.code === "OPTIMISTIC_LOCK_FAILED") {
+    return "The session changed since this page loaded. Nothing was saved. Refresh and try again.";
+  }
+  if (error.code === "FORBIDDEN_PERMISSION" || error.status === 403) {
+    return `Your current permissions no longer allow ${verb} a cash session.`;
+  }
+  if (error.code === "NETWORK_ERROR") {
+    return `The cash-session API could not be reached, so the session was not ${verb === "opening" ? "opened" : "closed"}.`;
+  }
+  if (error.code === "REQUEST_TIMEOUT") {
+    return `The cash-session API did not respond in time, so the session was not ${verb === "opening" ? "opened" : "closed"}.`;
+  }
+  return `The session could not be ${verb === "opening" ? "opened" : "closed"}. Review the amount and try again.`;
+}
+
+const inputClass =
+  "mt-1 w-full rounded-control border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:border-accent disabled:cursor-not-allowed disabled:opacity-60";
+
+function ErrorBanner({
+  error,
+  verb,
 }: {
-  readonly kind: "sales" | "expenses";
-  readonly onClose: () => void;
+  readonly error: ApiError;
+  readonly verb: string;
 }): JSX.Element {
-  const sales = kind === "sales";
   return (
-    <CatalogDrawer
-      description={
-        sales
-          ? "Only cash tenders contribute to the drawer reconciliation."
-          : "Only cash-source expenses reduce the drawer."
-      }
-      onClose={onClose}
-      title={sales ? "Cash sales today" : "Expenses paid from drawer"}
-      titleId="cash-drilldown-title"
+    <div
+      className="rounded-control border border-negative/25 bg-negative-soft p-3 text-sm text-negative"
+      role="alert"
     >
-      <div className="overflow-hidden rounded-card border border-line">
-        <table className="w-full border-collapse text-left text-sm">
-          <thead className="bg-surface-subtle text-xs text-ink-muted">
-            <tr>
-              {(sales
-                ? ["Invoice", "Time", "Customer", "Cash in"]
-                : ["Ref", "Category", "Paid"]
-              ).map((label) => (
-                <th
-                  className="px-3 py-2.5 font-semibold last:text-right"
-                  key={label}
-                >
-                  {label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-        </table>
-        <div className="border-t border-line p-5 text-center text-sm text-ink-muted">
-          {sales ? "Sales" : "Expense"} API pending—no prototype rows are
-          copied.
-        </div>
-      </div>
-    </CatalogDrawer>
+      <p className="font-semibold">
+        Session was not {verb === "opening" ? "opened" : "closed"}
+      </p>
+      <p className="mt-0.5">{mutationMessage(error, verb)}</p>
+      {error.requestId === undefined ? null : (
+        <p className="mt-1 font-mono text-xs">Ref: {error.requestId}</p>
+      )}
+    </div>
   );
 }
 
-function ClosingConfirmation({
-  counted,
-  onClose,
-  reason,
+function CloseResultSummary({
+  currency,
+  session,
 }: {
-  readonly counted: string;
-  readonly onClose: () => void;
-  readonly reason: string;
+  readonly currency: string;
+  readonly session: CashSession;
 }): JSX.Element {
-  const numericCounted = Number(counted);
-  const formattedCounted =
-    counted.length > 0 && Number.isFinite(numericCounted)
-      ? `Rs ${numericCounted.toLocaleString("en-PK")}`
-      : "—";
+  const variance = session.varianceMinor ?? 0;
+  const varianceTone =
+    variance < 0
+      ? "text-negative"
+      : variance > 0
+        ? "text-positive"
+        : "text-ink";
   return (
-    <div
-      aria-labelledby="confirm-closing-title"
-      aria-modal="true"
-      className="fixed inset-0 z-[80] grid place-items-center bg-black/55 p-4"
-      role="dialog"
-    >
-      <div className="w-full max-w-lg overflow-hidden rounded-card border border-line bg-surface shadow-overlay">
-        <div className="flex items-center gap-3 border-b border-line px-5 py-4">
-          <h2 className="font-bold text-ink" id="confirm-closing-title">
-            Confirm daily closing
-          </h2>
+    <section className="overflow-hidden rounded-card border border-positive/30 bg-surface shadow-card">
+      <div className="flex items-center gap-2.5 border-b border-line px-5 py-4">
+        <ShieldCheckIcon className="size-4 text-positive" />
+        <h2 className="font-bold text-ink">
+          Session {session.sessionNumber} closed
+        </h2>
+      </div>
+      <dl className="grid gap-px bg-line-subtle sm:grid-cols-3">
+        <div className="bg-surface p-5">
+          <dt className="text-xs text-ink-muted">Expected cash</dt>
+          <dd className="mt-1 font-mono text-lg font-bold text-ink">
+            {session.expectedCashMinor === null
+              ? "—"
+              : money(session.expectedCashMinor, currency)}
+          </dd>
+        </div>
+        <div className="bg-surface p-5">
+          <dt className="text-xs text-ink-muted">Counted cash</dt>
+          <dd className="mt-1 font-mono text-lg font-bold text-ink">
+            {session.countedCashMinor === null
+              ? "—"
+              : money(session.countedCashMinor, currency)}
+          </dd>
+        </div>
+        <div className="bg-surface p-5">
+          <dt className="text-xs text-ink-muted">Variance (counted − expected)</dt>
+          <dd className={`mt-1 font-mono text-lg font-bold ${varianceTone}`}>
+            {session.varianceMinor === null
+              ? "—"
+              : money(session.varianceMinor, currency)}
+          </dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+function OpenSessionForm({
+  canManage,
+  onOpened,
+}: {
+  readonly canManage: boolean;
+  readonly onOpened: () => void;
+}): JSX.Element {
+  const [openingMajor, setOpeningMajor] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+  const openingMinor = parseMinor(openingMajor);
+
+  const submit = async (): Promise<void> => {
+    if (busy || !canManage || openingMinor === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await openCashSession({ openingCashMinor: openingMinor });
+      onOpened();
+    } catch (caught) {
+      setError(toApiError(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
+      <div className="border-b border-line px-5 py-4">
+        <h2 className="font-bold text-ink">Open a cash session</h2>
+        <p className="mt-1 text-sm text-ink-muted">
+          No session is open for this branch. Count the opening float and open a
+          session before recording the day&apos;s cash.
+        </p>
+      </div>
+      <div className="space-y-4 p-5">
+        {error === null ? null : <ErrorBanner error={error} verb="opening" />}
+        <label className="block text-sm font-semibold text-ink">
+          Opening cash / float (PKR)
+          <input
+            className={inputClass}
+            disabled={busy || !canManage}
+            inputMode="decimal"
+            min="0"
+            onChange={(event) => setOpeningMajor(event.target.value)}
+            placeholder="e.g. 10000"
+            step="0.01"
+            type="number"
+            value={openingMajor}
+          />
+          <span className="mt-1 block text-xs font-normal text-ink-muted">
+            The physical cash in the drawer at the start of the session.
+          </span>
+        </label>
+        {canManage ? (
           <button
-            aria-label="Close confirmation"
-            className="ml-auto text-xl text-ink-muted"
-            onClick={onClose}
+            className="w-full rounded-control bg-accent px-4 py-3 text-sm font-bold text-white hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={busy || openingMinor === null}
+            onClick={() => {
+              void submit();
+            }}
             type="button"
           >
-            ×
+            {busy ? "Opening…" : "Open cash session"}
           </button>
+        ) : (
+          <p className="rounded-control border border-warning/25 bg-warning-soft p-3 text-xs text-warning">
+            Opening a session requires the cash_session.manage permission.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function CloseSessionPanel({
+  canManage,
+  currency,
+  onClosed,
+  session,
+}: {
+  readonly canManage: boolean;
+  readonly currency: string;
+  readonly onClosed: (closed: CashSession) => void;
+  readonly session: CashSession;
+}): JSX.Element {
+  const [countedMajor, setCountedMajor] = useState("");
+  const [note, setNote] = useState("");
+  const [attested, setAttested] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+  const countedMinor = parseMinor(countedMajor);
+
+  const submit = async (): Promise<void> => {
+    if (busy || !canManage || countedMinor === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const closed = await closeCashSession(session.id, {
+        version: session.version,
+        countedCashMinor: countedMinor,
+        ...(note.trim().length === 0 ? {} : { note: note.trim() }),
+      });
+      onClosed(closed);
+    } catch (caught) {
+      setError(toApiError(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="grid items-start gap-4 xl:grid-cols-3">
+      <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card xl:col-span-2">
+        <div className="border-b border-line px-5 py-4">
+          <h2 className="font-bold text-ink">Close the cash session</h2>
+          <p className="mt-1 text-sm text-ink-muted">
+            Count the drawer and enter the physical amount. The server computes
+            the expected cash and the variance; sales are never edited to hide a
+            mismatch.
+          </p>
         </div>
         <div className="space-y-4 p-5">
-          <p className="text-sm text-ink-muted">
-            Review the effect before it is recorded. A real closing will close
-            the cash session and write an audit entry; it never changes a sale.
-          </p>
-          <div className="rounded-control border border-info/25 bg-info-soft p-4 text-sm text-info">
-            <strong>What this records</strong>
-            <ul className="mt-2 list-disc space-y-1 pl-5">
-              <li>Expected closing cash: —</li>
-              <li>Counted cash: {formattedCounted}</li>
-              <li>Variance: — · awaiting Cash Sessions API</li>
-              <li>
-                Closes the current cash session and writes a variance audit
-                entry.
-              </li>
-              <li>Sales records are not modified.</li>
-            </ul>
-          </div>
-          {reason.trim().length > 0 ? (
-            <p className="text-sm text-ink-muted">
-              <strong className="text-ink">Reason on file:</strong> {reason}
+          {error === null ? null : <ErrorBanner error={error} verb="closing" />}
+          <label className="block text-sm font-semibold text-ink">
+            Counted cash in drawer (PKR)
+            <input
+              className={inputClass}
+              disabled={busy || !canManage}
+              inputMode="decimal"
+              min="0"
+              onChange={(event) => setCountedMajor(event.target.value)}
+              placeholder="Enter the physical amount you counted"
+              step="0.01"
+              type="number"
+              value={countedMajor}
+            />
+          </label>
+          <label className="block text-sm font-semibold text-ink">
+            Note
+            <span className="font-normal text-ink-muted"> (optional)</span>
+            <textarea
+              className={inputClass}
+              disabled={busy || !canManage}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="e.g. Rs 200 short — recounted and confirmed."
+              rows={3}
+              value={note}
+            />
+          </label>
+          <label className="flex items-start gap-2 text-sm text-ink">
+            <input
+              checked={attested}
+              className="mt-0.5 size-4 accent-[var(--color-accent)]"
+              disabled={busy || !canManage}
+              onChange={(event) => setAttested(event.target.checked)}
+              type="checkbox"
+            />
+            I have physically counted the drawer and the amount above is correct.
+          </label>
+          {canManage ? (
+            <button
+              className="w-full rounded-control bg-accent px-4 py-3 text-sm font-bold text-white hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={busy || !attested || countedMinor === null}
+              onClick={() => {
+                void submit();
+              }}
+              type="button"
+            >
+              {busy ? "Closing…" : "Close cash session"}
+            </button>
+          ) : (
+            <p className="rounded-control border border-warning/25 bg-warning-soft p-3 text-xs text-warning">
+              Closing a session requires the cash_session.manage permission.
             </p>
-          ) : null}
+          )}
         </div>
-        <div className="flex justify-end gap-2 border-t border-line bg-surface-subtle px-5 py-4">
-          <button
-            className="rounded-control border border-line bg-surface px-4 py-2 text-sm font-bold text-ink"
-            onClick={onClose}
-            type="button"
-          >
-            Back
-          </button>
-          <button
-            className="rounded-control bg-accent px-4 py-2 text-sm font-bold text-white opacity-50"
-            disabled
-            title="Cash Sessions API pending"
-            type="button"
-          >
-            Confirm &amp; close session
-          </button>
+      </section>
+
+      <aside className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
+        <div className="border-b border-line px-5 py-4">
+          <h2 className="font-bold text-ink">Session details</h2>
         </div>
-      </div>
+        <dl className="divide-y divide-line-subtle px-5">
+          {[
+            ["Session", session.sessionNumber],
+            ["Status", session.status],
+            ["Opening float", money(session.openingCashMinor, currency)],
+            ["Opened at", new Date(session.openedAt).toLocaleString("en-PK")],
+            ["Cashier", session.cashier.fullName],
+          ].map(([label, value]) => (
+            <div
+              className="flex items-center justify-between gap-3 py-3"
+              key={label}
+            >
+              <dt className="text-xs text-ink-muted">{label}</dt>
+              <dd className="text-right font-mono text-xs font-bold text-ink">
+                {value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </aside>
     </div>
   );
 }
 
 export function ClosingWorkspace(): JSX.Element {
   const auth = useQuery(currentAuthQueryOptions);
-  const [counted, setCounted] = useState("");
-  const [reason, setReason] = useState("");
-  const [attested, setAttested] = useState(false);
-  const [drilldown, setDrilldown] = useState<"sales" | "expenses" | null>(null);
-  const [confirming, setConfirming] = useState(false);
+  const queryClient = useQueryClient();
+  const [closeResult, setCloseResult] = useState<CashSession | null>(null);
+
+  const permissions = auth.data?.permissions ?? [];
+  const canView = permissions.includes(PERMISSIONS.CASH_SESSION_VIEW);
+  const canManage = permissions.includes(PERMISSIONS.CASH_SESSION_MANAGE);
+  const session = useQuery(
+    currentCashSessionQueryOptions(auth.data !== undefined && canView),
+  );
+
+  const currency = auth.data?.organization.currency ?? "PKR";
+
+  const refreshSession = (): void => {
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.currentCashSession,
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.cashSessionsRoot,
+    });
+  };
 
   if (auth.data === undefined) {
     return (
@@ -168,296 +372,81 @@ export function ClosingWorkspace(): JSX.Element {
     );
   }
 
-  const capabilities = financeCapabilities(auth.data.permissions);
-  if (!capabilities.canViewClosing) {
+  if (!canView) {
     return (
-      <section className="rounded-card border border-line bg-surface p-6 shadow-card">
-        <p className="text-xs font-bold uppercase tracking-wide text-negative">
-          Access restricted
-        </p>
-        <h1 className="mt-2 text-xl font-bold text-ink">
-          Cash-session permission required
+      <CatalogForbiddenState
+        description="Viewing cash sessions requires the server-provided cash_session.view permission. No closing request was sent."
+        title="Cash-session access required"
+      />
+    );
+  }
+
+  const header = (
+    <header className="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <nav aria-label="Breadcrumb" className="text-xs text-ink-muted">
+          <Link className="font-semibold text-accent" href="/finance">
+            Finance
+          </Link>{" "}
+          / Daily closing
+        </nav>
+        <h1 className="mt-1 text-xl font-bold text-ink sm:text-2xl">
+          Daily Closing
         </h1>
-        <p className="mt-2 text-sm text-ink-muted">
-          Your session has no cash_sessions.view permission. No closing request
-          was sent.
+        <p className="mt-1 text-sm text-ink-muted">
+          Open a cash session, then reconcile and close it against a counted
+          drawer.
         </p>
-      </section>
+      </div>
+    </header>
+  );
+
+  let body: JSX.Element;
+  if (session.isPending) {
+    body = <CatalogTableSkeleton rows={5} />;
+  } else if (session.data === undefined) {
+    const error = toApiError(session.error);
+    body = (
+      <CatalogErrorState
+        description="The cash-session API could not be reached. No session state is inferred."
+        onRetry={() => {
+          void session.refetch();
+        }}
+        title="Cash session could not be loaded"
+        {...(error.requestId === undefined ? {} : { requestId: error.requestId })}
+      />
+    );
+  } else if (session.data === null) {
+    body = (
+      <OpenSessionForm
+        canManage={canManage}
+        onOpened={() => {
+          setCloseResult(null);
+          refreshSession();
+        }}
+      />
+    );
+  } else {
+    body = (
+      <CloseSessionPanel
+        canManage={canManage}
+        currency={currency}
+        onClosed={(closed) => {
+          setCloseResult(closed);
+          refreshSession();
+        }}
+        session={session.data}
+      />
     );
   }
 
   return (
     <div className="space-y-5">
-      <nav aria-label="Breadcrumb" className="text-xs text-ink-muted">
-        <Link className="font-semibold text-accent" href="/finance">
-          Finance
-        </Link>{" "}
-        / Daily closing
-      </nav>
-
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-ink sm:text-2xl">
-            Daily Closing
-          </h1>
-          <p className="mt-1 text-sm text-ink-muted">
-            Current business day · session identity, open time and cashier await
-            the Cash Sessions API
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            className="rounded-control border border-line bg-surface px-3.5 py-2 text-sm font-bold text-ink no-underline"
-            href="/finance"
-          >
-            Finance overview
-          </Link>
-          <span className="rounded-full bg-warning-soft px-2.5 py-1 text-xs font-bold text-warning">
-            Session status pending
-          </span>
-        </div>
-      </header>
-
-      <div className="grid items-start gap-4 xl:grid-cols-3">
-        <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card xl:col-span-2">
-          <div className="flex items-center gap-3 border-b border-line px-5 py-4">
-            <h2 className="font-bold text-ink">Cash drawer reconciliation</h2>
-            <span className="ml-auto text-xs text-ink-muted">
-              Count the drawer, not the sales
-            </span>
-          </div>
-          <div className="space-y-5 p-5">
-            <p className="text-xs text-ink-muted">
-              The system builds expected cash from posted activity. Enter the
-              physical amount you counted; nothing posts from this preview.
-            </p>
-
-            <dl className="divide-y divide-line-subtle">
-              {CASH_LADDER.map(([label, sign]) => {
-                const drill =
-                  label === "Cash sales"
-                    ? "sales"
-                    : label === "Expenses paid from drawer"
-                      ? "expenses"
-                      : null;
-                return (
-                  <div className="flex items-center gap-3 py-3" key={label}>
-                    <span className="w-4 font-mono text-xs text-ink-muted">
-                      {sign}
-                    </span>
-                    {drill === null ? (
-                      <dt className="flex-1 text-sm text-ink-muted">{label}</dt>
-                    ) : (
-                      <dt className="flex-1">
-                        <button
-                          className="text-left text-sm font-semibold text-accent"
-                          onClick={() => setDrilldown(drill)}
-                          type="button"
-                        >
-                          {label} →
-                        </button>
-                      </dt>
-                    )}
-                    <dd className="font-mono font-bold text-ink-muted">—</dd>
-                  </div>
-                );
-              })}
-              <div className="flex items-center justify-between gap-3 border-t-2 border-line py-4">
-                <dt className="font-bold text-ink">= Expected closing cash</dt>
-                <dd className="font-mono text-xl font-bold text-ink-muted">
-                  —
-                </dd>
-              </div>
-            </dl>
-
-            <label className="block text-sm font-semibold text-ink">
-              Counted cash in drawer
-              <input
-                className="mt-1 w-full rounded-control border border-line bg-surface px-3 py-2.5 font-normal"
-                inputMode="numeric"
-                min="0"
-                onChange={(event) => setCounted(event.target.value)}
-                placeholder="Enter the physical amount you counted, e.g. 137000"
-                step="100"
-                type="number"
-                value={counted}
-              />
-              <span className="mt-1 block text-xs font-normal text-ink-muted">
-                Count notes and coins. Nothing is posted until final
-                confirmation.
-              </span>
-            </label>
-
-            <div className="flex items-center justify-between gap-4 rounded-control border border-line bg-surface-subtle p-4">
-              <div>
-                <p className="text-xs text-ink-muted">
-                  Variance (counted − expected)
-                </p>
-                <p className="mt-1 text-xl font-bold text-ink-muted">—</p>
-                <p className="mt-1 text-xs text-ink-muted">
-                  Expected cash awaits its source ledger.
-                </p>
-              </div>
-              <span className="rounded-full bg-surface px-2.5 py-1 text-xs font-bold text-ink-muted">
-                Awaiting API
-              </span>
-            </div>
-
-            <label className="block text-sm font-semibold text-ink">
-              Reason for variance
-              <textarea
-                className="mt-1 w-full rounded-control border border-line bg-surface px-3 py-2 font-normal"
-                onChange={(event) => setReason(event.target.value)}
-                placeholder="e.g. Rs 200 short—recounted and confirmed."
-                rows={3}
-                value={reason}
-              />
-              <span className="mt-1 block text-xs font-normal text-ink-muted">
-                Required whenever the drawer does not balance. Sales are never
-                edited to hide a mismatch.
-              </span>
-            </label>
-
-            <div className="flex items-start gap-2.5 rounded-control border border-warning/25 bg-warning-soft p-4 text-sm text-warning">
-              <ShieldCheckIcon className="mt-0.5 size-4 shrink-0" />
-              If cash does not match, record the variance and reason. Never
-              change sales records—the audit trail must stay honest.
-            </div>
-
-            <dl className="divide-y divide-line-subtle">
-              <div className="flex items-center justify-between gap-3 py-3">
-                <dt className="text-sm text-ink-muted">Submitted by</dt>
-                <dd className="text-sm font-semibold text-ink">
-                  {auth.data.user.fullName}
-                </dd>
-              </div>
-              <div className="flex items-center justify-between gap-3 py-3">
-                <dt className="text-sm text-ink-muted">Approved by</dt>
-                <dd className="text-sm font-semibold text-ink-muted">
-                  Policy pending
-                </dd>
-              </div>
-            </dl>
-
-            <label className="flex items-start gap-2 text-sm text-ink">
-              <input
-                checked={attested}
-                className="mt-0.5 size-4 accent-[var(--color-accent)]"
-                onChange={(event) => setAttested(event.target.checked)}
-                type="checkbox"
-              />
-              I have physically counted the drawer and the amount above is
-              correct.
-            </label>
-
-            <button
-              className="w-full rounded-control bg-accent px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
-              disabled={
-                !capabilities.canCloseSession ||
-                !attested ||
-                counted.length === 0
-              }
-              onClick={() => setConfirming(true)}
-              type="button"
-            >
-              Submit daily closing
-            </button>
-            <p className="text-center text-xs text-ink-muted">
-              Final persistence remains disabled in the confirmation until the
-              Cash Sessions API is built.
-            </p>
-          </div>
-        </section>
-
-        <aside className="space-y-4">
-          <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
-            <div className="border-b border-line px-5 py-4">
-              <h2 className="font-bold text-ink">Session details</h2>
-            </div>
-            <dl className="divide-y divide-line-subtle px-5">
-              {[
-                "Session ID",
-                "Business date",
-                "Opened",
-                "Opening float",
-                "Cashier",
-                "Status",
-              ].map((label) => (
-                <div
-                  className="flex items-center justify-between gap-3 py-3"
-                  key={label}
-                >
-                  <dt className="text-xs text-ink-muted">{label}</dt>
-                  <dd className="font-mono text-xs font-bold text-ink-muted">
-                    {label === "Cashier" ? auth.data.user.fullName : "—"}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-
-          <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
-            <div className="flex items-center gap-3 border-b border-line px-5 py-4">
-              <h2 className="font-bold text-ink">Money in today</h2>
-              <span className="ml-auto text-xs text-ink-muted">By tender</span>
-            </div>
-            <div className="p-5">
-              <dl className="divide-y divide-line-subtle">
-                {TENDERS.map((tender) => (
-                  <div
-                    className="flex items-center justify-between gap-3 py-2.5"
-                    key={tender}
-                  >
-                    <dt className="text-xs text-ink-muted">{tender}</dt>
-                    <dd className="font-mono font-bold text-ink-muted">—</dd>
-                  </div>
-                ))}
-              </dl>
-              <div className="mt-3 rounded-control border border-info/25 bg-info-soft p-3 text-xs text-info">
-                Only cash lands in the drawer. Card, wallet and bank transfers
-                settle elsewhere and do not affect the physical count.
-              </div>
-            </div>
-          </section>
-
-          <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
-            <div className="border-b border-line px-5 py-4">
-              <h2 className="font-bold text-ink">Session activity</h2>
-            </div>
-            <div className="space-y-4 p-5">
-              {[
-                "Session opened",
-                "Cash sales recorded",
-                "Expenses paid from drawer",
-                "Closing count & reconciliation",
-              ].map((title, index) => (
-                <div className="flex gap-3" key={title}>
-                  <span
-                    className={`mt-1 size-2.5 shrink-0 rounded-full ${index === 3 ? "bg-warning" : "bg-line"}`}
-                  />
-                  <div>
-                    <p className="text-sm font-semibold text-ink">{title}</p>
-                    <p className="text-xs text-ink-muted">
-                      Source activity pending
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        </aside>
-      </div>
-
-      {drilldown === null ? null : (
-        <DrilldownDrawer kind={drilldown} onClose={() => setDrilldown(null)} />
+      {header}
+      {closeResult === null ? null : (
+        <CloseResultSummary currency={currency} session={closeResult} />
       )}
-      {confirming ? (
-        <ClosingConfirmation
-          counted={counted}
-          onClose={() => setConfirming(false)}
-          reason={reason}
-        />
-      ) : null}
+      {body}
     </div>
   );
 }

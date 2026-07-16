@@ -25,6 +25,9 @@ import { CustomersModule } from "./modules/customers/customers.module";
 import { SalesModule } from "./modules/sales/sales.module";
 import { ReturnsModule } from "./modules/returns/returns.module";
 import { DemandModule } from "./modules/demand/demand.module";
+import { ExternalModule } from "./modules/external/external.module";
+import { CashModule } from "./modules/cash/cash.module";
+import { ExpensesModule } from "./modules/expenses/expenses.module";
 
 /**
  * Application root.
@@ -118,6 +121,9 @@ import { DemandModule } from "./modules/demand/demand.module";
     SalesModule,
     ReturnsModule,
     DemandModule,
+    ExternalModule,
+    CashModule,
+    ExpensesModule,
   ],
   providers: [
     // Registered globally so no thrown error can escape to the client unshaped.

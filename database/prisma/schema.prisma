@@ -389,6 +389,10 @@ model DeviceIdentifier {
   organizationId   String               @map("organization_id") @db.Uuid
   serializedUnitId String               @map("serialized_unit_id") @db.Uuid
   identifierType   DeviceIdentifierType @map("identifier_type")
+  /// Stable slot identity: IMEI 1/2 and serial 1. SQL backfills legacy rows,
+  /// constrains the valid type/position combinations and freezes identifiers
+  /// once their serialized unit is linked to a posted goods receipt (0009).
+  position         Int                  @db.SmallInt
   /// Normalized form (shared/src/imei.ts normalizeImei/normalizeSerial), so
   /// "356938-035643809" and "356938035643809" collide instead of both entering
   /// stock. A CHECK constrains it to the normalized alphabet.
@@ -399,6 +403,7 @@ model DeviceIdentifier {
   serializedUnit SerializedUnit @relation(fields: [serializedUnitId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, normalizedValue])
+  @@unique([serializedUnitId, identifierType, position], map: "device_identifiers_unit_type_position_key")
   @@index([organizationId, serializedUnitId])
   @@map("device_identifiers")
 }

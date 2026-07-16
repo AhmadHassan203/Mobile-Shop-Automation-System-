@@ -374,15 +374,23 @@ async function insertIdentifier(
   organizationId: string,
   serializedUnitId: string,
   identifierType: "imei" | "serial",
+  position: 1 | 2,
   normalizedValue: string,
 ): Promise<string> {
   const id = randomUUID();
   await client.query(
     `INSERT INTO device_identifiers
        (id, organization_id, serialized_unit_id, identifier_type,
-        normalized_value)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [id, organizationId, serializedUnitId, identifierType, normalizedValue],
+        position, normalized_value)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      id,
+      organizationId,
+      serializedUnitId,
+      identifierType,
+      position,
+      normalizedValue,
+    ],
   );
   return id;
 }
@@ -497,6 +505,7 @@ describe("0007 inventory foundation migration invariants", () => {
           fixture.organizationId,
           unitA,
           "imei",
+          1,
           imei,
         );
 
@@ -509,6 +518,7 @@ describe("0007 inventory foundation migration invariants", () => {
               fixture.organizationId,
               unitA,
               "imei",
+              2,
               imei,
             ),
           "23505",
@@ -525,6 +535,7 @@ describe("0007 inventory foundation migration invariants", () => {
               fixture.organizationId,
               unitA,
               "serial",
+              1,
               imei,
             ),
           "23505",
@@ -541,6 +552,7 @@ describe("0007 inventory foundation migration invariants", () => {
               fixture.organizationId,
               unitB,
               "imei",
+              2,
               imei,
             ),
           "23505",
@@ -554,6 +566,7 @@ describe("0007 inventory foundation migration invariants", () => {
               fixture.organizationId,
               unitB,
               "serial",
+              1,
               imei,
             ),
           "23505",
@@ -567,6 +580,7 @@ describe("0007 inventory foundation migration invariants", () => {
           fixture.organizationId,
           unitA,
           "imei",
+          2,
           "356938035643810",
         );
       });
@@ -586,6 +600,7 @@ describe("0007 inventory foundation migration invariants", () => {
           first.organizationId,
           firstUnit,
           "imei",
+          1,
           imei,
         );
         await insertIdentifier(
@@ -593,6 +608,7 @@ describe("0007 inventory foundation migration invariants", () => {
           second.organizationId,
           secondUnit,
           "imei",
+          1,
           imei,
         );
 
@@ -626,6 +642,7 @@ describe("0007 inventory foundation migration invariants", () => {
                 fixture.organizationId,
                 unit,
                 "imei",
+                1,
                 invalid,
               ),
             "23514",
@@ -639,6 +656,7 @@ describe("0007 inventory foundation migration invariants", () => {
           fixture.organizationId,
           unit,
           "serial",
+          1,
           "F17GQ2PBJC6L",
         );
       });
@@ -655,6 +673,7 @@ describe("0007 inventory foundation migration invariants", () => {
           fixture.organizationId,
           unit,
           "serial",
+          1,
           maximal,
         );
 
@@ -676,6 +695,7 @@ describe("0007 inventory foundation migration invariants", () => {
               fixture.organizationId,
               unit,
               "serial",
+              1,
               `${maximal}A`,
             ),
           "22001",
@@ -1071,6 +1091,7 @@ describe("0007 inventory foundation migration invariants", () => {
           fixture.organizationId,
           unitId,
           "imei",
+          1,
           `35693803564${Math.floor(Math.random() * 9000 + 1000)}`,
         );
         await insertStockBatch(client, fixture);
@@ -1107,6 +1128,7 @@ describe("0007 inventory foundation migration invariants", () => {
           fixture.organizationId,
           unitId,
           "serial",
+          1,
           `SN${shortId()}${shortId()}`,
         );
         await insertStockBatch(client, fixture);
@@ -1179,6 +1201,7 @@ describe("0007 inventory foundation migration invariants", () => {
               first.organizationId,
               secondUnit,
               "imei",
+              1,
               "359072061112223",
             ),
           "23503",

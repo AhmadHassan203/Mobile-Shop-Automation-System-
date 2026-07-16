@@ -71,6 +71,20 @@ export function purchasingActorContext(
     organizationId: current.organization.id,
     branchId: current.branch.id,
     actorUserId: current.user.id,
+    allowedLocationIds: current.scopes.some(
+      (scope) =>
+        scope.branchId === current.branch.id && scope.locationId === null,
+    )
+      ? null
+      : [
+          ...new Set(
+            current.scopes.flatMap((scope) =>
+              scope.branchId === current.branch.id && scope.locationId !== null
+                ? [scope.locationId]
+                : [],
+            ),
+          ),
+        ].sort(),
     metadata: authRequestMetadata(request),
   };
 }

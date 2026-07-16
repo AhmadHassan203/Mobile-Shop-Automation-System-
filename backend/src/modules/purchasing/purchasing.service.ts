@@ -64,6 +64,8 @@ export interface PurchasingActorContext {
   readonly organizationId: string;
   readonly branchId: string;
   readonly actorUserId: string;
+  /** Null means the authenticated user has branch-wide location access. */
+  readonly allowedLocationIds: readonly string[] | null;
   readonly metadata: AuthRequestMetadata;
 }
 
@@ -290,6 +292,7 @@ interface PreparedReceiptLine {
   readonly input: GoodsReceiptLineData;
   readonly orderLine: ReceivingPurchaseOrderLine;
   readonly quantity: number;
+  readonly unitCostMinor: number;
   readonly actualTotalMinor: number;
   readonly landedCostAllocatedMinor: number;
   readonly landedCostTotalMinor: number;
@@ -962,6 +965,7 @@ export class PurchasingService {
     const where: Prisma.GoodsReceiptWhereInput = {
       organizationId: context.organizationId,
       branchId: context.branchId,
+      ...this.goodsReceiptLocationScope(context),
       ...(query.purchaseOrderId === undefined
         ? {}
         : { purchaseOrderId: query.purchaseOrderId }),
@@ -1203,7 +1207,15 @@ export class PurchasingService {
           });
         }
 
-        for (const line of allocatedLines) {
+        // A canonical lock order prevents two receipts for different POs from
+        // deadlocking when they touch the same quantity batches in reverse
+        // request order.
+        const postingLines = [...allocatedLines].sort((left, right) =>
+          `${left.orderLine.productVariantId}:${left.input.stockLocationId}`.localeCompare(
+            `${right.orderLine.productVariantId}:${right.input.stockLocationId}`,
+          ),
+        );
+        for (const line of postingLines) {
           await this.postReceiptLine(
             tx,
             context,
@@ -1375,7 +1387,7 @@ export class PurchasingService {
           stockLocationId: line.input.stockLocationId,
           trackingType: "quantity",
           quantityReceived: line.quantity,
-          unitCostMinor: BigInt(line.input.unitCostMinor),
+          unitCostMinor: BigInt(line.unitCostMinor),
           actualCostTotalMinor: BigInt(line.actualTotalMinor),
           landedCostAllocatedMinor: BigInt(line.landedCostAllocatedMinor),
           landedCostTotalMinor: BigInt(line.landedCostTotalMinor),
@@ -1413,7 +1425,7 @@ export class PurchasingService {
         stockLocationId: line.input.stockLocationId,
         trackingType: "serialized",
         quantityReceived: line.quantity,
-        unitCostMinor: BigInt(line.input.unitCostMinor),
+        unitCostMinor: BigInt(line.unitCostMinor),
         actualCostTotalMinor: BigInt(line.actualTotalMinor),
         landedCostAllocatedMinor: BigInt(line.landedCostAllocatedMinor),
         landedCostTotalMinor: BigInt(line.landedCostTotalMinor),
@@ -1430,10 +1442,7 @@ export class PurchasingService {
       if (allocated === undefined) {
         throw new Error("Landed-cost allocation lost a serialized unit");
       }
-      const landedUnitCost = sum([
-        toMinor(line.input.unitCostMinor),
-        allocated,
-      ]);
+      const landedUnitCost = sum([toMinor(line.unitCostMinor), allocated]);
       const identifiers = [
         { identifierType: "imei" as const, normalizedValue: unit.imei1 },
         ...(unit.imei2 === undefined || unit.imei2 === null
@@ -1465,7 +1474,7 @@ export class PurchasingService {
           condition: line.orderLine.productVariant.condition,
           ptaStatus: line.orderLine.productVariant.ptaStatus,
           receivedAt,
-          actualCostMinor: BigInt(line.input.unitCostMinor),
+          actualCostMinor: BigInt(line.unitCostMinor),
           landedCostMinor: BigInt(landedUnitCost),
         },
         select: { id: true },
@@ -1563,12 +1572,23 @@ export class PurchasingService {
           },
         );
       }
+      const approvedUnitCostMinor = safeMinor(
+        source.unitCostMinor,
+        "approved purchase unit cost",
+      );
+      if (input.unitCostMinor !== approvedUnitCostMinor) {
+        throw validationError(
+          `lines.${index}.unitCostMinor`,
+          "Received unit cost must match the manager-approved purchase-order cost. Update and reapprove the PO before receiving an invoice variance.",
+        );
+      }
       return {
         input,
         orderLine: source,
         quantity,
+        unitCostMinor: approvedUnitCostMinor,
         actualTotalMinor: lineValue(
-          input.unitCostMinor,
+          approvedUnitCostMinor,
           quantity,
           `lines.${index}.unitCostMinor`,
         ),
@@ -1585,6 +1605,12 @@ export class PurchasingService {
     lines: readonly GoodsReceiptLineData[],
   ): Promise<void> {
     const ids = [...new Set(lines.map((line) => line.stockLocationId))];
+    if (context.allowedLocationIds !== null) {
+      const allowed = new Set(context.allowedLocationIds);
+      if (ids.some((id) => !allowed.has(id))) {
+        throw notFound("stock location");
+      }
+    }
     const locations = await tx.stockLocation.findMany({
       where: {
         id: { in: ids },
@@ -1931,6 +1957,7 @@ export class PurchasingService {
         id,
         organizationId: context.organizationId,
         branchId: context.branchId,
+        ...this.goodsReceiptLocationScope(context),
       },
       select: goodsReceiptDetailSelect,
     });
@@ -1954,6 +1981,21 @@ export class PurchasingService {
       }
     }
     return { receipt, initialStates };
+  }
+
+  private goodsReceiptLocationScope(
+    context: PurchasingActorContext,
+  ): Prisma.GoodsReceiptWhereInput {
+    if (context.allowedLocationIds === null) return {};
+    const allowed = { in: [...context.allowedLocationIds] };
+    return {
+      lines: {
+        // Detail responses reconcile whole receipts. Never expose a mixed-
+        // location receipt unless every line falls inside the caller's scope.
+        some: { stockLocationId: allowed },
+        every: { stockLocationId: allowed },
+      },
+    };
   }
 
   // -------------------------------------------------------------------------

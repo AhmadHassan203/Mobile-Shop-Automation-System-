@@ -49,6 +49,8 @@ export interface InventoryActorContext {
   readonly organizationId: string;
   readonly branchId: string;
   readonly actorUserId: string;
+  /** Null means the authenticated user has branch-wide location access. */
+  readonly allowedLocationIds: readonly string[] | null;
   readonly metadata: AuthRequestMetadata;
 }
 
@@ -300,11 +302,15 @@ export class InventoryService {
   // ===========================================================================
 
   async listStockLocations(
-    organizationId: string,
+    context: InventoryActorContext,
     query: StockLocationListQuery,
   ): Promise<StockLocationPage> {
     const where: Prisma.StockLocationWhereInput = {
-      organizationId,
+      organizationId: context.organizationId,
+      branchId: context.branchId,
+      ...(context.allowedLocationIds === null
+        ? {}
+        : { id: { in: [...context.allowedLocationIds] } }),
       ...(query.active === undefined ? {} : { isActive: query.active }),
       ...(query.locationType === undefined ? {} : { kind: query.locationType }),
       ...(query.q === undefined

@@ -68,6 +68,20 @@ export function inventoryActorContext(request: Request): InventoryActorContext {
     organizationId: current.organization.id,
     branchId: current.branch.id,
     actorUserId: current.user.id,
+    allowedLocationIds: current.scopes.some(
+      (scope) =>
+        scope.branchId === current.branch.id && scope.locationId === null,
+    )
+      ? null
+      : [
+          ...new Set(
+            current.scopes.flatMap((scope) =>
+              scope.branchId === current.branch.id && scope.locationId !== null
+                ? [scope.locationId]
+                : [],
+            ),
+          ),
+        ].sort(),
     metadata: authRequestMetadata(request),
   };
 }
@@ -92,7 +106,7 @@ export class LocationsController {
     query: StockLocationListQuery,
   ): Promise<StockLocationPage> {
     return this.inventory.listStockLocations(
-      inventoryActorContext(request).organizationId,
+      inventoryActorContext(request),
       query,
     );
   }

@@ -59,6 +59,7 @@ const CONTEXT: InventoryActorContext = {
   organizationId: IDS.organization,
   branchId: IDS.branch,
   actorUserId: IDS.user,
+  allowedLocationIds: null,
   metadata: {
     requestId: "request-inventory-test",
     ipAddress: "127.0.0.1",
@@ -1528,7 +1529,7 @@ describe("InventoryService stock locations", () => {
     };
     const service = serviceFor(client);
 
-    const result = await service.listStockLocations(IDS.organization, {
+    const result = await service.listStockLocations(CONTEXT, {
       page: 1,
       pageSize: 25,
       locationType: "store",
@@ -1539,6 +1540,7 @@ describe("InventoryService stock locations", () => {
       expect.objectContaining({
         where: {
           organizationId: IDS.organization,
+          branchId: IDS.branch,
           isActive: true,
           kind: "store",
         },
@@ -1549,5 +1551,31 @@ describe("InventoryService stock locations", () => {
       locationType: "store",
     });
     expectNoForbiddenFields(result.items[0]);
+  });
+
+  it("limits location references to the active branch and authenticated location scope", async () => {
+    const findMany = vi.fn().mockResolvedValue([LOCATION_ROW]);
+    const client = {
+      stockLocation: { count: vi.fn().mockResolvedValue(1), findMany },
+      $transaction: vi.fn(async (operations: readonly Promise<unknown>[]) =>
+        Promise.all(operations),
+      ),
+    };
+    const service = serviceFor(client);
+
+    await service.listStockLocations(
+      { ...CONTEXT, allowedLocationIds: [IDS.location] },
+      { page: 1, pageSize: 25, active: true },
+    );
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: IDS.organization,
+          branchId: IDS.branch,
+          id: { in: [IDS.location] },
+        }),
+      }),
+    );
   });
 });

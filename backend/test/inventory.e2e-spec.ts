@@ -43,12 +43,14 @@ const HOSTILE_ORIGIN = "https://hostile.example";
 
 const ORGANIZATION_ID = "10000000-0000-4000-8000-000000000001";
 const BRANCH_ID = "10000000-0000-4000-8000-000000000002";
+const OTHER_BRANCH_ID = "10000000-0000-4000-8000-000000000003";
 const USER_ID = "20000000-0000-4000-8000-000000000001";
 const ROLE_ID = "40000000-0000-4000-8000-000000000001";
 const VARIANT_ID = "a0000000-0000-4000-8000-000000000001";
 const SERIALIZED_VARIANT_ID = "a0000000-0000-4000-8000-000000000002";
 const LOCATION_ID = "b0000000-0000-4000-8000-000000000001";
 const OTHER_LOCATION_ID = "b0000000-0000-4000-8000-000000000002";
+const OTHER_BRANCH_LOCATION_ID = "b0000000-0000-4000-8000-000000000003";
 const BATCH_ID = "c0000000-0000-4000-8000-000000000001";
 const UNIT_ID = "d0000000-0000-4000-8000-000000000001";
 const MOVEMENT_ID = "e0000000-0000-4000-8000-000000000001";
@@ -150,7 +152,19 @@ const branch = {
   updatedAt: NOW,
 };
 
-function authUserWith(permissions: readonly PermissionKey[]) {
+interface ScopeFixture {
+  readonly branchId: string;
+  readonly locationId: string | null;
+}
+
+const BRANCH_WIDE_SCOPES: readonly ScopeFixture[] = [
+  { branchId: BRANCH_ID, locationId: null },
+];
+
+function authUserWith(
+  permissions: readonly PermissionKey[],
+  scopes: readonly ScopeFixture[] = BRANCH_WIDE_SCOPES,
+) {
   return {
     id: USER_ID,
     organizationId: ORGANIZATION_ID,
@@ -200,20 +214,21 @@ function authUserWith(permissions: readonly PermissionKey[]) {
         },
       },
     ],
-    scopeAccess: [
-      {
-        id: "70000000-0000-4000-8000-000000000001",
-        organizationId: ORGANIZATION_ID,
-        userId: USER_ID,
-        branchId: BRANCH_ID,
-        locationId: null,
-        createdAt: NOW,
-      },
-    ],
+    scopeAccess: scopes.map((scope, index) => ({
+      id: `70000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+      branchId: scope.branchId,
+      locationId: scope.locationId,
+      createdAt: NOW,
+    })),
   };
 }
 
-function sessionWith(permissions: readonly PermissionKey[]) {
+function sessionWith(
+  permissions: readonly PermissionKey[],
+  scopes: readonly ScopeFixture[] = BRANCH_WIDE_SCOPES,
+) {
   return {
     id: "80000000-0000-4000-8000-000000000001",
     organizationId: ORGANIZATION_ID,
@@ -227,7 +242,7 @@ function sessionWith(permissions: readonly PermissionKey[]) {
     createdAt: NOW,
     lastSeenAt: new Date(),
     branch,
-    user: authUserWith(permissions),
+    user: authUserWith(permissions, scopes),
   };
 }
 
@@ -538,6 +553,7 @@ function tableMock() {
 describe("Inventory endpoints (HTTP)", () => {
   let app: INestApplication;
   let grantedPermissions: readonly PermissionKey[] = ALL_INVENTORY_PERMISSIONS;
+  let grantedScopes: readonly ScopeFixture[] = BRANCH_WIDE_SCOPES;
 
   const client = {
     session: {
@@ -582,8 +598,10 @@ describe("Inventory endpoints (HTTP)", () => {
   function authorized(
     route: Pick<Route, "method" | "body"> & { path: string },
     permissions: readonly PermissionKey[] = ALL_INVENTORY_PERMISSIONS,
+    scopes: readonly ScopeFixture[] = BRANCH_WIDE_SCOPES,
   ) {
     grantedPermissions = permissions;
+    grantedScopes = scopes;
     return send(route).set("Cookie", signedCookie(VALID_TOKEN));
   }
 
@@ -616,9 +634,10 @@ describe("Inventory endpoints (HTTP)", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     grantedPermissions = ALL_INVENTORY_PERMISSIONS;
+    grantedScopes = BRANCH_WIDE_SCOPES;
 
     client.session.findUnique.mockImplementation(() =>
-      Promise.resolve(sessionWith(grantedPermissions)),
+      Promise.resolve(sessionWith(grantedPermissions, grantedScopes)),
     );
     client.session.updateMany.mockResolvedValue({ count: 1 });
 
@@ -697,7 +716,125 @@ describe("Inventory endpoints (HTTP)", () => {
     );
   });
 
-  // --- 3. Tenant isolation ------------------------------------------------
+  // --- 3. Location scope --------------------------------------------------
+
+  describe("location-reference scope", () => {
+    type LocationWhere = {
+      readonly organizationId?: string;
+      readonly branchId?: string;
+      readonly id?: { readonly in?: readonly string[] };
+      readonly isActive?: boolean;
+    };
+    interface LocationCandidate {
+      readonly id: string;
+      readonly organizationId: string;
+      readonly branchId: string;
+      readonly isActive: boolean;
+    }
+
+    const sideLocationRow = {
+      ...locationRow,
+      id: OTHER_LOCATION_ID,
+      code: "SIDE",
+      name: "Side counter",
+    };
+    const otherBranchLocationRow = {
+      ...locationRow,
+      id: OTHER_BRANCH_LOCATION_ID,
+      branchId: OTHER_BRANCH_ID,
+      code: "OTHER",
+      name: "Other branch counter",
+    };
+
+    function mockLocationFiltering(
+      candidates: readonly LocationCandidate[],
+    ): void {
+      const matching = (argument: unknown) => {
+        const { where } = argument as { readonly where: LocationWhere };
+        return candidates.filter(
+          (candidate) =>
+            (where.organizationId === undefined ||
+              candidate.organizationId === where.organizationId) &&
+            (where.branchId === undefined ||
+              candidate.branchId === where.branchId) &&
+            (where.id?.in === undefined ||
+              where.id.in.includes(candidate.id)) &&
+            (where.isActive === undefined ||
+              candidate.isActive === where.isActive),
+        );
+      };
+      client.stockLocation.count.mockImplementation((argument: unknown) =>
+        Promise.resolve(matching(argument).length),
+      );
+      client.stockLocation.findMany.mockImplementation((argument: unknown) =>
+        Promise.resolve(matching(argument)),
+      );
+    }
+
+    it("returns only the active branch's locations for branch-wide access", async () => {
+      mockLocationFiltering([locationRow, otherBranchLocationRow]);
+
+      const response = await authorized(
+        { method: "get", path: "/api/v1/locations?active=true" },
+        [PERMISSIONS.INVENTORY_VIEW],
+        [
+          { branchId: BRANCH_ID, locationId: null },
+          {
+            branchId: OTHER_BRANCH_ID,
+            locationId: OTHER_BRANCH_LOCATION_ID,
+          },
+        ],
+      ).expect(200);
+
+      expect(response.body).toMatchObject({
+        total: 1,
+        items: [{ id: LOCATION_ID, code: "MAIN" }],
+      });
+      const find = client.stockLocation.findMany.mock.calls[0]?.[0] as {
+        readonly where: LocationWhere;
+      };
+      expect(find.where).toMatchObject({
+        organizationId: ORGANIZATION_ID,
+        branchId: BRANCH_ID,
+        isActive: true,
+      });
+      expect(find.where).not.toHaveProperty("id");
+    });
+
+    it("returns only deduplicated locations allowed in the active branch", async () => {
+      mockLocationFiltering([locationRow, sideLocationRow]);
+
+      const response = await authorized(
+        { method: "get", path: "/api/v1/locations?active=true" },
+        [PERMISSIONS.INVENTORY_VIEW],
+        [
+          { branchId: BRANCH_ID, locationId: LOCATION_ID },
+          { branchId: BRANCH_ID, locationId: LOCATION_ID },
+          {
+            branchId: OTHER_BRANCH_ID,
+            locationId: OTHER_BRANCH_LOCATION_ID,
+          },
+        ],
+      ).expect(200);
+
+      expect(response.body).toMatchObject({
+        total: 1,
+        items: [{ id: LOCATION_ID, code: "MAIN" }],
+      });
+      expect(response.text).not.toContain(OTHER_LOCATION_ID);
+      const find = client.stockLocation.findMany.mock.calls[0]?.[0] as {
+        readonly where: LocationWhere;
+      };
+      expect(find.where).toMatchObject({
+        organizationId: ORGANIZATION_ID,
+        branchId: BRANCH_ID,
+        id: { in: [LOCATION_ID] },
+        isActive: true,
+      });
+    });
+  });
+
+  // --- 4. Tenant isolation ------------------------------------------------
 
   describe("cross-tenant isolation", () => {
     it("reports a foreign serialized unit as 404 and scopes the lookup", async () => {

@@ -30,4 +30,19 @@ export const queryKeys = Object.freeze({
   inventoryLocationsRoot: ["inventory", "locations"] as const,
   inventoryLocations: (parameters: object) =>
     ["inventory", "locations", parameters] as const,
+  purchasingSuppliersRoot: ["purchasing", "suppliers"] as const,
+  purchasingSuppliers: (parameters: object) =>
+    ["purchasing", "suppliers", parameters] as const,
+  purchasingSupplier: (id: string) =>
+    ["purchasing", "suppliers", "detail", id] as const,
+  purchasingOrdersRoot: ["purchasing", "orders"] as const,
+  purchasingOrders: (parameters: object) =>
+    ["purchasing", "orders", parameters] as const,
+  purchasingOrder: (id: string) =>
+    ["purchasing", "orders", "detail", id] as const,
+  purchasingReceiptsRoot: ["purchasing", "receipts"] as const,
+  purchasingReceipts: (parameters: object) =>
+    ["purchasing", "receipts", parameters] as const,
+  purchasingReceipt: (id: string) =>
+    ["purchasing", "receipts", "detail", id] as const,
 });

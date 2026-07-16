@@ -25,6 +25,7 @@ const IDS = Object.freeze({
   quantityVariant2: "10000000-0000-4000-8000-000000000009",
   serializedVariant: "10000000-0000-4000-8000-00000000000a",
   location: "10000000-0000-4000-8000-00000000000b",
+  allowedLocation: "10000000-0000-4000-8000-000000000015",
   receipt: "10000000-0000-4000-8000-00000000000c",
   receiptLine: "10000000-0000-4000-8000-00000000000d",
   receiptLine2: "10000000-0000-4000-8000-00000000000e",
@@ -41,6 +42,7 @@ const CONTEXT: PurchasingActorContext = {
   organizationId: IDS.organization,
   branchId: IDS.branch,
   actorUserId: IDS.user,
+  allowedLocationIds: null,
   metadata: {
     requestId: "request-purchasing-test",
     ipAddress: "127.0.0.1",
@@ -642,13 +644,124 @@ describe("PurchasingService goods receiving", () => {
     expect(tx.stockBatch.updateMany).not.toHaveBeenCalled();
   });
 
+  it("rejects a receipt unit cost that differs from the approved PO before mutating receipt, stock or payable", async () => {
+    const order = receivingOrder([
+      {
+        id: IDS.purchaseLine,
+        variant: QUANTITY_VARIANT,
+        ordered: 1,
+        purchaseCost: 100,
+      },
+    ]);
+    const receipt = receiptDetail({
+      actual: 120,
+      landed: 120,
+      lines: [
+        {
+          id: IDS.receiptLine,
+          purchaseOrderLineId: IDS.purchaseLine,
+          variant: QUANTITY_VARIANT,
+          quantity: 1,
+          unitCost: 120,
+          allocation: 0,
+          batchId: IDS.batch,
+        },
+      ],
+    });
+    const tx = receivingTx({ order, receipt });
+    const input = CreateGoodsReceiptInputSchema.parse({
+      purchaseOrderId: IDS.purchase,
+      invoiceDueOn: "2030-01-01",
+      lines: [
+        {
+          purchaseOrderLineId: IDS.purchaseLine,
+          trackingType: "quantity",
+          stockLocationId: IDS.location,
+          unitCostMinor: 120,
+          quantity: 1,
+        },
+      ],
+    });
+
+    await expect(
+      serviceFor(interactiveClient(tx)).createGoodsReceipt(CONTEXT, input),
+    ).rejects.toMatchObject({
+      code: ERROR_CODES.VALIDATION_FAILED,
+      details: {
+        "lines.0.unitCostMinor": [
+          expect.stringContaining("manager-approved purchase-order cost"),
+        ],
+      },
+    });
+    expect(tx.goodsReceipt.create).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(tx.stockBatch.updateMany).not.toHaveBeenCalled();
+    expect(tx.payable.create).not.toHaveBeenCalled();
+  });
+
+  it("hides an out-of-scope receiving location before mutating receipt or stock", async () => {
+    const order = receivingOrder([
+      {
+        id: IDS.purchaseLine,
+        variant: QUANTITY_VARIANT,
+        ordered: 1,
+        purchaseCost: 100,
+      },
+    ]);
+    const receipt = receiptDetail({
+      actual: 100,
+      landed: 100,
+      lines: [
+        {
+          id: IDS.receiptLine,
+          purchaseOrderLineId: IDS.purchaseLine,
+          variant: QUANTITY_VARIANT,
+          quantity: 1,
+          unitCost: 100,
+          allocation: 0,
+          batchId: IDS.batch,
+        },
+      ],
+    });
+    const tx = receivingTx({ order, receipt });
+    const input = CreateGoodsReceiptInputSchema.parse({
+      purchaseOrderId: IDS.purchase,
+      invoiceDueOn: "2030-01-01",
+      lines: [
+        {
+          purchaseOrderLineId: IDS.purchaseLine,
+          trackingType: "quantity",
+          stockLocationId: IDS.location,
+          unitCostMinor: 100,
+          quantity: 1,
+        },
+      ],
+    });
+    const scopedContext: PurchasingActorContext = {
+      ...CONTEXT,
+      allowedLocationIds: [IDS.allowedLocation],
+    };
+
+    await expect(
+      serviceFor(interactiveClient(tx)).createGoodsReceipt(
+        scopedContext,
+        input,
+      ),
+    ).rejects.toMatchObject({ code: ERROR_CODES.NOT_FOUND });
+    expect(tx.stockLocation.findMany).not.toHaveBeenCalled();
+    expect(tx.goodsReceipt.create).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(tx.stockBatch.updateMany).not.toHaveBeenCalled();
+    expect(tx.payable.create).not.toHaveBeenCalled();
+  });
+
   it("partially receives quantity stock with exact BigInt moving averages, payable and audit", async () => {
     const order = receivingOrder([
       {
         id: IDS.purchaseLine,
         variant: QUANTITY_VARIANT,
         ordered: 10,
-        purchaseCost: 100,
+        purchaseCost: 120,
       },
     ]);
     const receipt = receiptDetail({
@@ -742,7 +855,7 @@ describe("PurchasingService goods receiving", () => {
         id: IDS.purchaseLine,
         variant: SERIALIZED_VARIANT,
         ordered: 1,
-        purchaseCost: 950,
+        purchaseCost: 1_000,
       },
     ]);
     const receipt = receiptDetail({
@@ -844,6 +957,7 @@ describe("PurchasingService goods receiving", () => {
         id: IDS.purchaseLine,
         variant: SERIALIZED_VARIANT,
         ordered: 1,
+        purchaseCost: 1_000,
       },
     ]);
     const receipt = receiptDetail({
@@ -903,6 +1017,7 @@ describe("PurchasingService goods receiving", () => {
         id: IDS.purchaseLine2,
         variant: QUANTITY_VARIANT_2,
         ordered: 1,
+        purchaseCost: 300,
       },
     ]);
     const receipt = receiptDetail({

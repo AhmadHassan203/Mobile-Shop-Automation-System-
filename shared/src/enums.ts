@@ -222,6 +222,32 @@ export const PURCHASE_ORDER_STATUSES = [
 ] as const;
 export type PurchaseOrderStatus = (typeof PURCHASE_ORDER_STATUSES)[number];
 
+/**
+ * Allowed purchase-order lifecycle moves.
+ *
+ * Receiving may follow approval directly (the explicit `ordered` step records
+ * supplier dispatch when the shop uses it). A partially received order can be
+ * closed short, but it cannot be cancelled because stock has already arrived.
+ */
+export const PURCHASE_ORDER_STATUS_TRANSITIONS: Readonly<
+  Record<PurchaseOrderStatus, readonly PurchaseOrderStatus[]>
+> = Object.freeze({
+  draft: ["approved", "cancelled"],
+  approved: ["ordered", "partially_received", "received", "cancelled"],
+  ordered: ["partially_received", "received", "cancelled"],
+  partially_received: ["received", "closed"],
+  received: ["closed"],
+  closed: [],
+  cancelled: [],
+});
+
+export function isPurchaseOrderTransitionAllowed(
+  from: PurchaseOrderStatus,
+  to: PurchaseOrderStatus,
+): boolean {
+  return PURCHASE_ORDER_STATUS_TRANSITIONS[from].includes(to);
+}
+
 export const SALE_STATUSES = [
   "draft",
   "posted",

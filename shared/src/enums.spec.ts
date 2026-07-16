@@ -3,11 +3,14 @@ import {
   MOVEMENT_ON_HAND_SIGN,
   MOVEMENT_TYPES,
   ON_HAND_STOCK_STATES,
+  PURCHASE_ORDER_STATUSES,
+  PURCHASE_ORDER_STATUS_TRANSITIONS,
   SALEABLE_STOCK_STATES,
   SERIALIZED_STATE_TRANSITIONS,
   SERIALIZED_STOCK_STATES,
   type SerializedStockState,
   confidenceLabelFor,
+  isPurchaseOrderTransitionAllowed,
   isTransitionAllowed,
 } from "./enums";
 
@@ -161,6 +164,36 @@ describe("inventory movement types", () => {
     ] as const) {
       expect(MOVEMENT_ON_HAND_SIGN[type], type).toBe(1);
     }
+  });
+});
+
+describe("purchase order lifecycle", () => {
+  it("defines only known transitions for every status", () => {
+    for (const status of PURCHASE_ORDER_STATUSES) {
+      const targets = PURCHASE_ORDER_STATUS_TRANSITIONS[status];
+      expect(targets).toBeDefined();
+      for (const target of targets) {
+        expect(PURCHASE_ORDER_STATUSES).toContain(target);
+        expect(isPurchaseOrderTransitionAllowed(status, target)).toBe(true);
+      }
+    }
+  });
+
+  it("allows receiving only after approval", () => {
+    expect(isPurchaseOrderTransitionAllowed("draft", "received")).toBe(false);
+    expect(
+      isPurchaseOrderTransitionAllowed("approved", "partially_received"),
+    ).toBe(true);
+    expect(isPurchaseOrderTransitionAllowed("ordered", "received")).toBe(true);
+  });
+
+  it("does not cancel or reopen an order after stock arrived", () => {
+    expect(
+      isPurchaseOrderTransitionAllowed("partially_received", "cancelled"),
+    ).toBe(false);
+    expect(isPurchaseOrderTransitionAllowed("received", "ordered")).toBe(false);
+    expect(PURCHASE_ORDER_STATUS_TRANSITIONS.closed).toEqual([]);
+    expect(PURCHASE_ORDER_STATUS_TRANSITIONS.cancelled).toEqual([]);
   });
 });
 

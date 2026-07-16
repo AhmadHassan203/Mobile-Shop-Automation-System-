@@ -17,6 +17,7 @@ import { AuthGuard } from "./modules/auth/auth.guard";
 import { AuthOriginGuard } from "./modules/auth/auth-origin.guard";
 import { CatalogModule } from "./modules/catalog/catalog.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
+import { PurchasingModule } from "./modules/purchasing/purchasing.module";
 import { PermissionGuard } from "./common/auth/permission.guard";
 
 /**
@@ -104,6 +105,7 @@ import { PermissionGuard } from "./common/auth/permission.guard";
     AuthModule,
     CatalogModule,
     InventoryModule,
+    PurchasingModule,
   ],
   providers: [
     // Registered globally so no thrown error can escape to the client unshaped.

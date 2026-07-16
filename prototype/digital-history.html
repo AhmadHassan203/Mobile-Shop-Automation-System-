@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Digital Transaction History · MobileShop OS</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="digital-history">
+  <div class="layout"><aside id="sidebar"></aside><div class="main"><header id="topbar"></header><main class="content">
+    <div class="page-head">
+      <div><h1>Digital Services — Transaction History</h1><div class="subtitle">Manual records for external provider transactions, with pending, dispute and reversal controls.</div></div>
+      <div class="actions"><a class="btn btn-primary" href="digital-services.html">New transaction</a><a class="btn" href="digital-reconciliation.html">Reconcile</a></div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-pad">
+        <div class="field-row">
+          <div class="field"><label>Date</label><input class="input" id="fDate" type="date"></div>
+          <div class="field"><label>Service</label><select class="input" id="fService"></select></div>
+          <div class="field"><label>Direction</label><select class="input" id="fDirection"><option value="">All</option><option value="SENT_FROM_SHOP">Amount Sent</option><option value="RECEIVED_INTO_SHOP">Amount Received</option></select></div>
+          <div class="field"><label>Status</label><select class="input" id="fStatus"></select></div>
+          <div class="field"><label>Cashier</label><input class="input" id="fCashier" placeholder="Any"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Transactions</h3><span class="hint" id="count"></span></div>
+      <div class="table-wrap"><table class="data">
+        <thead><tr><th>Transaction ID</th><th>Date and Time</th><th>Service</th><th>Direction</th><th class="num">Principal</th><th class="num">Service Fee</th><th class="num">Provider Commission</th><th class="num">Net Earnings</th><th>Provider Reference</th><th>Cashier</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+    </div>
+  </main></div></div>
+
+  <div class="overlay" id="detailDrawer" onclick="if(event.target===this)Shell.close('detailDrawer')"><div class="drawer">
+    <div class="drawer-head"><h3 id="detailTitle">Transaction</h3><div class="x-close" onclick="Shell.close('detailDrawer')">✕</div></div>
+    <div class="drawer-body" id="detailBody"></div>
+  </div></div>
+
+  <script src="assets/data.js"></script><script src="assets/digital.js"></script><script src="assets/shell.js"></script>
+  <script>
+    var state = Digital.load();
+    function $(id){return document.getElementById(id);}
+    function badge(s){var cls=s==="SUCCESSFUL"?"pos":s==="PENDING"?"warn":s==="FAILED"||s==="REVERSED"?"neg":"info";return '<span class="badge '+cls+'">'+s+'</span>';}
+    function dir(d){return d===Digital.DIRECTIONS.SENT?"Amount Sent":"Amount Received";}
+    function row(k,v,cls){return '<div class="kv"><span class="k">'+k+'</span><span class="v '+(cls||"")+'">'+v+'</span></div>';}
+    $("fService").innerHTML='<option value="">All</option>'+Digital.SERVICES.map(function(s){return '<option>'+s+'</option>';}).join("");
+    $("fStatus").innerHTML='<option value="">All</option>'+Digital.STATUSES.map(function(s){return '<option>'+s+'</option>';}).join("");
+
+    function filtered(){
+      var date=$("fDate").value, service=$("fService").value, direction=$("fDirection").value, status=$("fStatus").value, cashier=$("fCashier").value.toLowerCase();
+      return state.digitalServiceTransactions.filter(function(t){
+        if(date && (t.createdAt||"").slice(0,10)!==date)return false;
+        if(service && t.service!==service)return false;
+        if(direction && t.direction!==direction)return false;
+        if(status && t.status!==status)return false;
+        if(cashier && (t.cashierName||"").toLowerCase().indexOf(cashier)===-1)return false;
+        return true;
+      });
+    }
+    function actions(t){
+      var reversed = state.digitalServiceTransactions.some(function(x){return x.reversalOfTransactionId===t.id;});
+      return '<div class="row wrap" style="gap:5px">'
+        + '<button class="btn btn-sm" onclick="viewTx(\''+t.id+'\')">View Details</button>'
+        + (t.status==="PENDING"?'<button class="btn btn-sm btn-pos" onclick="markSuccess(\''+t.id+'\')">Mark Successful</button>':'')
+        + (t.status==="SUCCESSFUL"&&!reversed?'<button class="btn btn-sm btn-danger" onclick="reverseTx(\''+t.id+'\')">Reverse</button>':'')
+        + (t.status!=="DISPUTED"?'<button class="btn btn-sm btn-ghost" onclick="markDisputed(\''+t.id+'\')">Dispute</button>':'')
+        + '</div>';
+    }
+    function render(){
+      var rows=filtered();
+      $("count").textContent=rows.length+" of "+state.digitalServiceTransactions.length;
+      $("rows").innerHTML=rows.map(function(t){
+        return '<tr><td class="mono">'+t.id+'</td><td class="muted">'+Digital.dateText(t.createdAt)+'</td><td>'+t.service+'</td><td>'+dir(t.direction)+'</td>'
+          + '<td class="num">'+Digital.pkr(t.principalAmount)+'</td><td class="num">'+Digital.pkr(t.customerServiceFee)+'</td><td class="num">'+Digital.pkr(t.providerNetCommission)+'</td><td class="num '+((t.netServiceEarnings||0)>=0?'pos-text':'neg-text')+'">'+Digital.pkr(t.netServiceEarnings)+'</td>'
+          + '<td class="mono">'+(t.providerTransactionId||'<span class="badge warn">Missing</span>')+'</td><td>'+t.cashierName+'</td><td>'+badge(t.status)+'</td><td>'+actions(t)+'</td></tr>';
+      }).join("") || '<tr><td colspan="12" class="empty">No transactions match these filters.</td></tr>';
+    }
+    function find(id){return state.digitalServiceTransactions.find(function(t){return t.id===id;});}
+    function viewTx(id){
+      var t=find(id); if(!t)return;
+      $("detailTitle").textContent=t.id+" · "+t.service;
+      $("detailBody").innerHTML=row("Status",badge(t.status))+row("Direction",dir(t.direction))+row("Principal",Digital.pkr(t.principalAmount))+row("Customer service fee",Digital.pkr(t.customerServiceFee),"pos-text")
+        +row("Customer cash paid",Digital.pkr(t.customerCashPaid))+row("Customer payout",Digital.pkr(t.customerPayout))+row("Provider float in",Digital.pkr(t.providerFloatIn),"pos-text")+row("Provider float out",Digital.pkr(t.providerFloatOut),"neg-text")
+        +row("Physical cash in",Digital.pkr(t.physicalCashIn),"pos-text")+row("Physical cash out",Digital.pkr(t.physicalCashOut),"neg-text")+row("Provider net commission",Digital.pkr(t.providerNetCommission),"pos-text")
+        +row("Net service earnings",Digital.pkr(t.netServiceEarnings),((t.netServiceEarnings||0)>=0?"pos-text":"neg-text"))+row("Provider reference",t.providerTransactionId||"Missing")+row("Customer",((t.customerName||"")+" "+(t.customerPhone||"")).trim()||"—")+row("Reversal of",t.reversalOfTransactionId||"—")+row("Notes",t.notes||"—");
+      Shell.open("detailDrawer");
+    }
+    function markSuccess(id){
+      var t=find(id); if(!t)return;
+      var ref=prompt("Provider Transaction ID required to mark successful:", t.providerTransactionId||"");
+      if(!ref){Shell.toast("Provider Transaction ID is required.",false);return;}
+      Digital.updateStatus(id,"SUCCESSFUL",{providerTransactionId:ref}); state=Digital.load(); render(); Shell.toast(id+" marked successful",true);
+    }
+    function markDisputed(id){Digital.updateStatus(id,"DISPUTED"); state=Digital.load(); render(); Shell.toast(id+" marked disputed",true);}
+    function reverseTx(id){var r=Digital.reverseTransaction(id,DB.SHOP.owner); if(!r.ok){Shell.toast(r.message,false);return;} state=Digital.load(); render(); Shell.toast("Reversal recorded · "+r.tx.id,true);}
+    ["fDate","fService","fDirection","fStatus","fCashier"].forEach(function(id){$(id).addEventListener("input",render);$(id).addEventListener("change",render);});
+    window.viewTx=viewTx; window.markSuccess=markSuccess; window.markDisputed=markDisputed; window.reverseTx=reverseTx;
+    render();
+  </script>
+</body>
+</html>

@@ -1,8 +1,41 @@
 # Build Status
 
-**Last updated:** 2026-07-16 08:03 PKT
+**Last updated:** 2026-07-16 (Returns module complete)
 
 **Evidence rule:** Only checks actually executed are described as passing.
+
+## Returns / warranty module — complete and Ready
+
+The Returns/Refunds vertical slice is a real, permission-aware browser workflow
+backed by PostgreSQL. Migration `0013_returns_foundation` (forward-only) adds the
+`returns`/`return_lines`/`refunds` tables, narrows the `guard_sale_after_draft`
+trigger so a posted sale may only advance within the returned family (financial
+snapshots stay immutable as a DB backstop), repairs runtime privileges across
+Catalog/Inventory/Purchasing/Sales/Demand/Returns, and preserves the append-only
+and no-hard-delete protections. `POST /returns/{id}/post` runs one Serializable
+transaction: idempotency + `FOR UPDATE` locks, authoritative money/quantity
+recompute, INSERT-only restock movements (serialized units → `returned_inspection`),
+balanced ledger reversal, receivable credit, sale status transition and audit.
+
+Endpoints (all tenant + branch scoped, response-validated through shared Zod):
+`GET /returns`, `GET /returns/eligibility`, `POST /returns`, `GET /returns/{id}`,
+`POST /returns/{id}/post` (idempotency-key), `POST /returns/{id}/exchange`
+(intentionally deferred — stable CONFLICT). Permissions: `returns.view`,
+`returns.create`, `returns.approve` (+`payments.collect`).
+
+Executed evidence (this checkpoint): all migrations `0001`→`0013` rehearsed clean
+from an empty schema on the disposable `mobileshop_test` database (ownership
+repaired to the migrator role first), seeded, and `migrate diff` reports
+**No difference**. Gates: typecheck (5 packages), lint (0 warnings), unit
+**backend 272 / frontend 338 / shared 543**, **database integration 111/111**,
+**backend HTTP+service integration 335/335** (incl. `returns.e2e-spec.ts`: a real
+full-lifecycle return of a posted sale asserting balanced ledger, restock,
+receivable credit, sale→`returned`, idempotency replay, window-override,
+quantity-exceeds-sold and cross-tenant isolation), production build (all routes),
+and **authenticated browser Playwright** `returns-workspace.spec.ts` **3/3** (login
+→ real `GET /returns` queue → honest empty state → intake drawer → real
+`GET /returns/eligibility`). Browser e2e ran against the app pointed at the
+disposable test database; no owner development data was touched.
 
 ## Current outcome
 

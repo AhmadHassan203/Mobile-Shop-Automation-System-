@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Digital Services · MobileShop OS</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="digital-new">
+  <div class="layout">
+    <aside id="sidebar"></aside>
+    <div class="main">
+      <header id="topbar"></header>
+      <main class="content">
+        <div class="page-head">
+          <div>
+            <h1>Digital Services — New Transaction</h1>
+            <div class="subtitle">Record an external JazzCash, Easypaisa, bank, bill or load transaction after completing it in the official provider app.</div>
+          </div>
+          <div class="actions">
+            <a class="btn" href="digital-history.html">History</a>
+            <a class="btn btn-ghost" href="digital-balances.html">Balances</a>
+          </div>
+        </div>
+
+        <div class="callout info" style="margin-bottom:18px">
+          <div>This prototype records the manual shop entry only. It does not connect to JazzCash, Easypaisa, banks, utilities or telecom providers.</div>
+        </div>
+
+        <div class="grid cols-3" style="align-items:start">
+          <div style="grid-column:span 2" class="stack g16">
+            <div class="card">
+              <div class="card-head"><h3>Service</h3></div>
+              <div class="card-pad">
+                <div class="field-row">
+                  <div class="field">
+                    <label>Service</label>
+                    <select class="input" id="service"></select>
+                  </div>
+                  <div class="field" id="statusField" style="max-width:220px">
+                    <label>Status</label>
+                    <select class="input" id="status"></select>
+                  </div>
+                </div>
+                <div id="serviceFields"></div>
+              </div>
+            </div>
+
+            <div class="direction-grid">
+              <div class="direction-card active" id="cardSent" data-dir="SENT_FROM_SHOP">
+                <div class="dir-title">AMOUNT SENT</div>
+                <div class="dir-sub">Sent from shop wallet, account or provider float</div>
+                <div class="field" style="margin-bottom:0">
+                  <label>Amount</label>
+                  <input class="input amount-input" id="amountSent" type="number" min="0" inputmode="numeric" placeholder="PKR">
+                </div>
+              </div>
+              <div class="direction-card inactive" id="cardReceived" data-dir="RECEIVED_INTO_SHOP">
+                <div class="dir-title">AMOUNT RECEIVED</div>
+                <div class="dir-sub">Received into shop wallet, account or provider float</div>
+                <div class="field" style="margin-bottom:0">
+                  <label>Amount</label>
+                  <input class="input amount-input" id="amountReceived" type="number" min="0" inputmode="numeric" placeholder="PKR">
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head"><h3>Customer and provider details</h3></div>
+              <div class="card-pad">
+                <div class="field-row">
+                  <div class="field"><label>Customer Name <span class="muted">(optional)</span></label><input class="input" id="customerName"></div>
+                  <div class="field"><label>Customer Mobile Number</label><input class="input" id="customerPhone" placeholder="03xx-xxxxxxx"></div>
+                </div>
+                <div class="field-row">
+                  <div class="field"><label>Customer / Account Reference</label><input class="input" id="customerReference"></div>
+                  <div class="field"><label>Provider Transaction ID</label><input class="input mono" id="providerTransactionId"></div>
+                </div>
+                <div class="field-row">
+                  <div class="field"><label>External Transaction Date and Time</label><input class="input" id="externalTransactionAt" type="datetime-local"></div>
+                  <div class="field"><label>Cashier</label><input class="input" id="cashierName"></div>
+                </div>
+                <div class="field-row">
+                  <div class="field"><label>Provider Gross Commission</label><input class="input" id="providerGrossCommission" type="number" min="0" value="0"></div>
+                  <div class="field"><label>Provider Commission Tax</label><input class="input" id="providerCommissionTax" type="number" min="0" value="0"></div>
+                  <div class="field"><label>Other Direct Charges</label><input class="input" id="otherDirectCharges" type="number" min="0" value="0"></div>
+                </div>
+                <div class="field"><label>Notes</label><textarea class="input" id="notes" rows="2" placeholder="Never store PIN, OTP, MPIN, password or biometric information."></textarea></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="stack g16">
+            <div class="card">
+              <div class="card-head"><h3>Live financial preview</h3><span class="hint" id="ruleHint"></span></div>
+              <div class="card-pad" id="preview"></div>
+            </div>
+            <button class="btn btn-primary btn-lg btn-block" id="saveBtn">Review &amp; Save Transaction</button>
+            <div class="card">
+              <div class="card-head"><h3>Current balances</h3></div>
+              <div class="card-pad" id="miniBalances"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="overlay center" id="reviewModal">
+    <div class="modal">
+      <div class="modal-head"><h3>Review digital service transaction</h3><div class="x-close" onclick="Shell.close('reviewModal')">✕</div></div>
+      <div class="modal-body" id="reviewBody"></div>
+      <div class="modal-foot">
+        <button class="btn" onclick="Shell.close('reviewModal')">Back to Edit</button>
+        <button class="btn btn-primary" id="confirmBtn">Confirm and Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/data.js"></script>
+  <script src="assets/digital.js"></script>
+  <script src="assets/shell.js"></script>
+  <script>
+    var state = Digital.load();
+    var direction = Digital.DIRECTIONS.SENT;
+    var pendingInput = null;
+    function $(id) { return document.getElementById(id); }
+    function n(id) { return Digital.num($(id).value); }
+    function activeAmount() { return direction === Digital.DIRECTIONS.SENT ? n("amountSent") : n("amountReceived"); }
+    function val(id) { return ($(id).value || "").trim(); }
+
+    $("service").innerHTML = Digital.SERVICES.map(function (s) { return '<option>' + s + '</option>'; }).join("");
+    $("status").innerHTML = Digital.STATUSES.filter(function (s) { return s !== "REVERSED"; }).map(function (s) { return '<option>' + s + '</option>'; }).join("");
+    $("cashierName").value = DB.SHOP.owner || "Cashier";
+
+    function serviceSpecificHtml(service) {
+      if (service === "Utility Bill") return ''
+        + '<div class="field-row"><div class="field"><label>Bill Type</label><select class="input" id="billType"><option>Electricity</option><option>Gas</option><option>Water</option><option>Internet</option><option>Telephone</option><option>Other</option></select></div>'
+        + '<div class="field"><label>Company / Provider</label><select class="input" id="billCompany"><option>LESCO</option><option>SNGPL</option><option>WASA</option><option>PTCL</option><option>StormFiber</option><option>Other</option></select></div></div>'
+        + '<div class="field"><label>Consumer / Reference Number</label><input class="input mono" id="consumerReference"></div>';
+      if (service === "Jazz Load" || service === "Zong Load") return ''
+        + '<div class="field-row"><div class="field"><label>Customer Mobile Number</label><input class="input" id="svcPhone"></div>'
+        + '<div class="field"><label>Network</label><select class="input" id="network"><option>' + (service === "Jazz Load" ? "Jazz" : "Zong") + '</option><option>Jazz</option><option>Zong</option><option>Other</option></select></div></div>'
+        + '<div class="field-row"><div class="field"><label>Load or Bundle</label><select class="input" id="loadType"><option>Load</option><option>Bundle</option></select></div>'
+        + '<div class="field"><label>Optional package name</label><input class="input" id="packageName"></div></div>';
+      if (service === "Bank Transfer") return ''
+        + '<div class="field-row"><div class="field"><label>Bank Name</label><input class="input" id="bankName"></div>'
+        + '<div class="field"><label>Beneficiary Name</label><input class="input" id="beneficiaryName"></div></div>'
+        + '<div class="field"><label>Masked Account / IBAN Reference</label><input class="input mono" id="accountReference" placeholder="PK**1234"></div>';
+      if (service === "JazzCash" || service === "Easypaisa") return ''
+        + '<div class="field-row"><div class="field"><label>Customer Mobile Number</label><input class="input" id="svcPhone"></div>'
+        + '<div class="field"><label>Optional customer name</label><input class="input" id="svcName"></div></div>';
+      return '<div class="field"><label>Service reference</label><input class="input" id="otherReference"></div>';
+    }
+
+    function setDirection(next) {
+      direction = next;
+      $("cardSent").classList.toggle("active", direction === Digital.DIRECTIONS.SENT);
+      $("cardReceived").classList.toggle("active", direction === Digital.DIRECTIONS.RECEIVED);
+      $("cardSent").classList.toggle("inactive", direction !== Digital.DIRECTIONS.SENT);
+      $("cardReceived").classList.toggle("inactive", direction !== Digital.DIRECTIONS.RECEIVED);
+      if (direction === Digital.DIRECTIONS.SENT) $("amountReceived").value = "";
+      else $("amountSent").value = "";
+      renderPreview();
+    }
+    $("cardSent").onclick = function () { setDirection(Digital.DIRECTIONS.SENT); $("amountSent").focus(); };
+    $("cardReceived").onclick = function () { setDirection(Digital.DIRECTIONS.RECEIVED); $("amountReceived").focus(); };
+    $("amountSent").oninput = function () { if (this.value) setDirection(Digital.DIRECTIONS.SENT); else renderPreview(); };
+    $("amountReceived").oninput = function () { if (this.value) setDirection(Digital.DIRECTIONS.RECEIVED); else renderPreview(); };
+
+    function renderServiceFields() {
+      $("serviceFields").innerHTML = serviceSpecificHtml($("service").value)
+        + '<div class="field" id="feeMethodWrap" style="display:none"><label>Fee Collection Method</label><select class="input" id="feeCollectionMethod"><option>Deduct from Customer Payout</option><option>Collect Separately</option></select></div>';
+      if ($("svcPhone")) $("svcPhone").value = $("customerPhone").value;
+      if ($("svcName")) $("svcName").value = $("customerName").value;
+      $("feeMethodWrap").style.display = direction === Digital.DIRECTIONS.RECEIVED ? "block" : "none";
+      Array.prototype.forEach.call($("serviceFields").querySelectorAll("input,select"), function (el) { el.addEventListener("input", renderPreview); el.addEventListener("change", renderPreview); });
+      renderPreview();
+    }
+
+    function inputPayload() {
+      var service = $("service").value;
+      var p = {
+        service: service,
+        direction: direction,
+        principalAmount: activeAmount(),
+        status: $("status").value,
+        feeCollectionMethod: $("feeCollectionMethod") ? $("feeCollectionMethod").value : "Deduct from Customer Payout",
+        customerName: val("customerName") || ($("svcName") ? val("svcName") : ""),
+        customerPhone: val("customerPhone") || ($("svcPhone") ? val("svcPhone") : ""),
+        customerReference: val("customerReference") || ($("otherReference") ? val("otherReference") : ""),
+        providerTransactionId: val("providerTransactionId"),
+        externalTransactionAt: val("externalTransactionAt") ? new Date(val("externalTransactionAt")).toISOString() : new Date().toISOString(),
+        providerGrossCommission: n("providerGrossCommission"),
+        providerCommissionTax: n("providerCommissionTax"),
+        otherDirectCharges: n("otherDirectCharges"),
+        notes: val("notes"),
+        cashierName: val("cashierName") || DB.SHOP.owner
+      };
+      ["billType","billCompany","consumerReference","bankName","beneficiaryName","accountReference","network","packageName"].forEach(function (id) { if ($(id)) p[id] = val(id); });
+      if (service === "Utility Bill") p.subService = p.billType || "";
+      return p;
+    }
+
+    function row(k, v, cls) { return '<div class="kv"><span class="k">' + k + '</span><span class="v ' + (cls || "") + '">' + v + '</span></div>'; }
+    function renderPreview() {
+      if ($("feeMethodWrap")) $("feeMethodWrap").style.display = direction === Digital.DIRECTIONS.RECEIVED ? "block" : "none";
+      var p = inputPayload();
+      var c = Digital.calculate(p, state);
+      var r = c.feeRuleSnapshot;
+      $("ruleHint").textContent = r.calculationMethod === "SLAB" ? ("per " + Digital.pkr(r.blockSize)) : r.calculationMethod;
+      var html = '';
+      if (direction === Digital.DIRECTIONS.SENT) {
+        html += row("Principal Amount", Digital.pkr(c.principalAmount));
+        html += row("Customer Service Fee", Digital.pkr(c.customerServiceFee), "pos-text");
+        html += row("Customer Gives Cash", Digital.pkr(c.customerCashPaid), "strong");
+        html += row("Provider Gross Commission", Digital.pkr(c.providerGrossCommission));
+        html += row("Commission Tax", Digital.pkr(c.providerCommissionTax), "neg-text");
+        html += row("Provider Net Commission", Digital.pkr(c.providerNetCommission), "pos-text");
+        html += row("Other Direct Charges", Digital.pkr(c.otherDirectCharges), "neg-text");
+        html += row("Gross Service Earnings", Digital.pkr(c.grossServiceEarnings));
+        html += row("Net Service Earnings", Digital.pkr(c.netServiceEarnings), "pos-text");
+        html += '<div class="preview-total">' + row("Physical Cash Increase", Digital.pkr(c.physicalCashIn), "pos-text") + row("Provider Float Decrease", Digital.pkr(c.providerFloatOut), "neg-text") + '</div>';
+      } else {
+        html += row("Principal Amount Received Digitally", Digital.pkr(c.principalAmount));
+        html += row("Customer Service Fee", Digital.pkr(c.customerServiceFee), "pos-text");
+        html += row("Fee Collection Method", p.feeCollectionMethod);
+        html += row("Cash Given to Customer", Digital.pkr(c.customerPayout || c.physicalCashOut), "strong");
+        html += row("Additional Cash Fee Received", Digital.pkr(c.customerCashReceived || 0), "pos-text");
+        html += row("Provider Gross Commission", Digital.pkr(c.providerGrossCommission));
+        html += row("Commission Tax", Digital.pkr(c.providerCommissionTax), "neg-text");
+        html += row("Provider Net Commission", Digital.pkr(c.providerNetCommission), "pos-text");
+        html += row("Other Direct Charges", Digital.pkr(c.otherDirectCharges), "neg-text");
+        html += row("Gross Service Earnings", Digital.pkr(c.grossServiceEarnings));
+        html += row("Net Service Earnings", Digital.pkr(c.netServiceEarnings), "pos-text");
+        html += '<div class="preview-total">' + row("Physical Cash Decrease", Digital.pkr(c.physicalCashOut - c.physicalCashIn), "neg-text") + row("Provider Float Increase", Digital.pkr(c.providerFloatIn), "pos-text") + '</div>';
+      }
+      if (p.status !== "SUCCESSFUL") html += '<div class="callout warn" style="margin-top:12px"><div>' + p.status + ' transactions are stored but do not affect settled balances or earnings.</div></div>';
+      $("preview").innerHTML = html;
+      $("miniBalances").innerHTML = Digital.balanceSummary().slice(0, 4).map(function (b) { return row(b.service, Digital.pkr(b.current), b.low ? "neg-text" : ""); }).join("");
+    }
+
+    function validate(p) {
+      if (!p.principalAmount) return "Enter a principal amount.";
+      if (p.status === "SUCCESSFUL" && !p.providerTransactionId) return "Successful transactions require a Provider Transaction ID.";
+      if (p.principalAmount < 0) return "Amount cannot be negative.";
+      return "";
+    }
+
+    $("saveBtn").onclick = function () {
+      var p = inputPayload();
+      var err = validate(p);
+      if (err) { Shell.toast(err, false); return; }
+      pendingInput = p;
+      var c = Digital.calculate(p, state);
+      $("reviewBody").innerHTML = ''
+        + row("Service", p.service + (p.subService ? " · " + p.subService : ""))
+        + row("Direction", p.direction === Digital.DIRECTIONS.SENT ? "Amount Sent from shop" : "Amount Received into shop")
+        + row("Principal amount", Digital.pkr(c.principalAmount))
+        + row("Customer service fee", Digital.pkr(c.customerServiceFee))
+        + row("Customer cash paid or received", p.direction === Digital.DIRECTIONS.SENT ? Digital.pkr(c.customerCashPaid) : Digital.pkr(c.customerPayout))
+        + row("Provider float impact", (c.providerFloatIn ? "+" + Digital.pkr(c.providerFloatIn) : "− " + Digital.pkr(c.providerFloatOut)))
+        + row("Provider transaction ID", p.providerTransactionId || "—")
+        + row("Provider commission", Digital.pkr(c.providerGrossCommission) + " gross · " + Digital.pkr(c.providerNetCommission) + " net")
+        + row("Net service earnings", Digital.pkr(c.netServiceEarnings), "pos-text")
+        + row("Status", p.status)
+        + row("Cashier", p.cashierName || DB.SHOP.owner)
+        + row("Timestamp", Digital.dateText(new Date().toISOString()));
+      Shell.open("reviewModal");
+    };
+    $("confirmBtn").onclick = function () {
+      if (!pendingInput) return;
+      var tx = Digital.addTransaction(pendingInput);
+      state = Digital.load();
+      Shell.close("reviewModal");
+      Shell.toast("Digital service transaction saved · " + tx.id, true);
+      location.href = "digital-history.html";
+    };
+
+    ["service","status","customerName","customerPhone","customerReference","providerTransactionId","externalTransactionAt","providerGrossCommission","providerCommissionTax","otherDirectCharges","cashierName","notes"].forEach(function (id) {
+      $(id).addEventListener("input", renderPreview); $(id).addEventListener("change", function () { if (id === "service") renderServiceFields(); else renderPreview(); });
+    });
+    document.addEventListener("keydown", function (e) { if (e.key === "Enter" && e.target.tagName !== "TEXTAREA") e.preventDefault(); });
+    renderServiceFields();
+  </script>
+</body>
+</html>

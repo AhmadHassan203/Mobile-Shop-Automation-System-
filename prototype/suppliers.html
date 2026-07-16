@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suppliers · MobileShop OS</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="suppliers">
+  <div class="layout">
+    <aside id="sidebar"></aside>
+    <div class="main">
+      <header id="topbar"></header>
+      <main class="content">
+
+        <div class="page-head">
+          <div>
+            <h1>Suppliers</h1>
+            <div class="subtitle" id="supSub">Loading suppliers…</div>
+          </div>
+          <div class="actions">
+            <div style="position:relative">
+              <span style="position:absolute;left:10px;top:9px;pointer-events:none;color:var(--ink-3)">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+              </span>
+              <input id="supSearch" class="input" placeholder="Search name, brand, contact…" oninput="filterSup()" style="padding-left:34px;width:240px">
+            </div>
+            <button class="btn btn-primary" id="btn-add" onclick="Shell.toast('Add-supplier form is illustrative in this prototype')"></button>
+          </div>
+        </div>
+
+        <!-- KPI row -->
+        <div class="grid cols-4" id="kpiRow" style="margin-bottom:22px"></div>
+
+        <!-- Supplier list -->
+        <div class="card">
+          <div class="card-head">
+            <h3>All suppliers</h3>
+            <span class="hint">Click a row to open the supplier</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data">
+              <thead>
+                <tr>
+                  <th>Supplier</th>
+                  <th>Contact</th>
+                  <th>Terms</th>
+                  <th class="num">Lead time</th>
+                  <th>On-time delivery</th>
+                  <th class="num">Payable</th>
+                  <th>Rating</th>
+                  <th>Brands</th>
+                </tr>
+              </thead>
+              <tbody id="supBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Supplier detail drawer -->
+  <div class="overlay" id="supDrawer" onclick="if(event.target===this)Shell.close('supDrawer')">
+    <div class="drawer">
+      <div class="drawer-head">
+        <h3 id="sdTitle">Supplier</h3>
+        <div class="x-close" onclick="Shell.close('supDrawer')">✕</div>
+      </div>
+      <div class="drawer-body" id="sdBody"></div>
+      <div class="drawer-foot">
+        <a class="btn btn-ghost" href="finance.html">View in Finance</a>
+        <a class="btn btn-primary" href="purchases.html">New purchase order</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/data.js"></script>
+  <script src="assets/shell.js"></script>
+  <script>
+    // ---- Header button ---------------------------------------------------
+    document.getElementById("btn-add").innerHTML = Shell.svg("suppliers") + " Add supplier";
+
+    var CHEV = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>';
+    var suppliers = DB.suppliers;
+    var paid = {}; // suppliers settled in this session (prototype only)
+
+    function payableOf(s) { return paid[s.id] ? 0 : s.payable; }
+
+    // ---- On-time reliability classification ------------------------------
+    function onTimeCls(pct) { return pct >= 90 ? "pos" : pct >= 80 ? "warn" : "neg"; }
+    function onTimeLabel(pct) { return pct >= 90 ? "Very reliable" : pct >= 80 ? "Mostly on time" : "Often late"; }
+    function ratingBadge(r) {
+      return r === "A"
+        ? '<span class="badge pos">' + Shell.svg("check") + 'Rating A</span>'
+        : '<span class="badge warn"><span class="dot-i"></span>Rating ' + r + '</span>';
+    }
+
+    // ---- Representative product per supplier (for price history) ----------
+    var repVariant = {
+      "TechSource Intl": "V-IP17PM-256-BLK",
+      "Galaxy Distributors": "V-A55-256-NVY",
+      "Infinix Wholesale": "V-HOT50-256-GRN",
+      "AccessoryHub Lahore": "V-CBL-TYPEC-1M"
+    };
+    // Illustrative recent buying prices derived from the variant's avg cost.
+    function priceHistory(v) {
+      var base = v.avgCost, step = base >= 10000 ? 500 : 10;
+      var r = function (x) { return Math.round(x / step) * step; };
+      return [
+        { date: "12 May 2026", cost: r(base * 0.99) },
+        { date: "20 Jun 2026", cost: r(base * 1.02) },
+        { date: "12 Jul 2026", cost: base, latest: true }
+      ];
+    }
+
+    // ---- PO status styling -----------------------------------------------
+    var poStatus = {
+      draft: { cls: "plain", text: "Draft" },
+      approved: { cls: "info", text: "Approved" },
+      ordered: { cls: "info", text: "Ordered" },
+      partially_received: { cls: "warn", text: "Partially received" },
+      received: { cls: "pos", text: "Received" }
+    };
+
+    // ---- Derived KPIs ----------------------------------------------------
+    function avg(arr) { return arr.reduce(function (a, b) { return a + b; }, 0) / arr.length; }
+    var avgLead = avg(suppliers.map(function (s) { return s.leadTime; }));
+    var avgOnTime = avg(suppliers.map(function (s) { return s.onTime; }));
+
+    function totalPayable() { return suppliers.reduce(function (a, s) { return a + payableOf(s); }, 0); }
+
+    document.getElementById("supSub").textContent =
+      suppliers.length + " suppliers · avg " + avgLead.toFixed(1) + "-day lead time · "
+      + fmt.pkr(totalPayable()) + " outstanding to pay";
+
+    // ---- KPI tiles -------------------------------------------------------
+    function renderKpis() {
+      var kpis = [
+        { label: "Suppliers", value: suppliers.length, meta: suppliers.filter(function (s) { return s.rating === "A"; }).length + " A-rated" },
+        { label: "Avg lead time", value: avgLead.toFixed(1) + " days", meta: "order to delivery" },
+        { label: "Avg on-time delivery", value: Math.round(avgOnTime * 10) / 10 + "%", meta: "weighted across suppliers", valcls: onTimeCls(avgOnTime) === "neg" ? "neg-text" : "" },
+        { label: "Total payables", value: fmt.pkr(totalPayable()), meta: "owed to suppliers", href: "finance.html", accent: true, valcls: totalPayable() > 0 ? "neg-text" : "" }
+      ];
+      document.getElementById("kpiRow").innerHTML = kpis.map(function (t) {
+        var inner = '<div class="label">' + t.label + '</div>'
+          + '<div class="value' + (t.valcls ? " " + t.valcls : "") + '">' + t.value + '</div>'
+          + '<div class="meta">' + t.meta + '</div>';
+        if (t.href) return '<a class="kpi' + (t.accent ? " accent" : "") + '" href="' + t.href + '" style="text-decoration:none">' + inner + '</a>';
+        return '<div class="kpi' + (t.accent ? " accent" : "") + '" style="cursor:default">' + inner + '</div>';
+      }).join("");
+    }
+    renderKpis();
+
+    // ---- Supplier table --------------------------------------------------
+    function payCell(s) {
+      var p = payableOf(s);
+      return p > 0
+        ? '<span class="neg-text">' + fmt.pkr(p) + '</span>'
+        : '<span class="muted">Rs 0</span>';
+    }
+
+    function rowHtml(s) {
+      var otc = onTimeCls(s.onTime);
+      return '<tr class="row-link" data-search="' + (s.name + " " + s.contact + " " + s.brands + " " + s.terms).toLowerCase() + '" onclick="openSupplier(\'' + s.id + '\')">'
+        + '<td><div class="strong">' + s.name + '</div><div class="tiny muted mono">' + s.id + '</div></td>'
+        + '<td class="small">' + s.contact + '</td>'
+        + '<td><span class="badge plain">' + s.terms + '</span></td>'
+        + '<td class="num">' + s.leadTime + ' days</td>'
+        + '<td><div style="min-width:120px"><div class="confbar"><div class="meter ' + otc + '"><span style="width:' + s.onTime + '%"></span></div>'
+        +   '<span class="small" style="min-width:34px;text-align:right">' + s.onTime + '%</span></div>'
+        +   '<div class="tiny muted" style="margin-top:3px">' + onTimeLabel(s.onTime) + '</div></div></td>'
+        + '<td class="num" id="pay-' + s.id + '">' + payCell(s) + '</td>'
+        + '<td>' + ratingBadge(s.rating) + '</td>'
+        + '<td class="small muted">' + s.brands + '</td>'
+        + '</tr>';
+    }
+
+    document.getElementById("supBody").innerHTML = suppliers.map(rowHtml).join("");
+    document.getElementById("supBody").insertAdjacentHTML("beforeend",
+      '<tr id="noResults" style="display:none"><td colspan="8">'
+      + '<div class="empty" style="padding:34px 20px"><div class="icn">🔍</div>'
+      + '<h4>No matching suppliers</h4><p class="small">Try a different name, brand or contact.</p></div></td></tr>');
+
+    function filterSup() {
+      var q = document.getElementById("supSearch").value.trim().toLowerCase();
+      var rows = document.querySelectorAll("#supBody tr");
+      var shown = 0;
+      rows.forEach(function (r) {
+        if (r.id === "noResults") return;
+        var match = !q || (r.getAttribute("data-search") || "").indexOf(q) !== -1;
+        r.style.display = match ? "" : "none";
+        if (match) shown++;
+      });
+      document.getElementById("noResults").style.display = shown ? "none" : "";
+    }
+
+    // ---- Helpers ---------------------------------------------------------
+    function kv(k, v) { return '<div class="kv"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>'; }
+
+    // ---- Supplier detail drawer ------------------------------------------
+    var openId = null;
+
+    function openSupplier(id) {
+      var s = suppliers.find(function (x) { return x.id === id; });
+      if (!s) return;
+      openId = id;
+      document.getElementById("sdTitle").textContent = s.name;
+      document.getElementById("sdBody").innerHTML = drawerHtml(s);
+      Shell.open("supDrawer");
+    }
+
+    function drawerHtml(s) {
+      var otc = onTimeCls(s.onTime);
+      var html = "";
+
+      // Header row: id + rating
+      html += '<div class="spread" style="margin-bottom:14px">'
+        + '<div><div style="font-weight:650;font-size:16px">' + s.name + '</div>'
+        + '<div class="small muted mono">' + s.id + ' · ' + s.brands + '</div></div>'
+        + ratingBadge(s.rating) + '</div>';
+
+      // Contact / terms / lead time / reliability
+      html += '<div class="card"><div style="padding:4px 16px">'
+        + kv("Contact", s.contact)
+        + kv("Payment terms", '<span class="badge plain">' + s.terms + '</span>')
+        + kv("Lead time", s.leadTime + " days (order to delivery)")
+        + kv("On-time delivery", '<span class="badge ' + otc + '"><span class="dot-i"></span>' + s.onTime + '% · ' + onTimeLabel(s.onTime) + '</span>')
+        + '</div></div>';
+
+      // Reliability meter
+      html += '<div style="margin-top:10px"><div class="spread" style="margin-bottom:5px">'
+        + '<span class="small muted">Delivery reliability</span>'
+        + '<span class="small ' + (otc === "neg" ? "neg-text" : otc === "warn" ? "" : "pos-text") + '">' + s.onTime + '%</span></div>'
+        + '<div class="meter ' + otc + '"><span style="width:' + s.onTime + '%"></span></div></div>';
+      if (otc === "neg") {
+        html += '<div class="callout warn" style="margin-top:12px">'
+          + '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
+          + '<div>Only <strong>' + s.onTime + '%</strong> of orders arrive on time. Add buffer days when reordering critical stock from this supplier.</div></div>';
+      }
+
+      // Price history (illustrative)
+      var v = fmt.variant(repVariant[s.name]);
+      if (v) {
+        var hist = priceHistory(v);
+        html += '<div class="divider"></div>'
+          + '<div class="spread" style="margin-bottom:8px"><h4 style="font-size:13.5px">Recent buying price</h4>'
+          + '<span class="tiny muted">Illustrative</span></div>'
+          + '<div class="small muted" style="margin-bottom:8px">' + v.brand + ' ' + v.model + (v.storage !== "—" ? " " + v.storage : "") + ' — your unit cost over time</div>'
+          + '<div class="table-wrap"><table class="data"><thead><tr>'
+          + '<th>Date</th><th class="num">Unit cost</th><th class="num">Change</th></tr></thead><tbody>';
+        var prev = null;
+        hist.forEach(function (h) {
+          var chg = "—";
+          if (prev !== null) {
+            var d = h.cost - prev;
+            if (d > 0) chg = '<span class="neg-text">▲ ' + fmt.pkr(d) + '</span>';
+            else if (d < 0) chg = '<span class="pos-text">▼ ' + fmt.pkr(-d) + '</span>';
+            else chg = '<span class="muted">—</span>';
+          }
+          html += '<tr><td>' + h.date + (h.latest ? ' <span class="badge plain">latest</span>' : '') + '</td>'
+            + '<td class="num strong">' + fmt.pkr(h.cost) + '</td>'
+            + '<td class="num">' + chg + '</td></tr>';
+          prev = h.cost;
+        });
+        html += '</tbody></table></div>';
+      }
+
+      // Current payable + record payment
+      html += '<div class="divider"></div>'
+        + '<h4 style="font-size:13.5px;margin-bottom:8px">Outstanding payable</h4>'
+        + '<div id="payBlock">' + payableBlock(s) + '</div>';
+
+      // Purchase orders for this supplier
+      var pos = DB.purchaseOrders.filter(function (o) { return o.supplier === s.name; });
+      html += '<div class="divider"></div>'
+        + '<div class="spread" style="margin-bottom:8px"><h4 style="font-size:13.5px">Purchase orders</h4>'
+        + '<a class="small" href="purchases.html">All purchases →</a></div>';
+      if (pos.length) {
+        html += '<div class="stack g6">';
+        pos.forEach(function (o) {
+          var st = poStatus[o.status] || { cls: "plain", text: o.status };
+          html += '<a class="attn-card" href="purchase-order.html?id=' + o.id + '" style="text-decoration:none;color:inherit">'
+            + '<div><div class="t" style="font-size:13px"><span class="mono">' + o.id + '</span> · ' + fmt.pkr(o.total) + '</div>'
+            + '<div class="d">' + o.date + ' · ' + o.units + ' units · ' + o.note + '</div></div>'
+            + '<span class="badge ' + st.cls + '" style="align-self:center;margin-left:auto">' + st.text + '</span>'
+            + '<div class="chev">' + CHEV + '</div></a>';
+        });
+        html += '</div>';
+      } else {
+        html += '<div class="callout info">' + Shell.svg("purchases")
+          + '<div>No purchase orders yet for this supplier. Start one from <a href="purchases.html">Purchases</a>.</div></div>';
+      }
+
+      return html;
+    }
+
+    function payableBlock(s) {
+      var p = payableOf(s);
+      if (p <= 0) {
+        return '<div class="callout pos">' + Shell.svg("check")
+          + '<div>No outstanding balance — this supplier is fully paid.</div></div>';
+      }
+      return '<div class="card"><div class="card-pad">'
+        + '<div class="spread" style="margin-bottom:10px">'
+        + '<span class="small muted">Amount due</span>'
+        + '<span class="neg-text" style="font-size:18px">' + fmt.pkr(p) + '</span></div>'
+        + '<div class="impact"><strong>Recording full payment will:</strong><ul>'
+        + '<li>Reduce total payables by <strong>' + fmt.pkr(p) + '</strong></li>'
+        + '<li>Move <strong>' + fmt.pkr(p) + '</strong> out of ' + (s.terms.indexOf("Cash") >= 0 ? "cash drawer" : "bank") + '</li>'
+        + '<li>Clear ' + s.name + ' dues and log the payment to the audit trail</li></ul></div>'
+        + '<button class="btn btn-primary btn-block" style="margin-top:12px" onclick="recordPayment(\'' + s.id + '\')">Record payment of ' + fmt.pkr(p) + '</button>'
+        + '</div></div>';
+    }
+
+    function recordPayment(id) {
+      var s = suppliers.find(function (x) { return x.id === id; });
+      if (!s || payableOf(s) <= 0) return;
+      var amt = payableOf(s);
+      paid[id] = true;
+
+      // Update drawer payable block
+      var block = document.getElementById("payBlock");
+      if (block) block.innerHTML = payableBlock(s);
+
+      // Update table cell + KPIs + subtitle
+      var cell = document.getElementById("pay-" + id);
+      if (cell) cell.innerHTML = payCell(s);
+      renderKpis();
+      document.getElementById("supSub").textContent =
+        suppliers.length + " suppliers · avg " + avgLead.toFixed(1) + "-day lead time · "
+        + fmt.pkr(totalPayable()) + " outstanding to pay";
+
+      Shell.toast("Payment of " + fmt.pkr(amt) + " recorded to " + s.name, true);
+    }
+  </script>
+</body>
+</html>

@@ -406,6 +406,7 @@ async function postSale(
         SET status = 'posted', invoice_number = $2, posted_at = now(),
             business_date = DATE '2026-07-17', post_request_id = $3,
             post_request_hash = repeat('a', 64), version = version + 1,
+            receipt_snapshot = '{}'::jsonb,
             held_at = NULL, held_by_user_id = NULL, updated_at = now()
       WHERE id = $1`,
     [saleId, invoiceNumber, postRequestId],

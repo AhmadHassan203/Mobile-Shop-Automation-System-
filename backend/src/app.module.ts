@@ -23,6 +23,7 @@ import { DashboardModule } from "./modules/dashboard/dashboard.module";
 import { PricingModule } from "./modules/pricing/pricing.module";
 import { CustomersModule } from "./modules/customers/customers.module";
 import { SalesModule } from "./modules/sales/sales.module";
+import { ReturnsModule } from "./modules/returns/returns.module";
 import { DemandModule } from "./modules/demand/demand.module";
 
 /**
@@ -115,6 +116,7 @@ import { DemandModule } from "./modules/demand/demand.module";
     PricingModule,
     CustomersModule,
     SalesModule,
+    ReturnsModule,
     DemandModule,
   ],
   providers: [

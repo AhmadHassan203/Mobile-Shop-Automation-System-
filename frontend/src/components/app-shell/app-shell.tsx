@@ -80,7 +80,7 @@ const MODULE_NAVIGATION: readonly ModuleNavigationGroup[] = [
         label: "Demand",
         href: "/demand",
         icon: MessageIcon,
-        status: "building",
+        status: "ready",
         permissions: [PERMISSIONS.DEMAND_VIEW, PERMISSIONS.DEMAND_CREATE],
       },
       {

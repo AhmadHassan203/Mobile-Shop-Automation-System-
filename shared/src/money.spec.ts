@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   MoneyError,
   add,
+  allocateByIntegerWeights,
   allocateByWeights,
   allocateEvenly,
   formatMoney,
   fromMajor,
   multiplyByQuantity,
+  movingWeightedAverageUnitCost,
   percentOf,
   roundToMinor,
   subtract,
@@ -151,6 +153,36 @@ describe("money — allocation", () => {
     );
   });
 
+  it("allocates integer receipt weights with exact BigInt intermediates", () => {
+    const amount = toMinor(Number.MAX_SAFE_INTEGER);
+    const shares = allocateByIntegerWeights(amount, [
+      Number.MAX_SAFE_INTEGER - 1,
+      1,
+    ]);
+
+    expect(shares).toEqual([Number.MAX_SAFE_INTEGER - 1, 1]);
+    expect(sum(shares)).toBe(amount);
+  });
+
+  it("uses stable largest-remainder ordering for exact integer allocation", () => {
+    expect(allocateByIntegerWeights(toMinor(10), [1, 1, 1])).toEqual([4, 3, 3]);
+    expect(allocateByIntegerWeights(toMinor(-10), [1, 1, 1])).toEqual([
+      -4, -3, -3,
+    ]);
+  });
+
+  it("rejects fractional, unsafe and zero-total integer weights", () => {
+    expect(() => allocateByIntegerWeights(toMinor(10), [1.5, 2])).toThrow(
+      MoneyError,
+    );
+    expect(() =>
+      allocateByIntegerWeights(toMinor(10), [Number.MAX_SAFE_INTEGER + 1, 1]),
+    ).toThrow(MoneyError);
+    expect(() => allocateByIntegerWeights(toMinor(10), [0, 0])).toThrow(
+      MoneyError,
+    );
+  });
+
   it("rejects invalid part counts", () => {
     expect(() => allocateEvenly(fromMajor("10"), 0)).toThrow(MoneyError);
     expect(() => allocateEvenly(fromMajor("10"), 1.5)).toThrow(MoneyError);
@@ -172,5 +204,38 @@ describe("money — formatting", () => {
 
   it("formats zero", () => {
     expect(formatMoney(zero())).toBe("PKR 0.00");
+  });
+});
+
+describe("moving weighted-average cost", () => {
+  it("uses the existing bucket and incoming exact line total", () => {
+    expect(
+      movingWeightedAverageUnitCost(toMinor(100), 2, toMinor(500), 3),
+    ).toBe(140);
+  });
+
+  it("rounds a fractional paisa half away from zero", () => {
+    expect(movingWeightedAverageUnitCost(null, 0, toMinor(5), 2)).toBe(3);
+    expect(movingWeightedAverageUnitCost(null, 0, toMinor(-5), 2)).toBe(-3);
+  });
+
+  it("keeps near-MAX_SAFE products exact with BigInt intermediates", () => {
+    expect(
+      movingWeightedAverageUnitCost(
+        toMinor(Number.MAX_SAFE_INTEGER - 2),
+        Number.MAX_SAFE_INTEGER,
+        toMinor(Number.MAX_SAFE_INTEGER),
+        1,
+      ),
+    ).toBe(Number.MAX_SAFE_INTEGER - 2);
+  });
+
+  it("rejects uncosted existing stock and invalid quantities", () => {
+    expect(() =>
+      movingWeightedAverageUnitCost(null, 1, toMinor(10), 1),
+    ).toThrow(MoneyError);
+    expect(() =>
+      movingWeightedAverageUnitCost(toMinor(10), 0, toMinor(10), 0),
+    ).toThrow(MoneyError);
   });
 });

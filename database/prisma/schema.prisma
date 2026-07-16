@@ -62,6 +62,15 @@ model Organization {
   stockBatches       StockBatch[]
   inventoryMovements InventoryMovement[]
 
+  suppliers               Supplier[]
+  supplierContacts        SupplierContact[]
+  purchaseOrders          PurchaseOrder[]
+  purchaseOrderLines      PurchaseOrderLine[]
+  goodsReceipts           GoodsReceipt[]
+  goodsReceiptLines       GoodsReceiptLine[]
+  goodsReceiptLandedCosts GoodsReceiptLandedCost[]
+  payables                Payable[]
+
   @@map("organizations")
 }
 
@@ -90,6 +99,12 @@ model Branch {
   serializedUnits    SerializedUnit[]
   stockBatches       StockBatch[]
   inventoryMovements InventoryMovement[]
+
+  purchaseOrders          PurchaseOrder[]
+  goodsReceipts           GoodsReceipt[]
+  goodsReceiptLines       GoodsReceiptLine[]
+  goodsReceiptLandedCosts GoodsReceiptLandedCost[]
+  payables                Payable[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId])
@@ -122,6 +137,7 @@ model StockLocation {
   serializedUnits SerializedUnit[]
   stockBatches    StockBatch[]
   movements       InventoryMovement[]
+  receiptLines    GoodsReceiptLine[]
 
   @@unique([organizationId, branchId, code])
   @@unique([id, organizationId, branchId])
@@ -245,12 +261,17 @@ model ProductVariant {
   aliases      ProductAlias[]
   barcodes     ProductBarcode[]
 
-  serializedUnits SerializedUnit[]
-  stockBatches    StockBatch[]
-  movements       InventoryMovement[]
+  serializedUnits    SerializedUnit[]
+  stockBatches       StockBatch[]
+  movements          InventoryMovement[]
+  purchaseOrderLines PurchaseOrderLine[]
+  goodsReceiptLines  GoodsReceiptLine[]
 
   @@unique([organizationId, sku])
   @@unique([id, organizationId])
+  /// Supports the receipt-line FK that proves the caller's tracking type is
+  /// the variant's stored tracking type rather than an untrusted body value.
+  @@unique([id, organizationId, trackingType])
   @@index([organizationId, productModelId, isActive])
   @@index([organizationId, name])
   @@map("product_variants")
@@ -311,32 +332,42 @@ model ProductBarcode {
 /// One physical serialized device. A ProductVariant is the sellable definition;
 /// this is the handset on the shelf (04_DATA_MODEL.md §3).
 model SerializedUnit {
-  id               String               @id @default(uuid()) @db.Uuid
-  organizationId   String               @map("organization_id") @db.Uuid
-  branchId         String               @map("branch_id") @db.Uuid
-  productVariantId String               @map("product_variant_id") @db.Uuid
-  stockLocationId  String               @map("stock_location_id") @db.Uuid
-  state            SerializedStockState
-  condition        ProductCondition
-  ptaStatus        PtaStatus            @map("pta_status")
-  receivedAt       DateTime?            @map("received_at") @db.Timestamptz(3)
+  id                  String               @id @default(uuid()) @db.Uuid
+  organizationId      String               @map("organization_id") @db.Uuid
+  branchId            String               @map("branch_id") @db.Uuid
+  productVariantId    String               @map("product_variant_id") @db.Uuid
+  stockLocationId     String               @map("stock_location_id") @db.Uuid
+  /// Purchasing provenance is nullable only for pre-0008 stock and controlled
+  /// non-purchase acquisition workflows. SQL requires both values together and
+  /// the receipt-line composite FK proves immutable source/variant consistency.
+  /// Current branch/location deliberately stay outside that FK so movements can
+  /// relocate a received handset without rewriting its receipt provenance.
+  purchaseOrderLineId String?              @map("purchase_order_line_id") @db.Uuid
+  goodsReceiptLineId  String?              @map("goods_receipt_line_id") @db.Uuid
+  state               SerializedStockState
+  condition           ProductCondition
+  ptaStatus           PtaStatus            @map("pta_status")
+  receivedAt          DateTime?            @map("received_at") @db.Timestamptz(3)
   /// Reserved for the purchasing slice, which owns cost. The inventory API
   /// neither accepts nor exposes these values: no inventory request can set
   /// them and no inventory response carries them (shared/src/inventory.ts).
-  /// A CHECK (>= 0 OR NULL) guards both in SQL.
-  actualCostMinor  BigInt?              @map("actual_cost_minor")
-  landedCostMinor  BigInt?              @map("landed_cost_minor")
+  /// SQL requires financially posted receipt units to have both values plus
+  /// receivedAt, and any landed value must be at least the actual value.
+  actualCostMinor     BigInt?              @map("actual_cost_minor")
+  landedCostMinor     BigInt?              @map("landed_cost_minor")
   /// Optimistic concurrency token; CHECK (> 0) lives in SQL (0007).
-  version          Int                  @default(1)
-  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version             Int                  @default(1)
+  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branch         Branch         @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  productVariant ProductVariant @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch            Branch             @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  productVariant    ProductVariant     @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  purchaseOrderLine PurchaseOrderLine? @relation(fields: [purchaseOrderLineId, organizationId, productVariantId], references: [id, organizationId, productVariantId], onDelete: Restrict)
+  goodsReceiptLine  GoodsReceiptLine?  @relation(fields: [goodsReceiptLineId, organizationId, productVariantId, purchaseOrderLineId], references: [id, organizationId, productVariantId, purchaseOrderLineId], onDelete: Restrict)
   /// Keyed on (id, organization_id, branch_id) rather than (id, organization_id):
   /// this is what forces a unit's branch to agree with its location's branch.
-  stockLocation  StockLocation  @relation(fields: [stockLocationId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  stockLocation     StockLocation      @relation(fields: [stockLocationId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
 
   identifiers DeviceIdentifier[]
   movements   InventoryMovement[]
@@ -384,6 +415,12 @@ model StockBatch {
   quantityOnHand   Int       @default(0) @map("quantity_on_hand")
   /// CHECK (>= 0 AND <= quantity_on_hand) in SQL.
   quantityReserved Int       @default(0) @map("quantity_reserved")
+  /// Current moving weighted-average unit costs (ASM-005), not historical
+  /// receipt evidence. Exact received costs remain on immutable receipt lines.
+  /// Both NULL means explicitly uncosted; otherwise both must be present and
+  /// landed cost must be at least actual cost.
+  actualCostMinor  BigInt?   @map("actual_cost_minor")
+  landedCostMinor  BigInt?   @map("landed_cost_minor")
   receivedAt       DateTime? @map("received_at") @db.Timestamptz(3)
   /// Optimistic concurrency token; CHECK (> 0) lives in SQL (0007).
   version          Int       @default(1)
@@ -395,10 +432,14 @@ model StockBatch {
   productVariant ProductVariant @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
   stockLocation  StockLocation  @relation(fields: [stockLocationId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
 
-  movements InventoryMovement[]
+  movements    InventoryMovement[]
+  receiptLines GoodsReceiptLine[]
 
   @@unique([organizationId, productVariantId, stockLocationId])
   @@unique([id, organizationId])
+  /// Receipt lines use this key so a named aggregate bucket cannot belong to a
+  /// different branch, variant or location than the stock it receives.
+  @@unique([id, organizationId, branchId, productVariantId, stockLocationId])
   @@map("stock_batches")
 }
 
@@ -519,6 +560,308 @@ enum WarrantyType {
 }
 
 // =============================================================================
+// Suppliers, purchasing, receiving and payable creation
+// =============================================================================
+
+/// Organization-level supplier master. Suppliers are deactivated, never
+/// deleted, because posted purchase records retain their identity forever.
+model Supplier {
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  /// Normalized by shared/src/purchasing.ts before write. SQL pins the same
+  /// alphabet and a tenant-scoped unique index is the final duplicate guard.
+  code                  String   @db.VarChar(40)
+  name                  String   @db.VarChar(200)
+  paymentTermsDays      Int      @default(0) @map("payment_terms_days")
+  leadTimeDays          Int      @default(0) @map("lead_time_days")
+  onTimeRateBasisPoints Int?     @map("on_time_rate_basis_points")
+  addressLine           String?  @map("address_line") @db.VarChar(300)
+  city                  String?  @db.VarChar(100)
+  notes                 String?  @db.VarChar(500)
+  isActive              Boolean  @default(true) @map("is_active")
+  version               Int      @default(1)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  contacts       SupplierContact[]
+  purchaseOrders PurchaseOrder[]
+  goodsReceipts  GoodsReceipt[]
+  payables       Payable[]
+
+  @@unique([organizationId, code])
+  @@unique([id, organizationId])
+  @@index([organizationId, isActive, name])
+  @@map("suppliers")
+}
+
+/// Replace-semantics supplier contacts. Old contacts are retired with
+/// is_active so historical references and audit snapshots are never orphaned.
+model SupplierContact {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  supplierId     String   @map("supplier_id") @db.Uuid
+  name           String   @db.VarChar(200)
+  role           String?  @db.VarChar(100)
+  phone          String?  @db.VarChar(20)
+  email          String?  @db.VarChar(255)
+  isPrimary      Boolean  @default(false) @map("is_primary")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  supplier     Supplier     @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([id, organizationId])
+  @@index([organizationId, supplierId, isActive])
+  /// Exactly one active primary contact is a partial unique index in 0008;
+  /// Prisma cannot represent the WHERE predicate.
+  @@map("supplier_contacts")
+}
+
+/// A purchase order is commercial intent only. It never creates stock; the
+/// immutable goods receipt below is the transaction that does (05_RULES §1.5).
+model PurchaseOrder {
+  id                 String              @id @default(uuid()) @db.Uuid
+  organizationId     String              @map("organization_id") @db.Uuid
+  branchId           String              @map("branch_id") @db.Uuid
+  supplierId         String              @map("supplier_id") @db.Uuid
+  createdByUserId    String              @map("created_by_user_id") @db.Uuid
+  approvedByUserId   String?             @map("approved_by_user_id") @db.Uuid
+  orderedByUserId    String?             @map("ordered_by_user_id") @db.Uuid
+  closedByUserId     String?             @map("closed_by_user_id") @db.Uuid
+  cancelledByUserId  String?             @map("cancelled_by_user_id") @db.Uuid
+  number             String              @db.VarChar(100)
+  status             PurchaseOrderStatus @default(draft)
+  orderDate          DateTime            @default(dbgenerated("CURRENT_DATE")) @map("order_date") @db.Date
+  expectedOn         DateTime?           @map("expected_on") @db.Date
+  notes              String?             @db.VarChar(500)
+  approvedAt         DateTime?           @map("approved_at") @db.Timestamptz(3)
+  orderedAt          DateTime?           @map("ordered_at") @db.Timestamptz(3)
+  closedAt           DateTime?           @map("closed_at") @db.Timestamptz(3)
+  cancelledAt        DateTime?           @map("cancelled_at") @db.Timestamptz(3)
+  cancellationReason String?             @map("cancellation_reason") @db.VarChar(500)
+  version            Int                 @default(1)
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch              @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supplier     Supplier            @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  createdBy    User                @relation("PurchaseOrderCreator", fields: [createdByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  approvedBy   User?               @relation("PurchaseOrderApprover", fields: [approvedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  orderedBy    User?               @relation("PurchaseOrderOrderer", fields: [orderedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  closedBy     User?               @relation("PurchaseOrderCloser", fields: [closedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  cancelledBy  User?               @relation("PurchaseOrderCanceller", fields: [cancelledByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lines        PurchaseOrderLine[]
+  receipts     GoodsReceipt[]
+
+  @@unique([organizationId, branchId, number])
+  @@unique([id, organizationId])
+  @@unique([id, organizationId, branchId, supplierId])
+  @@index([organizationId, branchId, status, orderDate])
+  @@index([organizationId, supplierId, orderDate])
+  @@map("purchase_orders")
+}
+
+/// Ordered and received quantities share a row so `received <= ordered` has a
+/// database CHECK backstop. Exact ordered cost is never inferred from catalog.
+model PurchaseOrderLine {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  purchaseOrderId  String   @map("purchase_order_id") @db.Uuid
+  productVariantId String   @map("product_variant_id") @db.Uuid
+  lineNumber       Int      @map("line_number")
+  quantityOrdered  Int      @map("quantity_ordered")
+  quantityReceived Int      @default(0) @map("quantity_received")
+  unitCostMinor    BigInt   @map("unit_cost_minor")
+  notes            String?  @db.VarChar(500)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  purchaseOrder   PurchaseOrder      @relation(fields: [purchaseOrderId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  productVariant  ProductVariant     @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  receiptLines    GoodsReceiptLine[]
+  serializedUnits SerializedUnit[]
+
+  @@unique([organizationId, purchaseOrderId, lineNumber])
+  @@unique([organizationId, purchaseOrderId, productVariantId])
+  @@unique([id, organizationId])
+  @@unique([id, organizationId, productVariantId])
+  @@unique([id, organizationId, purchaseOrderId, productVariantId])
+  @@index([organizationId, productVariantId])
+  @@map("purchase_order_lines")
+}
+
+/// Immutable proof that stock actually arrived. All totals are calculated by
+/// the server in TXN-1 and rechecked against immutable child rows at COMMIT.
+model GoodsReceipt {
+  id                         String                     @id @default(uuid()) @db.Uuid
+  organizationId             String                     @map("organization_id") @db.Uuid
+  branchId                   String                     @map("branch_id") @db.Uuid
+  purchaseOrderId            String                     @map("purchase_order_id") @db.Uuid
+  supplierId                 String                     @map("supplier_id") @db.Uuid
+  receivedByUserId           String                     @map("received_by_user_id") @db.Uuid
+  number                     String                     @db.VarChar(100)
+  supplierInvoiceReference   String?                    @map("supplier_invoice_reference") @db.VarChar(100)
+  receivedAt                 DateTime                   @default(now()) @map("received_at") @db.Timestamptz(3)
+  invoiceDueOn               DateTime                   @map("invoice_due_on") @db.Date
+  notes                      String?                    @db.VarChar(500)
+  landedCostAllocationMethod LandedCostAllocationMethod @default(by_value) @map("landed_cost_allocation_method")
+  actualCostTotalMinor       BigInt                     @map("actual_cost_total_minor")
+  landedCostTotalMinor       BigInt                     @map("landed_cost_total_minor")
+  payableTotalMinor          BigInt                     @map("payable_total_minor")
+  /// Child rows must be inserted in this same transaction; the trigger in
+  /// 0008 rejects a later INSERT that would rewrite posted receipt history.
+  postingTxid                BigInt                     @default(dbgenerated("txid_current()")) @map("posting_txid")
+  createdAt                  DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization  Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch        Branch                   @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supplier      Supplier                 @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  purchaseOrder PurchaseOrder            @relation(fields: [purchaseOrderId, organizationId, branchId, supplierId], references: [id, organizationId, branchId, supplierId], onDelete: Restrict)
+  receivedBy    User                     @relation("GoodsReceiptReceiver", fields: [receivedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lines         GoodsReceiptLine[]
+  landedCosts   GoodsReceiptLandedCost[]
+  payable       Payable?
+
+  @@unique([organizationId, branchId, number])
+  @@unique([id, organizationId])
+  @@unique([id, organizationId, branchId])
+  @@unique([id, organizationId, branchId, purchaseOrderId])
+  @@unique([id, organizationId, branchId, supplierId])
+  @@index([organizationId, purchaseOrderId, receivedAt])
+  @@index([organizationId, supplierId, receivedAt])
+  @@map("goods_receipts")
+}
+
+/// Immutable exact received-cost evidence. Quantity stock points at the one
+/// aggregate bucket it updated; serialized stock points back here from each
+/// unit instead. The source FKs prove the receipt, PO line, variant and
+/// destination all describe the same tenant-scoped arrival.
+model GoodsReceiptLine {
+  id                       String       @id @default(uuid()) @db.Uuid
+  organizationId           String       @map("organization_id") @db.Uuid
+  branchId                 String       @map("branch_id") @db.Uuid
+  goodsReceiptId           String       @map("goods_receipt_id") @db.Uuid
+  purchaseOrderId          String       @map("purchase_order_id") @db.Uuid
+  purchaseOrderLineId      String       @map("purchase_order_line_id") @db.Uuid
+  productVariantId         String       @map("product_variant_id") @db.Uuid
+  stockLocationId          String       @map("stock_location_id") @db.Uuid
+  trackingType             TrackingType @map("tracking_type")
+  quantityReceived         Int          @map("quantity_received")
+  unitCostMinor            BigInt       @map("unit_cost_minor")
+  actualCostTotalMinor     BigInt       @map("actual_cost_total_minor")
+  landedCostAllocatedMinor BigInt       @map("landed_cost_allocated_minor")
+  landedCostTotalMinor     BigInt       @map("landed_cost_total_minor")
+  stockBatchId             String?      @map("stock_batch_id") @db.Uuid
+  createdAt                DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch            Branch            @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  goodsReceipt      GoodsReceipt      @relation(fields: [goodsReceiptId, organizationId, branchId, purchaseOrderId], references: [id, organizationId, branchId, purchaseOrderId], onDelete: Restrict)
+  purchaseOrderLine PurchaseOrderLine @relation(fields: [purchaseOrderLineId, organizationId, purchaseOrderId, productVariantId], references: [id, organizationId, purchaseOrderId, productVariantId], onDelete: Restrict)
+  productVariant    ProductVariant    @relation(fields: [productVariantId, organizationId, trackingType], references: [id, organizationId, trackingType], onDelete: Restrict)
+  stockLocation     StockLocation     @relation(fields: [stockLocationId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+  stockBatch        StockBatch?       @relation(fields: [stockBatchId, organizationId, branchId, productVariantId, stockLocationId], references: [id, organizationId, branchId, productVariantId, stockLocationId], onDelete: Restrict)
+  serializedUnits   SerializedUnit[]
+
+  @@unique([organizationId, goodsReceiptId, purchaseOrderLineId, stockLocationId])
+  @@unique([id, organizationId])
+  /// Immutable source key for serialized provenance. Receiving destination is
+  /// evidence on this row, not part of the unit's mutable current-location FK.
+  @@unique([id, organizationId, productVariantId, purchaseOrderLineId])
+  @@index([organizationId, purchaseOrderLineId])
+  @@index([organizationId, productVariantId, createdAt])
+  @@map("goods_receipt_lines")
+}
+
+/// Freight, customs, insurance and other landed-cost components. Entries are
+/// immutable and their sum must equal receipt allocations at transaction end.
+model GoodsReceiptLandedCost {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  branchId       String         @map("branch_id") @db.Uuid
+  goodsReceiptId String         @map("goods_receipt_id") @db.Uuid
+  kind           LandedCostKind
+  amountMinor    BigInt         @map("amount_minor")
+  reference      String?        @db.VarChar(100)
+  notes          String?        @db.VarChar(500)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  goodsReceipt GoodsReceipt @relation(fields: [goodsReceiptId, organizationId, branchId], references: [id, organizationId, branchId], onDelete: Restrict)
+
+  @@unique([id, organizationId])
+  @@index([organizationId, goodsReceiptId])
+  @@map("goods_receipt_landed_costs")
+}
+
+/// Product-invoice obligation created atomically by receiving. Landed-cost
+/// entries increase inventory value but are not owed to the product supplier;
+/// settlement extends this row later while its source and amount stay fixed.
+model Payable {
+  id               String        @id @default(uuid()) @db.Uuid
+  organizationId   String        @map("organization_id") @db.Uuid
+  branchId         String        @map("branch_id") @db.Uuid
+  supplierId       String        @map("supplier_id") @db.Uuid
+  goodsReceiptId   String        @map("goods_receipt_id") @db.Uuid
+  dueOn            DateTime      @map("due_on") @db.Date
+  amountMinor      BigInt        @map("amount_minor")
+  paidMinor        BigInt        @default(0) @map("paid_minor")
+  outstandingMinor BigInt        @map("outstanding_minor")
+  status           PayableStatus @default(open)
+  version          Int           @default(1)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supplier     Supplier     @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  goodsReceipt GoodsReceipt @relation(fields: [goodsReceiptId, organizationId, branchId, supplierId], references: [id, organizationId, branchId, supplierId], onDelete: Restrict)
+
+  @@unique([organizationId, goodsReceiptId])
+  @@unique([goodsReceiptId, organizationId, branchId, supplierId])
+  @@unique([id, organizationId])
+  @@index([organizationId, supplierId, status, dueOn])
+  @@index([organizationId, status, dueOn])
+  @@map("payables")
+}
+
+enum PurchaseOrderStatus {
+  draft
+  approved
+  ordered
+  partially_received
+  received
+  closed
+  cancelled
+}
+
+enum LandedCostKind {
+  freight
+  customs
+  insurance
+  handling
+  tax
+  other
+}
+
+enum LandedCostAllocationMethod {
+  by_value
+}
+
+enum PayableStatus {
+  open
+  partially_paid
+  paid
+  cancelled
+}
+
+// =============================================================================
 // Users, roles and permissions
 // =============================================================================
 
@@ -554,6 +897,13 @@ model User {
   updatedSettings   ApplicationSetting[] @relation("SettingUpdater")
 
   inventoryMovements InventoryMovement[] @relation("InventoryMovementActor")
+
+  createdPurchaseOrders   PurchaseOrder[] @relation("PurchaseOrderCreator")
+  approvedPurchaseOrders  PurchaseOrder[] @relation("PurchaseOrderApprover")
+  orderedPurchaseOrders   PurchaseOrder[] @relation("PurchaseOrderOrderer")
+  closedPurchaseOrders    PurchaseOrder[] @relation("PurchaseOrderCloser")
+  cancelledPurchaseOrders PurchaseOrder[] @relation("PurchaseOrderCanceller")
+  receivedGoodsReceipts   GoodsReceipt[]  @relation("GoodsReceiptReceiver")
 
   @@unique([organizationId, email])
   @@unique([id, organizationId])

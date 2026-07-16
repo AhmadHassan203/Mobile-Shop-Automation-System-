@@ -252,6 +252,118 @@ export function allocateByWeights(
   return shares.map((v) => toMinor(sign * v, "allocated share"));
 }
 
+/**
+ * Exact largest-remainder allocation for integer weights.
+ *
+ * Receiving uses integer quantities and integer-minor-unit line values as its
+ * allocation weights. BigInt intermediates keep `amount * weight` exact even
+ * when that product would exceed Number.MAX_SAFE_INTEGER; only the final shares
+ * are converted back to the public safe-integer money representation.
+ */
+export function allocateByIntegerWeights(
+  amount: Minor,
+  weights: readonly number[],
+): Minor[] {
+  if (weights.length === 0) {
+    throw new MoneyError("Cannot allocate across zero weights");
+  }
+  if (
+    weights.some(
+      (weight) =>
+        !Number.isSafeInteger(weight) ||
+        !Number.isInteger(weight) ||
+        weight < 0,
+    )
+  ) {
+    throw new MoneyError(
+      "Integer allocation weights must be safe, non-negative integers",
+    );
+  }
+
+  const integerWeights = weights.map(BigInt);
+  const totalWeight = integerWeights.reduce(
+    (total, weight) => total + weight,
+    0n,
+  );
+  if (totalWeight <= 0n) {
+    throw new MoneyError("Allocation weights must sum to a positive value");
+  }
+
+  const negative = amount < 0;
+  const magnitude = BigInt(Math.abs(amount));
+  const allocations = integerWeights.map((weight, index) => {
+    const product = magnitude * weight;
+    return {
+      index,
+      share: product / totalWeight,
+      remainder: product % totalWeight,
+    };
+  });
+  let unallocated =
+    magnitude -
+    allocations.reduce((total, allocation) => total + allocation.share, 0n);
+
+  const order = [...allocations].sort((left, right) => {
+    if (left.remainder === right.remainder) return left.index - right.index;
+    return left.remainder > right.remainder ? -1 : 1;
+  });
+  for (const allocation of order) {
+    if (unallocated === 0n) break;
+    allocation.share += 1n;
+    unallocated -= 1n;
+  }
+
+  return allocations
+    .sort((left, right) => left.index - right.index)
+    .map((allocation) => {
+      const signed = negative ? -allocation.share : allocation.share;
+      return toMinor(Number(signed), "allocated share");
+    });
+}
+
+/**
+ * Recalculate a quantity bucket's moving weighted-average unit cost exactly.
+ *
+ * The products can exceed JavaScript's safe integer range even when every
+ * stored input and the final average are safe. BigInt intermediates prevent
+ * floating-point drift; an unavoidable fractional paisa is rounded half away
+ * from zero, matching ASM-004. Receiving passes the incoming line's exact total
+ * so landed-cost remainders are included before the new unit average is formed.
+ */
+export function movingWeightedAverageUnitCost(
+  existingUnitCost: Minor | null,
+  existingQuantity: number,
+  incomingTotalCost: Minor,
+  incomingQuantity: number,
+): Minor {
+  if (!Number.isSafeInteger(existingQuantity) || existingQuantity < 0) {
+    throw new MoneyError(
+      `Existing quantity must be a safe non-negative integer, received ${existingQuantity}`,
+    );
+  }
+  if (!Number.isSafeInteger(incomingQuantity) || incomingQuantity <= 0) {
+    throw new MoneyError(
+      `Incoming quantity must be a safe positive integer, received ${incomingQuantity}`,
+    );
+  }
+  if (existingQuantity > 0 && existingUnitCost === null) {
+    throw new MoneyError("Existing stock has no recorded unit cost");
+  }
+
+  const totalQuantity = BigInt(existingQuantity) + BigInt(incomingQuantity);
+  const existingTotal =
+    BigInt(existingUnitCost ?? 0) * BigInt(existingQuantity);
+  const numerator = existingTotal + BigInt(incomingTotalCost);
+  const negative = numerator < 0n;
+  const magnitude = negative ? -numerator : numerator;
+  let quotient = magnitude / totalQuantity;
+  const remainder = magnitude % totalQuantity;
+  if (remainder * 2n >= totalQuantity) quotient += 1n;
+
+  const signed = negative ? -quotient : quotient;
+  return toMinor(Number(signed), "moving weighted-average unit cost");
+}
+
 /** Split evenly across `parts`, distributing any remainder one paisa at a time. */
 export function allocateEvenly(amount: Minor, parts: number): Minor[] {
   if (!Number.isInteger(parts) || parts <= 0) {

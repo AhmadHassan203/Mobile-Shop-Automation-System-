@@ -293,12 +293,16 @@ interface ProductsTabProps {
   readonly canCreate: boolean;
   readonly canUpdate: boolean;
   readonly canDeactivate: boolean;
+  readonly canViewPricing: boolean;
+  readonly canManagePricing: boolean;
 }
 
 function ProductsTab({
   canCreate,
   canUpdate,
   canDeactivate,
+  canViewPricing,
+  canManagePricing,
 }: ProductsTabProps): JSX.Element {
   const pathname = usePathname();
   const router = useRouter();
@@ -838,8 +842,10 @@ function ProductsTab({
 
       {detailId === null ? null : (
         <ProductDetailDrawer
+          canManagePricing={canManagePricing}
           canUpdate={canUpdate}
           canView
+          canViewPricing={canViewPricing}
           onClose={() => setDetailId(null)}
           onEdit={(id) => {
             setDetailId(null);
@@ -978,6 +984,10 @@ export function ProductCatalogPage(): JSX.Element {
   const canUpdate = permissions?.includes(PERMISSIONS.CATALOG_UPDATE) === true;
   const canDeactivate =
     permissions?.includes(PERMISSIONS.CATALOG_DEACTIVATE) === true;
+  const canViewPricing =
+    permissions?.includes(PERMISSIONS.PRICING_VIEW) === true;
+  const canManagePricing =
+    permissions?.includes(PERMISSIONS.PRICING_MANAGE) === true;
 
   const activeTab = catalogTabFrom(
     new URLSearchParams(searchParams.toString()),
@@ -1035,9 +1045,10 @@ export function ProductCatalogPage(): JSX.Element {
       <div className="mb-4 flex items-start gap-2.5 rounded-card border border-info/20 bg-info-soft px-4 py-3 text-[0.8125rem] text-info">
         <ShieldCheckIcon className="mt-0.5 size-[1.125rem] shrink-0" />
         <p>
-          This view contains catalog identity only. Stock quantities, IMEIs,
-          supplier cost, and selling prices will appear only through their real
-          inventory, purchasing, and pricing workflows.
+          Catalog identity stays separate from operations. Open Stock for real
+          quantities and device identifiers; open a product’s View drawer for
+          its live Pricing. Supplier cost remains in permissioned purchasing
+          workflows.
         </p>
       </div>
 
@@ -1084,7 +1095,9 @@ export function ProductCatalogPage(): JSX.Element {
           <ProductsTab
             canCreate={canCreate}
             canDeactivate={canDeactivate}
+            canManagePricing={canManagePricing}
             canUpdate={canUpdate}
+            canViewPricing={canViewPricing}
           />
         ) : activeTab === "categories" ? (
           <CategoriesTab />

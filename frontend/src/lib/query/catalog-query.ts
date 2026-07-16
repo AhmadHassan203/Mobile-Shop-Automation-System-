@@ -13,11 +13,15 @@ import {
 } from "@/lib/api/catalog";
 import { queryKeys } from "./keys";
 
-export function catalogProductsQueryOptions(parameters: ProductListParameters) {
+export function catalogProductsQueryOptions(
+  parameters: ProductListParameters,
+  enabled = true,
+) {
   return queryOptions({
     queryKey: queryKeys.catalogProducts(parameters),
     queryFn: ({ signal }) => getCatalogProducts(parameters, signal),
     placeholderData: keepPreviousData,
+    enabled,
     staleTime: 15_000,
     meta: { authDependent: true },
   });

@@ -668,7 +668,12 @@ export class InventoryService {
         branchId: context.branchId,
         ...(context.allowedLocationIds === null
           ? {}
-          : { id: { equals: stockLocationId, in: [...context.allowedLocationIds] } }),
+          : {
+              id: {
+                equals: stockLocationId,
+                in: [...context.allowedLocationIds],
+              },
+            }),
       },
       select: { id: true },
     });

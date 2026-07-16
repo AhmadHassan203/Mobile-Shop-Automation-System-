@@ -22,3 +22,8 @@ export * from "./catalog";
 export * from "./inventory";
 export * from "./purchasing";
 export * from "./dashboard";
+export * from "./pricing";
+export * from "./customers";
+export * from "./sales";
+export * from "./demand";
+export * from "./returns";

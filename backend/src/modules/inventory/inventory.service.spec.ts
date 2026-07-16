@@ -1411,12 +1411,10 @@ describe("InventoryService serialized reads", () => {
       stockLocation: { id: IDS.location, code: "MAIN" },
     });
     expectNoForbiddenFields(result);
-    const args = (
-      findFirst.mock.calls[0]?.[0] as {
-        readonly select: Readonly<Record<string, unknown>>;
-        readonly where: Readonly<Record<string, unknown>>;
-      }
-    );
+    const args = findFirst.mock.calls[0]?.[0] as {
+      readonly select: Readonly<Record<string, unknown>>;
+      readonly where: Readonly<Record<string, unknown>>;
+    };
     expect(args.where).toEqual({
       id: IDS.unit,
       organizationId: IDS.organization,

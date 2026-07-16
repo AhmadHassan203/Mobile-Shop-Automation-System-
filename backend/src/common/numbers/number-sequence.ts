@@ -11,7 +11,8 @@ interface LockedNumberSequence {
 
 export interface DocumentNumberScope {
   readonly organizationId: string;
-  readonly branchId: string;
+  /** Null allocates an organization-wide sequence (for example customers). */
+  readonly branchId: string | null;
 }
 
 export interface AllocateDocumentNumberOptions {
@@ -35,7 +36,7 @@ export async function allocateDocumentNumber(
 ): Promise<string> {
   const periodKey = options.periodKey ?? null;
   const padding = options.padding ?? 6;
-  const lockKey = `${scope.organizationId}:${scope.branchId}:${options.key}:${periodKey ?? ""}`;
+  const lockKey = `${scope.organizationId}:${scope.branchId ?? "organization"}:${options.key}:${periodKey ?? ""}`;
 
   await tx.$executeRaw`
     SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
@@ -72,7 +73,7 @@ export async function allocateDocumentNumber(
            period_key AS "periodKey"
       FROM number_sequences
      WHERE organization_id = ${scope.organizationId}::uuid
-       AND branch_id = ${scope.branchId}::uuid
+       AND branch_id IS NOT DISTINCT FROM ${scope.branchId}::uuid
        AND key = ${options.key}
        AND period_key IS NOT DISTINCT FROM ${periodKey}
      FOR UPDATE`;

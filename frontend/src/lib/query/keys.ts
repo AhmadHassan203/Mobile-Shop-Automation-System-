@@ -66,4 +66,15 @@ export const queryKeys = Object.freeze({
   return: (id: string) => ["returns", "detail", id] as const,
   returnEligibility: (query: object) =>
     ["returns", "eligibility", query] as const,
+  externalRoot: ["external"] as const,
+  external: (parameters: object) => ["external", parameters] as const,
+  externalTransaction: (id: string) => ["external", "detail", id] as const,
+  cashSessionsRoot: ["cash-sessions"] as const,
+  cashSessions: (parameters: object) => ["cash-sessions", parameters] as const,
+  currentCashSession: ["cash-sessions", "current"] as const,
+  expensesRoot: ["expenses"] as const,
+  expenses: (parameters: object) => ["expenses", parameters] as const,
+  dashboardSummaryRoot: ["reports", "dashboard-summary"] as const,
+  dashboardSummary: (query: object) =>
+    ["reports", "dashboard-summary", query] as const,
 });

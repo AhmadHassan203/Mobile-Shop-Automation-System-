@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  FINANCIAL_SUMMARY_PERIODS,
   formatMoney,
   PERMISSIONS,
   toMinor,
@@ -13,10 +14,15 @@ import {
   type DashboardRecentSales,
   type DashboardSnapshot,
   type DashboardTodaysTasks,
+  type FinancialSummaryPeriod,
 } from "@mobileshop/shared";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import type { JSX, ReactNode } from "react";
+import { useState, type JSX, type ReactNode } from "react";
+import {
+  CatalogErrorState,
+  CatalogForbiddenState,
+} from "@/components/catalog/catalog-states";
 import {
   ActivityIcon,
   AlertTriangleIcon,
@@ -27,6 +33,7 @@ import {
 } from "@/components/ui/icons";
 import { ApiError, toApiError } from "@/lib/api/client";
 import { currentAuthQueryOptions } from "@/lib/query/auth-query";
+import { dailyFinancialSummaryQueryOptions } from "@/lib/query/dashboard-summary-query";
 import { dashboardQueryOptions } from "@/lib/query/dashboard-query";
 
 const DIGITAL_METRICS = [
@@ -967,6 +974,152 @@ function Card({
   );
 }
 
+const SUMMARY_PERIOD_LABELS: Readonly<Record<FinancialSummaryPeriod, string>> =
+  Object.freeze({ day: "Day", week: "Week", month: "Month" });
+
+/**
+ * The reconciled financial roll-up with a day/week/month toggle. Every figure is
+ * the server's, from GET /dashboard/summary; a zero note is shown when the period
+ * has no posted activity so an empty period never reads as a broken one.
+ */
+function FinancialSummarySection({
+  currency,
+}: {
+  readonly currency: string;
+}): JSX.Element {
+  const [period, setPeriod] = useState<FinancialSummaryPeriod>("day");
+  const summary = useQuery(dailyFinancialSummaryQueryOptions({ period }, true));
+
+  let body: JSX.Element;
+  if (summary.isPending) {
+    body = (
+      <div
+        aria-label="Loading financial summary"
+        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"
+        role="status"
+      >
+        {Array.from({ length: 6 }, (_, index) => (
+          <div
+            className="h-24 animate-pulse rounded-card border border-line bg-line-subtle/65"
+            key={index}
+          />
+        ))}
+      </div>
+    );
+  } else if (summary.data === undefined) {
+    const error = toApiError(summary.error);
+    body =
+      error.status === 403 || error.code === "FORBIDDEN_PERMISSION" ? (
+        <CatalogForbiddenState
+          description="Your current permissions do not allow the financial summary. No figures are shown."
+          title="Financial summary not permitted"
+        />
+      ) : (
+        <CatalogErrorState
+          description="The financial summary API could not be reached. No fallback figures are shown."
+          onRetry={() => {
+            void summary.refetch();
+          }}
+          title="Financial summary unavailable"
+          {...(error.requestId === undefined
+            ? {}
+            : { requestId: error.requestId })}
+        />
+      );
+  } else {
+    const data = summary.data;
+    const tiles = [
+      { label: "Sales revenue", minor: data.salesRevenueMinor, earnings: false },
+      { label: "COGS", minor: data.cogsMinor, earnings: false },
+      { label: "Gross profit", minor: data.grossProfitMinor, earnings: true },
+      {
+        label: "Service profit",
+        minor: data.serviceProfitMinor,
+        earnings: true,
+      },
+      { label: "Expenses", minor: data.expensesMinor, earnings: false },
+      {
+        label: "Estimated net profit",
+        minor: data.estimatedNetProfitMinor,
+        earnings: true,
+      },
+    ] as const;
+    const empty = data.salesCount === 0 && data.externalTxnCount === 0;
+    body = (
+      <div className="space-y-3">
+        {empty ? (
+          <p className="rounded-control border border-dashed border-line bg-surface-subtle px-4 py-3 text-center text-xs text-ink-muted">
+            No posted sales or external transactions in this period yet. Figures
+            update as activity is recorded.
+          </p>
+        ) : null}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          {tiles.map((tile) => {
+            const toneClass =
+              tile.earnings && tile.minor > 0
+                ? "text-positive"
+                : tile.earnings && tile.minor < 0
+                  ? "text-negative"
+                  : "text-ink";
+            return (
+              <div
+                className="min-h-24 rounded-card border border-line bg-surface p-4 shadow-card"
+                key={tile.label}
+              >
+                <p className="text-xs font-semibold text-ink-muted">
+                  {tile.label}
+                </p>
+                <p className={`mt-2 font-mono text-lg font-bold ${toneClass}`}>
+                  {dashboardMoney(tile.minor, currency)}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-[0.6875rem] leading-5 text-ink-muted">
+          {data.from === data.to
+            ? `Business date ${data.from}`
+            : `${data.from} — ${data.to}`}{" "}
+          · {data.salesCount.toLocaleString("en-PK")} sales ·{" "}
+          {data.externalTxnCount.toLocaleString("en-PK")} external transactions.
+          Estimated net profit = gross profit + service profit − expenses.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <section
+      aria-labelledby="financial-summary-heading"
+      className="overflow-hidden rounded-card border border-line bg-surface shadow-card"
+    >
+      <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-4">
+        <h2 className="font-bold text-ink" id="financial-summary-heading">
+          Financial summary
+        </h2>
+        <div className="ml-auto flex rounded-control border border-line p-0.5">
+          {FINANCIAL_SUMMARY_PERIODS.map((value) => (
+            <button
+              aria-pressed={period === value}
+              className={`rounded-control px-3 py-1 text-xs font-bold ${
+                period === value
+                  ? "bg-accent text-white"
+                  : "text-ink-muted hover:bg-surface-subtle"
+              }`}
+              key={value}
+              onClick={() => setPeriod(value)}
+              type="button"
+            >
+              {SUMMARY_PERIOD_LABELS[value]}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="p-4">{body}</div>
+    </section>
+  );
+}
+
 export function WorkspaceDashboard() {
   const auth = useQuery(currentAuthQueryOptions);
   const dashboard = useQuery({
@@ -1025,6 +1178,10 @@ export function WorkspaceDashboard() {
           </div>
         ) : null}
       </header>
+
+      {auth.data === undefined ? null : (
+        <FinancialSummarySection currency={auth.data.organization.currency} />
+      )}
 
       {auth.isPending || (dashboard.isPending && dashboard.data === undefined) ? (
         <DashboardSkeleton />

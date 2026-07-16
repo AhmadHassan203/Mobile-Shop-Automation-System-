@@ -1,13 +1,20 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@mobileshop/database";
 import {
+  addBusinessDays,
+  DailyFinancialSummarySchema,
   DashboardSnapshotSchema,
   ON_HAND_STOCK_STATES,
+  parseBusinessDate,
   PERMISSIONS,
   toBusinessDate,
+  type BusinessDate,
+  type DailyFinancialSummary,
+  type DailyFinancialSummaryQuery,
   type DashboardAttentionItem,
   type DashboardMoneyValue,
   type DashboardSnapshot,
+  type FinancialSummaryPeriod,
   type PermissionKey,
 } from "@mobileshop/shared";
 import { PrismaService } from "../../database/prisma.service";
@@ -57,6 +64,14 @@ function redacted(message: string) {
 function safeNonnegativeInteger(value: bigint, label: string): number {
   const converted = Number(value);
   if (!Number.isSafeInteger(converted) || converted < 0) {
+    throw new Error(`${label} is outside the public safe-integer range.`);
+  }
+  return converted;
+}
+
+function safeSignedInteger(value: bigint, label: string): number {
+  const converted = Number(value);
+  if (!Number.isSafeInteger(converted)) {
     throw new Error(`${label} is outside the public safe-integer range.`);
   }
   return converted;
@@ -181,6 +196,111 @@ export class DashboardService {
             }
           : redacted("Live stock totals require inventory.view."),
     });
+  }
+
+  /**
+   * Reconciled operational roll-up for one business day, week or month.
+   *
+   * Computed directly from the sales, external-transaction and expense tables
+   * with tenant + branch + business-date filters. Sales revenue less COGS is
+   * gross profit; service profit is added and expenses subtracted to give an
+   * estimated net profit. Deliberately "estimated" — an operational summary,
+   * not the posted ledger.
+   */
+  async summary(
+    context: DashboardActorContext,
+    query: DailyFinancialSummaryQuery,
+  ): Promise<DailyFinancialSummary> {
+    const anchor =
+      query.date === undefined
+        ? toBusinessDate(new Date())
+        : parseBusinessDate(query.date);
+    const { from, to } = this.periodRange(query.period, anchor);
+    const businessDate = {
+      gte: new Date(`${from}T00:00:00.000Z`),
+      lte: new Date(`${to}T00:00:00.000Z`),
+    };
+    const tenant = {
+      organizationId: context.organizationId,
+      branchId: context.branchId,
+    };
+
+    const [sales, external, expenses] = await Promise.all([
+      // A business date is stamped only when a sale posts, so the range filter
+      // already excludes drafts and cancellations.
+      this.prisma.client.sale.aggregate({
+        where: { ...tenant, postedAt: { not: null }, businessDate },
+        _sum: { totalMinor: true, cogsMinor: true },
+        _count: true,
+      }),
+      this.prisma.client.externalTransaction.aggregate({
+        where: { ...tenant, businessDate },
+        _sum: { serviceProfitMinor: true },
+        _count: true,
+      }),
+      this.prisma.client.expense.aggregate({
+        where: { ...tenant, businessDate },
+        _sum: { amountMinor: true },
+      }),
+    ]);
+
+    const salesRevenueMinor = safeNonnegativeInteger(
+      sales._sum.totalMinor ?? 0n,
+      "sales revenue",
+    );
+    const cogsMinor = safeNonnegativeInteger(sales._sum.cogsMinor ?? 0n, "sales COGS");
+    const grossProfitMinor = salesRevenueMinor - cogsMinor;
+    const serviceProfitMinor = safeSignedInteger(
+      external._sum.serviceProfitMinor ?? 0n,
+      "service profit",
+    );
+    const expensesMinor = safeNonnegativeInteger(
+      expenses._sum.amountMinor ?? 0n,
+      "expenses",
+    );
+    const estimatedNetProfitMinor =
+      grossProfitMinor + serviceProfitMinor - expensesMinor;
+
+    return DailyFinancialSummarySchema.parse({
+      period: query.period,
+      from,
+      to,
+      salesRevenueMinor,
+      cogsMinor,
+      grossProfitMinor,
+      serviceProfitMinor,
+      expensesMinor,
+      estimatedNetProfitMinor,
+      salesCount: safeNonnegativeInteger(BigInt(sales._count), "sales count"),
+      externalTxnCount: safeNonnegativeInteger(
+        BigInt(external._count),
+        "external transaction count",
+      ),
+    });
+  }
+
+  /** Inclusive business-date range for a period, anchored on `anchor`. */
+  private periodRange(
+    period: FinancialSummaryPeriod,
+    anchor: BusinessDate,
+  ): { from: BusinessDate; to: BusinessDate } {
+    if (period === "day") return { from: anchor, to: anchor };
+    if (period === "week") {
+      // Midday UTC avoids any offset edge; ISO week runs Monday..Sunday.
+      const dayOfWeek = new Date(`${anchor}T12:00:00.000Z`).getUTCDay();
+      const daysFromMonday = (dayOfWeek + 6) % 7;
+      const from = addBusinessDays(anchor, -daysFromMonday);
+      return { from, to: addBusinessDays(from, 6) };
+    }
+    const year = Number(anchor.slice(0, 4));
+    const month = Number(anchor.slice(5, 7));
+    // Date.UTC month is 0-based, so passing `month` names the following month and
+    // day 0 resolves to the last calendar day of the anchor's month.
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return {
+      from: parseBusinessDate(`${anchor.slice(0, 7)}-01`),
+      to: parseBusinessDate(`${anchor.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`),
+    };
   }
 
   private moneyKpis(

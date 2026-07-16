@@ -200,3 +200,101 @@ describe("DashboardService", () => {
     ).rejects.toThrow("Dashboard response violated its public contract");
   });
 });
+
+function summaryServiceWith(sums: {
+  salesTotal: bigint;
+  salesCogs: bigint;
+  salesCount: number;
+  serviceProfit: bigint;
+  externalCount: number;
+  expenses: bigint;
+}) {
+  const sale = { aggregate: vi.fn() };
+  const externalTransaction = { aggregate: vi.fn() };
+  const expense = { aggregate: vi.fn() };
+  sale.aggregate.mockResolvedValue({
+    _sum: { totalMinor: sums.salesTotal, cogsMinor: sums.salesCogs },
+    _count: sums.salesCount,
+  });
+  externalTransaction.aggregate.mockResolvedValue({
+    _sum: { serviceProfitMinor: sums.serviceProfit },
+    _count: sums.externalCount,
+  });
+  expense.aggregate.mockResolvedValue({ _sum: { amountMinor: sums.expenses } });
+  const prisma = {
+    client: { sale, externalTransaction, expense },
+  } as unknown as PrismaService;
+  return { service: new DashboardService(prisma), sale, expense };
+}
+
+describe("DashboardService.summary", () => {
+  it("rolls up revenue, cost, service profit and expenses into estimated net profit", async () => {
+    const { service } = summaryServiceWith({
+      salesTotal: 500_000n,
+      salesCogs: 300_000n,
+      salesCount: 4,
+      serviceProfit: 7_000n,
+      externalCount: 3,
+      expenses: 12_000n,
+    });
+
+    const summary = await service.summary(context([PERMISSIONS.REPORTS_VIEW_FINANCIAL]), {
+      period: "day",
+      date: "2026-07-17",
+    });
+
+    expect(summary).toEqual({
+      period: "day",
+      from: "2026-07-17",
+      to: "2026-07-17",
+      salesRevenueMinor: 500_000,
+      cogsMinor: 300_000,
+      grossProfitMinor: 200_000,
+      serviceProfitMinor: 7_000,
+      expensesMinor: 12_000,
+      // 200,000 gross + 7,000 service - 12,000 expenses.
+      estimatedNetProfitMinor: 195_000,
+      salesCount: 4,
+      externalTxnCount: 3,
+    });
+  });
+
+  it("scopes every table to the tenant, branch and business-date window", async () => {
+    const { service, sale, expense } = summaryServiceWith({
+      salesTotal: 0n,
+      salesCogs: 0n,
+      salesCount: 0,
+      serviceProfit: 0n,
+      externalCount: 0,
+      expenses: 0n,
+    });
+
+    // 2026-07-17 is a Friday: the ISO week runs Mon 13th .. Sun 19th.
+    const week = await service.summary(context([PERMISSIONS.REPORTS_VIEW_FINANCIAL]), {
+      period: "week",
+      date: "2026-07-17",
+    });
+    expect({ from: week.from, to: week.to }).toEqual({ from: "2026-07-13", to: "2026-07-19" });
+
+    const saleWhere = sale.aggregate.mock.calls[0]?.[0]?.where as {
+      organizationId: string;
+      branchId: string;
+      businessDate: { gte: Date; lte: Date };
+    };
+    expect(saleWhere.organizationId).toBe(IDS.organization);
+    expect(saleWhere.branchId).toBe(IDS.branch);
+    expect(saleWhere.businessDate.gte).toEqual(new Date("2026-07-13T00:00:00.000Z"));
+    expect(saleWhere.businessDate.lte).toEqual(new Date("2026-07-19T00:00:00.000Z"));
+
+    const month = await service.summary(context([PERMISSIONS.REPORTS_VIEW_FINANCIAL]), {
+      period: "month",
+      date: "2026-07-17",
+    });
+    expect({ from: month.from, to: month.to }).toEqual({ from: "2026-07-01", to: "2026-07-31" });
+    const expenseWhere = expense.aggregate.mock.calls[1]?.[0]?.where as {
+      businessDate: { gte: Date; lte: Date };
+    };
+    expect(expenseWhere.businessDate.gte).toEqual(new Date("2026-07-01T00:00:00.000Z"));
+    expect(expenseWhere.businessDate.lte).toEqual(new Date("2026-07-31T00:00:00.000Z"));
+  });
+});

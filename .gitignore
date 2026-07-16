@@ -39,6 +39,10 @@ backups/
 *.dump
 *.sql.gz
 
+# Generated artifacts / temp files
+.artifacts/
+tmp-*.txt
+
 # OS / editor
 .DS_Store
 Thumbs.db

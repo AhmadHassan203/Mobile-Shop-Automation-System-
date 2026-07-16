@@ -188,7 +188,7 @@ export class InventoryController {
     query: StockBalanceListQuery,
   ): Promise<StockBalancePage> {
     return this.inventory.listStockBalances(
-      inventoryActorContext(request).organizationId,
+      inventoryActorContext(request),
       query,
     );
   }
@@ -201,10 +201,7 @@ export class InventoryController {
     @Query(new ZodValidationPipe(InventoryMovementListQuerySchema))
     query: InventoryMovementListQuery,
   ): Promise<InventoryMovementPage> {
-    return this.inventory.listMovements(
-      inventoryActorContext(request).organizationId,
-      query,
-    );
+    return this.inventory.listMovements(inventoryActorContext(request), query);
   }
 
   @Post("adjustments")

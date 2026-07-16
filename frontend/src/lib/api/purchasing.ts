@@ -6,6 +6,7 @@ import {
   GoodsReceiptDetailSchema,
   GoodsReceiptListQuerySchema,
   GoodsReceiptPageSchema,
+  IDEMPOTENCY_KEY_HEADER,
   PurchaseOrderDetailSchema,
   PurchaseOrderListQuerySchema,
   PurchaseOrderPageSchema,
@@ -33,6 +34,7 @@ import {
   type UpdatePurchaseOrderInput,
   type UpdateSupplierInput,
 } from "@mobileshop/shared";
+import { z } from "zod";
 import type { ApiClient } from "./client";
 import { apiClient } from "./health";
 
@@ -275,11 +277,14 @@ export function getGoodsReceipt(
 
 export function createGoodsReceipt(
   input: CreateGoodsReceiptInput,
+  idempotencyKey: string,
   client: ApiClient = apiClient,
 ): Promise<PurchasingReceipt> {
   const body = CreateGoodsReceiptInputSchema.parse(input);
+  const key = z.uuid().parse(idempotencyKey);
   return client.request("/goods-receipts", {
     method: "POST",
+    headers: { [IDEMPOTENCY_KEY_HEADER]: key },
     schema: purchasingReceiptDetailSchema,
     json: body,
   });

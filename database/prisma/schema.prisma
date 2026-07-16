@@ -56,6 +56,8 @@ model Organization {
   productVariants ProductVariant[]
   productAliases  ProductAlias[]
   productBarcodes ProductBarcode[]
+  priceLists      PriceList[]
+  priceEntries    PriceEntry[]
 
   serializedUnits    SerializedUnit[]
   deviceIdentifiers  DeviceIdentifier[]
@@ -70,6 +72,16 @@ model Organization {
   goodsReceiptLines       GoodsReceiptLine[]
   goodsReceiptLandedCosts GoodsReceiptLandedCost[]
   payables                Payable[]
+
+  customers          Customer[]
+  cashSessions       CashSession[]
+  financialAccounts  FinancialAccount[]
+  sales               Sale[]
+  saleLines           SaleLine[]
+  payments            Payment[]
+  paymentAllocations  PaymentAllocation[]
+  receivables         Receivable[]
+  financialEntries    FinancialEntry[]
 
   @@map("organizations")
 }
@@ -106,6 +118,15 @@ model Branch {
   goodsReceiptLandedCosts GoodsReceiptLandedCost[]
   payables                Payable[]
 
+  cashSessions      CashSession[]
+  financialAccounts FinancialAccount[]
+  sales             Sale[]
+  saleLines          SaleLine[]
+  payments           Payment[]
+  paymentAllocations PaymentAllocation[]
+  receivables        Receivable[]
+  financialEntries   FinancialEntry[]
+
   @@unique([organizationId, code])
   @@unique([id, organizationId])
   @@index([organizationId, isActive])
@@ -138,6 +159,7 @@ model StockLocation {
   stockBatches    StockBatch[]
   movements       InventoryMovement[]
   receiptLines    GoodsReceiptLine[]
+  sales           Sale[]
 
   @@unique([organizationId, branchId, code])
   @@unique([id, organizationId, branchId])
@@ -266,6 +288,8 @@ model ProductVariant {
   movements          InventoryMovement[]
   purchaseOrderLines PurchaseOrderLine[]
   goodsReceiptLines  GoodsReceiptLine[]
+  priceEntries       PriceEntry[]
+  saleLines          SaleLine[]
 
   @@unique([organizationId, sku])
   @@unique([id, organizationId])
@@ -371,8 +395,10 @@ model SerializedUnit {
 
   identifiers DeviceIdentifier[]
   movements   InventoryMovement[]
+  saleLines   SaleLine[]
 
   @@unique([id, organizationId])
+  @@unique([id, organizationId, branchId, productVariantId])
   @@index([organizationId, productVariantId, state])
   @@index([organizationId, stockLocationId, state])
   @@index([organizationId, receivedAt])

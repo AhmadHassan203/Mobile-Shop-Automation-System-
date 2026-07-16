@@ -19,6 +19,7 @@ import { CatalogModule } from "./modules/catalog/catalog.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { PurchasingModule } from "./modules/purchasing/purchasing.module";
 import { PermissionGuard } from "./common/auth/permission.guard";
+import { DashboardModule } from "./modules/dashboard/dashboard.module";
 
 /**
  * Application root.
@@ -106,6 +107,7 @@ import { PermissionGuard } from "./common/auth/permission.guard";
     CatalogModule,
     InventoryModule,
     PurchasingModule,
+    DashboardModule,
   ],
   providers: [
     // Registered globally so no thrown error can escape to the client unshaped.

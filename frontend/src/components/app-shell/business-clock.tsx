@@ -49,7 +49,7 @@ export function BusinessClock() {
         {formatOrganizationDateTime(now, timezone)}
       </time>
       <span className="block text-[0.6875rem] text-ink-muted">
-        {timezone} · {currency}
+        {auth.data.branch.name} · {currency}
       </span>
     </div>
   );

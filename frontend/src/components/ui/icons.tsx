@@ -42,6 +42,137 @@ export function LayersIcon(props: IconProps) {
   );
 }
 
+export function DashboardIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M3 3h8v10H3zM13 11h8v10h-8zM3 15h8v6H3zM13 3h8v6h-8z" />
+    </svg>
+  );
+}
+
+export function CartIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M3 3h2l2.4 12.3a2 2 0 0 0 2 1.7h7.7a2 2 0 0 0 2-1.6L22 8H6" />
+      <circle cx="9" cy="20" r="1.4" />
+      <circle cx="18" cy="20" r="1.4" />
+    </svg>
+  );
+}
+
+export function MessageIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      <path d="M12 7v5M12 15h.01" />
+    </svg>
+  );
+}
+
+export function UsersIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8" />
+    </svg>
+  );
+}
+
+export function TruckIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M1 3h15v13H1zM16 8h4l3 3v5h-7" />
+      <circle cx="5.5" cy="18.5" r="2" />
+      <circle cx="18.5" cy="18.5" r="2" />
+    </svg>
+  );
+}
+
+export function ReturnIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M3 7v6h6M3 13a9 9 0 1 0 3-7.7L3 8" />
+    </svg>
+  );
+}
+
+export function WrenchIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M14.7 6.3a4 4 0 0 0-5.4 5.3L3 18v3h3l6.4-6.4a4 4 0 0 0 5.3-5.4l-2.6 2.6-2.3-.4-.4-2.3z" />
+    </svg>
+  );
+}
+
+export function PhoneCheckIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <rect height="20" rx="2" width="10" x="7" y="2" />
+      <path d="M11 18h2M9 6l2 2 4-4" />
+    </svg>
+  );
+}
+
+export function FinanceIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+    </svg>
+  );
+}
+
+export function CalendarCheckIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <rect height="16" rx="2" width="18" x="3" y="4" />
+      <path d="M3 10h18M8 2v4M16 2v4M8 15l2 2 4-4" />
+    </svg>
+  );
+}
+
+export function WalletIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <rect height="14" rx="2" width="18" x="3" y="5" />
+      <path d="M7 9h5M7 13h3M16 10l2 2-2 2" />
+    </svg>
+  );
+}
+
+export function LightbulbIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M12 2a6.5 6.5 0 0 0-3.5 12v3h7v-3A6.5 6.5 0 0 0 12 2zM9 20h6M10 22h4" />
+    </svg>
+  );
+}
+
+export function ChartIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M4 4v16h16M8 16V9M12 16V5M16 16v-4" />
+    </svg>
+  );
+}
+
+export function TasksIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="m9 11 3 3 8-8M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" />
+    </svg>
+  );
+}
+
+export function SettingsIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.8 1.2v.2a2 2 0 0 1-4 0v-.1A1.7 1.7 0 0 0 8 19.4a1.7 1.7 0 0 0-1.8.3l-.1.1A2 2 0 1 1 3.3 17l.1-.1A1.7 1.7 0 0 0 3.6 15h-.1a2 2 0 0 1 0-4h.1A1.7 1.7 0 0 0 4.6 9.4l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 6.6h.1A1.7 1.7 0 0 0 10 3.6v-.1a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 2.8 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 20.4 9h.1a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1 2z" />
+    </svg>
+  );
+}
+
 export function AlertTriangleIcon(props: IconProps) {
   return (
     <svg {...baseProps(props)}>
@@ -171,6 +302,15 @@ export function SearchIcon(props: IconProps) {
     <svg {...baseProps(props)}>
       <circle cx="11" cy="11" r="7" />
       <path d="m20 20-4-4" />
+    </svg>
+  );
+}
+
+export function BellIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
     </svg>
   );
 }

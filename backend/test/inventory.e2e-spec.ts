@@ -834,6 +834,118 @@ describe("Inventory endpoints (HTTP)", () => {
     });
   });
 
+  describe("inventory read scope", () => {
+    it("keeps a branch-wide movement read inside the active branch", async () => {
+      await authorized(
+        { method: "get", path: "/api/v1/inventory/movements" },
+        [PERMISSIONS.INVENTORY_VIEW],
+        [
+          { branchId: BRANCH_ID, locationId: null },
+          {
+            branchId: OTHER_BRANCH_ID,
+            locationId: OTHER_BRANCH_LOCATION_ID,
+          },
+        ],
+      ).expect(200);
+
+      const find = client.inventoryMovement.findMany.mock.calls[0]?.[0] as {
+        readonly where: Record<string, unknown>;
+      };
+      expect(find.where).toMatchObject({
+        organizationId: ORGANIZATION_ID,
+        branchId: BRANCH_ID,
+      });
+      expect(find.where).not.toHaveProperty("stockLocationId");
+    });
+
+    it("passes only deduplicated active-branch locations into serialized reads", async () => {
+      await authorized(
+        { method: "get", path: "/api/v1/serialized-units" },
+        [PERMISSIONS.INVENTORY_VIEW],
+        [
+          { branchId: BRANCH_ID, locationId: LOCATION_ID },
+          { branchId: BRANCH_ID, locationId: LOCATION_ID },
+          {
+            branchId: OTHER_BRANCH_ID,
+            locationId: OTHER_BRANCH_LOCATION_ID,
+          },
+        ],
+      ).expect(200);
+
+      const find = client.serializedUnit.findMany.mock.calls[0]?.[0] as {
+        readonly where: Record<string, unknown>;
+      };
+      expect(find.where).toMatchObject({
+        organizationId: ORGANIZATION_ID,
+        branchId: BRANCH_ID,
+        stockLocationId: { in: [LOCATION_ID] },
+      });
+    });
+
+    it("reports an explicitly requested other-branch location as missing", async () => {
+      client.stockLocation.findFirst.mockResolvedValue(null);
+
+      const response = await authorized({
+        method: "get",
+        path: `/api/v1/inventory?stockLocationId=${OTHER_BRANCH_LOCATION_ID}`,
+      }).expect(404);
+
+      expect(response.body).toMatchObject({ code: ERROR_CODES.NOT_FOUND });
+      expect(response.text).not.toContain(OTHER_BRANCH_LOCATION_ID);
+      expect(client.stockLocation.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: OTHER_BRANCH_LOCATION_ID,
+          organizationId: ORGANIZATION_ID,
+          branchId: BRANCH_ID,
+        },
+        select: { id: true },
+      });
+      expect(client.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it("does not probe a requested location outside the authenticated scope", async () => {
+      const response = await authorized(
+        {
+          method: "get",
+          path: `/api/v1/inventory/movements?stockLocationId=${OTHER_LOCATION_ID}`,
+        },
+        [PERMISSIONS.INVENTORY_VIEW],
+        [{ branchId: BRANCH_ID, locationId: LOCATION_ID }],
+      ).expect(404);
+
+      expect(response.body).toMatchObject({ code: ERROR_CODES.NOT_FOUND });
+      expect(response.text).not.toContain(OTHER_LOCATION_ID);
+      expect(client.stockLocation.findFirst).not.toHaveBeenCalled();
+      expect(client.inventoryMovement.findMany).not.toHaveBeenCalled();
+    });
+
+    it("reports a serialized unit outside the readable locations as missing", async () => {
+      client.serializedUnit.findFirst.mockResolvedValue(null);
+
+      const response = await authorized(
+        {
+          method: "get",
+          path: `/api/v1/serialized-units/${UNIT_ID}`,
+        },
+        [PERMISSIONS.INVENTORY_VIEW],
+        [{ branchId: BRANCH_ID, locationId: OTHER_LOCATION_ID }],
+      ).expect(404);
+
+      expect(response.body).toMatchObject({ code: ERROR_CODES.NOT_FOUND });
+      expect(response.text).not.toContain(UNIT_ID);
+      expect(client.serializedUnit.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: UNIT_ID,
+            organizationId: ORGANIZATION_ID,
+            branchId: BRANCH_ID,
+            stockLocationId: { in: [OTHER_LOCATION_ID] },
+          },
+        }),
+      );
+    });
+  });
+
   // --- 4. Tenant isolation ------------------------------------------------
 
   describe("cross-tenant isolation", () => {
@@ -850,7 +962,11 @@ describe("Inventory endpoints (HTTP)", () => {
       expect(JSON.stringify(response.body)).not.toContain(FOREIGN_ID);
       expect(client.serializedUnit.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: FOREIGN_ID, organizationId: ORGANIZATION_ID },
+          where: {
+            id: FOREIGN_ID,
+            organizationId: ORGANIZATION_ID,
+            branchId: BRANCH_ID,
+          },
         }),
       );
       expectNoDatabaseWrite();

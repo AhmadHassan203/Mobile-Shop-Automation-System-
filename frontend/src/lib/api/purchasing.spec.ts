@@ -23,6 +23,7 @@ const RECEIPT_ID = "77777777-7777-4777-8777-777777777777";
 const RECEIPT_LINE_ID = "88888888-8888-4888-8888-888888888888";
 const COST_ID = "99999999-9999-4999-8999-999999999999";
 const PAYABLE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const IDEMPOTENCY_KEY = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TIMESTAMP = "2026-07-16T01:00:00.000Z";
 
 const contact = {
@@ -442,6 +443,7 @@ describe("purchasing mutation API contracts", () => {
           },
         ],
       },
+      IDEMPOTENCY_KEY,
       client,
     );
 
@@ -452,6 +454,9 @@ describe("purchasing mutation API contracts", () => {
     expect(body).not.toHaveProperty("landedCostTotalMinor");
     expect(body).not.toHaveProperty("payableTotalMinor");
     expect(body).not.toHaveProperty("organizationId");
+    expect(new Headers(init.headers).get("idempotency-key")).toBe(
+      IDEMPOTENCY_KEY,
+    );
   });
 
   it("rejects smuggled receipt totals before any request is sent", () => {
@@ -472,6 +477,31 @@ describe("purchasing mutation API contracts", () => {
           ],
           actualCostTotalMinor: 1,
         } as never,
+        IDEMPOTENCY_KEY,
+        client,
+      ),
+    ).toThrow();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid receipt retry key before any request is sent", () => {
+    const { client, fetcher } = clientFor(receipt);
+
+    expect(() =>
+      createGoodsReceipt(
+        {
+          purchaseOrderId: ORDER_ID,
+          lines: [
+            {
+              purchaseOrderLineId: ORDER_LINE_ID,
+              trackingType: "quantity",
+              stockLocationId: LOCATION_ID,
+              unitCostMinor: 1_000,
+              quantity: 1,
+            },
+          ],
+        },
+        "not-a-uuid",
         client,
       ),
     ).toThrow();

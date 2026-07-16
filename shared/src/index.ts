@@ -21,3 +21,4 @@ export * from "./auth";
 export * from "./catalog";
 export * from "./inventory";
 export * from "./purchasing";
+export * from "./dashboard";

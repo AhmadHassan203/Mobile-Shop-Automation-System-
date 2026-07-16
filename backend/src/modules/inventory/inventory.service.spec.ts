@@ -19,6 +19,7 @@ import {
 const IDS = Object.freeze({
   organization: "10000000-0000-4000-8000-000000000001",
   branch: "10000000-0000-4000-8000-000000000002",
+  otherBranch: "10000000-0000-4000-8000-00000000000b",
   user: "10000000-0000-4000-8000-000000000003",
   variant: "10000000-0000-4000-8000-000000000004",
   serializedVariant: "10000000-0000-4000-8000-000000000005",
@@ -321,7 +322,7 @@ describe("InventoryService derived balances", () => {
     const service = serviceFor(client);
 
     const result = await service.listStockBalances(
-      IDS.organization,
+      CONTEXT,
       StockBalanceListQuerySchema.parse({ page: 1, pageSize: 25 }),
     );
 
@@ -357,12 +358,12 @@ describe("InventoryService derived balances", () => {
     expectNoForbiddenFields(result.items[0]);
   });
 
-  it("scopes every balance read to the authenticated tenant", async () => {
+  it("scopes every balance read to the authenticated organization and branch", async () => {
     const client = balanceClient([], 0);
     const service = serviceFor(client);
 
     await service.listStockBalances(
-      IDS.organization,
+      CONTEXT,
       StockBalanceListQuerySchema.parse({ page: 1, pageSize: 25 }),
     );
 
@@ -370,7 +371,94 @@ describe("InventoryService derived balances", () => {
       readonly values: readonly unknown[];
     };
     expect(values.values).toContain(IDS.organization);
+    expect(values.values).toContain(IDS.branch);
     expect(values.values).not.toContain(IDS.otherOrganization);
+    expect(values.values).not.toContain(IDS.otherBranch);
+    // Null is the explicit branch-wide scope, so there is no location id bound.
+    expect(values.values).not.toContain(IDS.location);
+  });
+
+  it("binds every raw balance source to restricted allowed locations", async () => {
+    const client = balanceClient([], 0);
+    const service = serviceFor(client);
+
+    await service.listStockBalances(
+      { ...CONTEXT, allowedLocationIds: [IDS.location] },
+      StockBalanceListQuerySchema.parse({ page: 1, pageSize: 25 }),
+    );
+
+    const sql = sqlTextOf(client.$queryRaw, 1);
+    const values = client.$queryRaw.mock.calls[1]?.[0] as {
+      readonly values: readonly unknown[];
+    };
+    expect(sql).toContain("b.branch_id");
+    expect(sql).toContain("u.branch_id");
+    expect(sql).toContain("l.branch_id");
+    expect(sql).toContain("stock_location_id");
+    expect(sql).toContain(" IN (");
+    expect(values.values).toContain(IDS.location);
+  });
+
+  it("turns an empty location scope into an impossible raw balance predicate", async () => {
+    const client = balanceClient([], 0);
+    const service = serviceFor(client);
+
+    const result = await service.listStockBalances(
+      { ...CONTEXT, allowedLocationIds: [] },
+      StockBalanceListQuerySchema.parse({ page: 1, pageSize: 25 }),
+    );
+
+    expect(sqlTextOf(client.$queryRaw, 1)).toContain("FALSE");
+    expect(result).toMatchObject({ items: [], total: 0 });
+  });
+
+  it("denies a requested location outside the authenticated location scope", async () => {
+    const client = {
+      ...balanceClient([], 0),
+      stockLocation: { findFirst: vi.fn() },
+    };
+    const service = serviceFor(client);
+
+    await expect(
+      service.listStockBalances(
+        { ...CONTEXT, allowedLocationIds: [IDS.location] },
+        StockBalanceListQuerySchema.parse({
+          page: 1,
+          pageSize: 25,
+          stockLocationId: IDS.otherLocation,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: ERROR_CODES.NOT_FOUND, status: 404 });
+    expect(client.stockLocation.findFirst).not.toHaveBeenCalled();
+    expect(client.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("denies a requested location that resolves outside the active branch", async () => {
+    const client = {
+      ...balanceClient([], 0),
+      stockLocation: { findFirst: vi.fn().mockResolvedValue(null) },
+    };
+    const service = serviceFor(client);
+
+    await expect(
+      service.listStockBalances(
+        CONTEXT,
+        StockBalanceListQuerySchema.parse({
+          page: 1,
+          pageSize: 25,
+          stockLocationId: IDS.otherLocation,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: ERROR_CODES.NOT_FOUND, status: 404 });
+    expect(client.stockLocation.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: IDS.otherLocation,
+        organizationId: IDS.organization,
+        branchId: IDS.branch,
+      },
+      select: { id: true },
+    });
+    expect(client.$queryRaw).not.toHaveBeenCalled();
   });
 
   it("counts reserved serialized units as a subset of on hand", async () => {
@@ -380,7 +468,7 @@ describe("InventoryService derived balances", () => {
     const service = serviceFor(client);
 
     await service.listStockBalances(
-      IDS.organization,
+      CONTEXT,
       StockBalanceListQuerySchema.parse({ page: 1, pageSize: 25 }),
     );
 
@@ -397,7 +485,7 @@ describe("InventoryService derived balances", () => {
 
     await expect(
       service.listStockBalances(
-        IDS.organization,
+        CONTEXT,
         StockBalanceListQuerySchema.parse({ page: 1, pageSize: 25 }),
       ),
     ).rejects.toMatchObject({
@@ -1177,12 +1265,142 @@ describe("InventoryService serialized transfers", () => {
   });
 });
 
+describe("InventoryService movement reads", () => {
+  function movementClient() {
+    const findMany = vi.fn().mockResolvedValue([]);
+    return {
+      inventoryMovement: { count: vi.fn().mockResolvedValue(0), findMany },
+      $transaction: vi.fn(async (operations: readonly Promise<unknown>[]) =>
+        Promise.all(operations),
+      ),
+    };
+  }
+
+  it("allows branch-wide movement reads but never widens beyond the active branch", async () => {
+    const client = movementClient();
+    const service = serviceFor(client);
+
+    await service.listMovements(CONTEXT, { page: 1, pageSize: 25 });
+
+    const where = (
+      client.inventoryMovement.findMany.mock.calls[0]?.[0] as {
+        readonly where: Record<string, unknown>;
+      }
+    ).where;
+    expect(where).toMatchObject({
+      organizationId: IDS.organization,
+      branchId: IDS.branch,
+    });
+    expect(where).not.toHaveProperty("stockLocationId");
+  });
+
+  it.each([
+    ["restricted", [IDS.location]],
+    ["empty", []],
+  ] as const)(
+    "applies the %s allowed-location scope to movement rows",
+    async (_label, allowedLocationIds) => {
+      const client = movementClient();
+      const service = serviceFor(client);
+
+      await service.listMovements(
+        { ...CONTEXT, allowedLocationIds },
+        { page: 1, pageSize: 25 },
+      );
+
+      const where = (
+        client.inventoryMovement.findMany.mock.calls[0]?.[0] as {
+          readonly where: Record<string, unknown>;
+        }
+      ).where;
+      expect(where).toMatchObject({
+        organizationId: IDS.organization,
+        branchId: IDS.branch,
+        stockLocationId: { in: [...allowedLocationIds] },
+      });
+    },
+  );
+
+  it("keeps a requested location narrower than the authenticated location scope", async () => {
+    const ledger = movementClient();
+    const findFirst = vi.fn().mockResolvedValue({ id: IDS.location });
+    const client = {
+      ...ledger,
+      stockLocation: { findFirst },
+    };
+    const service = serviceFor(client);
+
+    await service.listMovements(
+      { ...CONTEXT, allowedLocationIds: [IDS.location, IDS.otherLocation] },
+      {
+        page: 1,
+        pageSize: 25,
+        stockLocationId: IDS.location,
+      },
+    );
+
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        id: {
+          equals: IDS.location,
+          in: [IDS.location, IDS.otherLocation],
+        },
+        organizationId: IDS.organization,
+        branchId: IDS.branch,
+      },
+      select: { id: true },
+    });
+    const where = (
+      ledger.inventoryMovement.findMany.mock.calls[0]?.[0] as {
+        readonly where: Record<string, unknown>;
+      }
+    ).where;
+    expect(where).toMatchObject({
+      stockLocationId: {
+        equals: IDS.location,
+        in: [IDS.location, IDS.otherLocation],
+      },
+    });
+  });
+
+  it("does not reveal a serialized-unit filter outside the readable branch and locations", async () => {
+    const ledger = movementClient();
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const client = {
+      ...ledger,
+      serializedUnit: { findFirst },
+    };
+    const service = serviceFor(client);
+
+    await expect(
+      service.listMovements(
+        { ...CONTEXT, allowedLocationIds: [IDS.location] },
+        {
+          page: 1,
+          pageSize: 25,
+          serializedUnitId: IDS.missing,
+        },
+      ),
+    ).rejects.toMatchObject({ code: ERROR_CODES.NOT_FOUND, status: 404 });
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        id: IDS.missing,
+        organizationId: IDS.organization,
+        branchId: IDS.branch,
+        stockLocationId: { in: [IDS.location] },
+      },
+      select: { id: true },
+    });
+    expect(ledger.inventoryMovement.findMany).not.toHaveBeenCalled();
+  });
+});
+
 describe("InventoryService serialized reads", () => {
   it("returns a handset with its identifiers and no cost", async () => {
     const findFirst = vi.fn().mockResolvedValue(UNIT_RECORD);
     const service = serviceFor({ serializedUnit: { findFirst } });
 
-    const result = await service.getSerializedUnit(IDS.organization, IDS.unit);
+    const result = await service.getSerializedUnit(CONTEXT, IDS.unit);
 
     expect(result).toMatchObject({
       id: IDS.unit,
@@ -1193,17 +1411,22 @@ describe("InventoryService serialized reads", () => {
       stockLocation: { id: IDS.location, code: "MAIN" },
     });
     expectNoForbiddenFields(result);
-    const select = (
+    const args = (
       findFirst.mock.calls[0]?.[0] as {
         readonly select: Readonly<Record<string, unknown>>;
         readonly where: Readonly<Record<string, unknown>>;
       }
-    ).select;
+    );
+    expect(args.where).toEqual({
+      id: IDS.unit,
+      organizationId: IDS.organization,
+      branchId: IDS.branch,
+    });
     // Cost is absent by construction: the columns are never selected, so they
     // cannot reach a response or an audit snapshot built from one.
-    expect(select).not.toHaveProperty("actualCostMinor");
-    expect(select).not.toHaveProperty("landedCostMinor");
-    expect(select).not.toHaveProperty("organizationId");
+    expect(args.select).not.toHaveProperty("actualCostMinor");
+    expect(args.select).not.toHaveProperty("landedCostMinor");
+    expect(args.select).not.toHaveProperty("organizationId");
   });
 
   it("reports another tenant's handset as missing", async () => {
@@ -1211,14 +1434,46 @@ describe("InventoryService serialized reads", () => {
     const service = serviceFor({ serializedUnit: { findFirst } });
 
     await expect(
-      service.getSerializedUnit(IDS.organization, IDS.missing),
+      service.getSerializedUnit(CONTEXT, IDS.missing),
     ).rejects.toMatchObject({ code: ERROR_CODES.NOT_FOUND, status: 404 });
     expect(findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: IDS.missing, organizationId: IDS.organization },
+        where: {
+          id: IDS.missing,
+          organizationId: IDS.organization,
+          branchId: IDS.branch,
+        },
       }),
     );
   });
+
+  it.each([
+    ["restricted", [IDS.location]],
+    ["empty", []],
+  ] as const)(
+    "applies the %s allowed-location scope to serialized-unit detail",
+    async (_label, allowedLocationIds) => {
+      const findFirst = vi.fn().mockResolvedValue(null);
+      const service = serviceFor({ serializedUnit: { findFirst } });
+
+      await expect(
+        service.getSerializedUnit(
+          { ...CONTEXT, allowedLocationIds },
+          IDS.missing,
+        ),
+      ).rejects.toMatchObject({ code: ERROR_CODES.NOT_FOUND, status: 404 });
+      expect(findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: IDS.missing,
+            organizationId: IDS.organization,
+            branchId: IDS.branch,
+            stockLocationId: { in: [...allowedLocationIds] },
+          },
+        }),
+      );
+    },
+  );
 
   it("normalizes an IMEI search the same way the stored value was normalized", async () => {
     const findMany = vi.fn().mockResolvedValue([]);
@@ -1230,7 +1485,7 @@ describe("InventoryService serialized reads", () => {
     };
     const service = serviceFor(client);
 
-    await service.listSerializedUnits(IDS.organization, {
+    await service.listSerializedUnits(CONTEXT, {
       page: 1,
       pageSize: 25,
       q: "356938-035643809",
@@ -1241,7 +1496,10 @@ describe("InventoryService serialized reads", () => {
         readonly where: { readonly OR: readonly Record<string, unknown>[] };
       }
     ).where;
-    expect(where).toMatchObject({ organizationId: IDS.organization });
+    expect(where).toMatchObject({
+      organizationId: IDS.organization,
+      branchId: IDS.branch,
+    });
     // Staff paste values with hyphens; the stored value has none.
     expect(where.OR[0]).toEqual({
       identifiers: {
@@ -1250,13 +1508,45 @@ describe("InventoryService serialized reads", () => {
     });
   });
 
+  it.each([
+    ["restricted", [IDS.location]],
+    ["empty", []],
+  ] as const)(
+    "applies the %s allowed-location scope to serialized-unit lists",
+    async (_label, allowedLocationIds) => {
+      const findMany = vi.fn().mockResolvedValue([]);
+      const client = {
+        serializedUnit: { count: vi.fn().mockResolvedValue(0), findMany },
+        $transaction: vi.fn(async (operations: readonly Promise<unknown>[]) =>
+          Promise.all(operations),
+        ),
+      };
+      const service = serviceFor(client);
+
+      await service.listSerializedUnits(
+        { ...CONTEXT, allowedLocationIds },
+        { page: 1, pageSize: 25 },
+      );
+
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            organizationId: IDS.organization,
+            branchId: IDS.branch,
+            stockLocationId: { in: [...allowedLocationIds] },
+          }),
+        }),
+      );
+    },
+  );
+
   it("refuses to list another tenant's handset movements", async () => {
     const findFirst = vi.fn().mockResolvedValue(null);
     const service = serviceFor({ serializedUnit: { findFirst } });
 
     // An empty page would itself confirm the id exists somewhere.
     await expect(
-      service.listSerializedUnitMovements(IDS.organization, IDS.missing, {
+      service.listSerializedUnitMovements(CONTEXT, IDS.missing, {
         page: 1,
         pageSize: 25,
       }),
@@ -1276,7 +1566,7 @@ describe("InventoryService serialized reads", () => {
     };
     const service = serviceFor(client);
 
-    await service.listSerializedUnitMovements(IDS.organization, IDS.unit, {
+    await service.listSerializedUnitMovements(CONTEXT, IDS.unit, {
       page: 1,
       pageSize: 25,
       // A query string must not be able to widen the result past the path.
@@ -1289,10 +1579,50 @@ describe("InventoryService serialized reads", () => {
     };
     expect(args.where).toMatchObject({
       organizationId: IDS.organization,
+      branchId: IDS.branch,
       serializedUnitId: IDS.unit,
     });
     // The movement contract has no actor field, so the column is never read.
     expect(args.select).not.toHaveProperty("actorUserId");
+  });
+
+  it("filters a handset's history to its readable locations", async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const findFirst = vi.fn().mockResolvedValue({ id: IDS.unit });
+    const client = {
+      serializedUnit: { findFirst },
+      inventoryMovement: { count: vi.fn().mockResolvedValue(0), findMany },
+      $transaction: vi.fn(async (operations: readonly Promise<unknown>[]) =>
+        Promise.all(operations),
+      ),
+    };
+    const service = serviceFor(client);
+
+    await service.listSerializedUnitMovements(
+      { ...CONTEXT, allowedLocationIds: [IDS.location] },
+      IDS.unit,
+      { page: 1, pageSize: 25 },
+    );
+
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        id: IDS.unit,
+        organizationId: IDS.organization,
+        branchId: IDS.branch,
+        stockLocationId: { in: [IDS.location] },
+      },
+      select: { id: true },
+    });
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: IDS.organization,
+          branchId: IDS.branch,
+          stockLocationId: { in: [IDS.location] },
+          serializedUnitId: IDS.unit,
+        }),
+      }),
+    );
   });
 });
 

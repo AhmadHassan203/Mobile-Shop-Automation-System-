@@ -1,33 +1,126 @@
 # Build Status
 
-**Last updated:** 2026-07-16 04:05 PKT
+**Last updated:** 2026-07-16 08:03 PKT
 
 **Evidence rule:** Only checks actually executed are described as passing.
 
 ## Current outcome
 
-The Product Catalog is a complete production workflow. Slice 2 is functionally
-done: categories, brands, product models and product variants can each be
-listed, searched, filtered, paginated, created, edited, deactivated and
-reactivated through real tenant-scoped PostgreSQL-backed APIs and a real
-browser workspace.
+Product Catalog, Stock Inventory, Purchasing, Suppliers and Goods Receipts are
+real browser workflows. Catalog supports complete category, brand, model and
+variant management. Stock exposes derived balances, serialized units, the
+append-only movement ledger and stock locations, plus permission-aware
+adjustment, reservation, release, transfer and serialized lifecycle actions.
+Purchasing supports supplier management, purchase-order lifecycles, partial
+receiving, bulk serialized identifiers, landed costs and receipt/payable
+reconciliation. All use tenant-scoped PostgreSQL-backed APIs.
 
 - frontend: `http://localhost:3000/login`
 - catalog workspace: `http://localhost:3000/inventory`
+- stock workspace: `http://localhost:3000/stock`
+- purchasing workspace: `http://localhost:3000/purchases`
 - backend readiness: `http://localhost:4000/api/v1/health/ready`
 
 Nothing is hard-deleted. No fake stock, IMEI, cost, price, sales, demand or KPI
-value is displayed anywhere. Inventory and pricing are explicitly labelled
-unavailable until their real modules exist.
+value is displayed anywhere. Inventory remains honest: stock appears only when
+a real goods receipt or controlled inventory action creates it. Pricing remains
+unavailable.
+
+The sidebar now lists the complete prototype module roadmap. API-backed working
+workflows are labelled **Ready**. Prototype-aligned frontend modules whose APIs
+are still missing are clickable and labelled **Building**. Later modules remain
+visible but disabled as **Planned**, so the UI never pretends an unsafe write is
+available.
+
+## Prototype-aligned frontend expansion
+
+The production frontend now has visible routes for the prototype's next major
+modules:
+
+- `/` — owner dashboard with the prototype's six analytics tiles, ranked
+  attention queue, recent-sales table, demand/buying analytics, digital-service
+  analytics and today's tasks. Existing Catalog/Inventory/Purchasing attention
+  uses live API data; missing Sales/Demand/Finance/Digital metrics display an
+  explicit pending value instead of copied prototype numbers.
+- `/sell` — the complete POS surface: Find → Select → Cart → Customer → Payment
+  → Review → Complete, with real Catalog/Inventory discovery and safe blocking
+  where Pricing, Customer, Payment and Sales-posting APIs are absent.
+- `/customers` and `/demand` — prototype KPI, filters, tables, profile/detail,
+  add/capture drawers, relationship history and follow-up/sales action layouts.
+- `/returns`, `/repairs` and `/used-intake` — prototype quality gates, KPI rows,
+  return tables, repair Kanban, quarantine/clearance areas, intake/processing
+  drawers and controlled workflow previews.
+- `/finance` and `/closing` — prototype finance KPIs, P&L, digital earnings,
+  cash/bank, receivables/payables, expense table/drawer, reconciliation ladder,
+  counted cash, variance, sign-off, tender split, activity, drilldowns and final
+  confirmation preview.
+- `/digital/new`, `/digital/history`, `/digital/balances`,
+  `/digital/commission` and `/digital/reconciliation` — the prototype's full
+  external-service transaction, history, float, earnings and reconciliation
+  surfaces, including service-specific fields, filters/tables, balance warnings,
+  permission-aware controls and review-impact previews.
+- `/intelligence` — the prototype budget meter, engine disclosure and complete
+  13-column recommendation surface with expandable reasons, risks, supplier and
+  decision controls.
+- `/reports` — the range/trend structure, digital KPI row and all 18 prototype
+  report definitions across eight groups, including preview and export layouts.
+- `/tasks` — the prototype task KPIs, owner summary, filters, priority groups,
+  jump links and add/detail drawer workflows.
+- `/settings` — all five prototype configuration tabs: Shop/Branches,
+  Users/Roles/Permissions, Price Bands, Reorder formula/weights and
+  Policies/Backup/Audit, plus role and formula-impact overlays.
+- `/status` — the authenticated runtime and API readiness screen previously at
+  `/`.
+
+Every missing backend boundary is stated in the UI. No prototype record, sale,
+customer, money amount, KPI or identifier was copied into production, and final
+state-changing actions without real APIs remain disabled.
+
+Current integrated frontend evidence: **26 test files / 247 tests passed**,
+typecheck passed, lint passed with zero warnings, production build generated all
+23 listed application routes, and live HTTP checks returned 200 for every route.
+Backend readiness also returned 200 after the frontend build.
+
+## Slice 4 — Purchasing frontend and receiving safety complete
+
+`/purchases` provides permission-aware, URL-backed Purchase Orders, Suppliers
+and Goods Receipts tabs. Users can create and maintain suppliers, draft/edit
+orders, move orders through allowed lifecycle transitions, inspect receipt
+history and post physical deliveries into stock.
+
+Receiving sends a UUID idempotency key required by the backend. If the network
+response is interrupted, the drawer preserves and locks the exact submitted
+payload and safely retries it with the same key. The backend either replays the
+original receipt or rejects a changed payload, preventing duplicate stock,
+movements and payables.
+
+Executed frontend evidence: **16 files / 203 tests passed**, typecheck passed,
+lint passed with zero warnings, production build passed, and live `/login` and
+`/purchases` requests returned HTTP 200. Backend readiness also returned 200.
+The PostgreSQL development schema has **10 applied migrations** and is up to
+date; no database was reset.
 
 ## Clean handoff checkpoints
 
 ```text
+5612852 Make goods receipt retries idempotent
+cf4bac0 Scope receiving locations to authenticated branch
+498b2df Add durable goods receipt request identity
+57016ff Preserve received identifier slots end to end
+4490dfc Harden received identifier evidence
+551f77c Harden Purchasing receipt authorization and costs
+fecbb2a Slice 4: ship Purchasing backend and atomic receiving
+b531e3c Slice 4: add strict Purchasing frontend data layer
+5fcf6f6 Slice 4: establish Purchasing contracts and database truth
+0f6b548 Slice 3: ship stock workspace and Inventory HTTP boundary
+7222fe7 docs: record Slice 3 inventory state and what it still needs
+d8cb357 Slice 3: inventory module — stock APIs over the movement ledger
+44e7918 Slice 3: prove the inventory constraints against real PostgreSQL
+eb5ca2c Slice 3: inventory foundation — contracts and migration 0007
+0d5346c Slice 2: complete the product catalog management workflow
 e390642 Slice 2: ship authenticated product catalog core
 4366145 Slice 0/1: ship authenticated workspace foundation
 ```
-
-This checkpoint completes the Catalog on top of `e390642`.
 
 ## What this checkpoint added
 
@@ -128,7 +221,7 @@ Brands, Models), each with server-driven search, filters and pagination,
 permission-aware actions, product detail, create/edit drawers, and inline
 creation of a missing brand/category/model without leaving the product flow.
 
-## Slice 3 — Inventory foundation (APIs only, no UI yet)
+## Slice 3 — Inventory (API, HTTP boundary and browser workspace complete)
 
 Migration `20260717000000_0007_inventory_foundation` adds `serialized_units`
 (12-state machine), `device_identifiers` (IMEI/serial in ONE uniqueness
@@ -138,17 +231,24 @@ pre-existing `stock_locations` from `0001` rather than duplicating it. Balances
 are **derived** from the ledger and unit/batch rows — there is deliberately no
 stored rollup to drift out of truth.
 
-15 routes are live on `:4000`. Stock is never written directly: every quantity
+17 routes are live on `:4000`. Stock is never written directly: every quantity
 change is a movement. Serialized state changes go through `isTransitionAllowed()`
 and take a real `SELECT ... FOR UPDATE` row lock, so two users cannot take the
 same IMEI.
 
-Evidence: shared **443** tests, backend unit **145**, database real-PostgreSQL
-**58**, lint/typecheck/build green, and live HTTP showing balances, movements and
-units all returning an honest empty set with no cost/price/organization leak.
+`/stock` adds URL-backed Balances, Serialized units, Movements and Locations
+tabs. Actions are shown only for the matching server permission. All responses
+are parsed through strict shared contracts; no cost, price, tenant field or
+fallback stock record is accepted.
 
-**Not done:** no inventory UI, no `backend/test/inventory.e2e-spec.ts`, and
-nothing creates units/batches yet — receiving is Slice 4. See `HANDOFF.md` §4.
+Evidence: shared **474** tests, backend unit **145**, backend HTTP integration
+**223**, frontend **170**, database real-PostgreSQL **58**, lint/typecheck and
+production build green. A live Playwright flow logged in, loaded every Stock tab
+from the real API, and logged out. Balances, movements and units remain honestly
+empty; the configured `SHOP` location is real.
+
+**Not done:** location configuration is read-only in this first Stock UI.
+Purchasing receiving now creates real units/batches and inventory movements.
 
 ## Decisions recorded (not invented rules)
 
@@ -176,6 +276,9 @@ nothing creates units/batches yet — receiving is Slice 4. See `HANDOFF.md` §4
 | `20260716014200_0005_catalog_core`                     | Applied     | Rehearsed from clean DB | Not configured |
 | `20260716120000_0006_catalog_management`               | Applied     | Applied first           | Not configured |
 | `20260717000000_0007_inventory_foundation`             | Applied     | Applied first           | Not configured |
+| `20260717120000_0008_purchasing_foundation`            | Applied     | Applied first           | Not configured |
+| `20260717180000_0009_received_identifier_evidence`     | Applied     | Applied first           | Not configured |
+| `20260717190000_0010_goods_receipt_idempotency`        | Applied     | Applied first           | Not configured |
 
 No development or production database was reset. Owner data is intact: the
 owner-created product (`PH-BRAND-VARIANT`, variant `256gb`) and the three seeded
@@ -183,21 +286,18 @@ references survived `0006` and were backfilled to `version = 1`.
 
 ## Remaining risks and scope
 
-| ID       | Remaining item                                               | Impact                                              |
-| -------- | ------------------------------------------------------------ | --------------------------------------------------- |
-| AUTH-001 | Password change, user/role admin, ScopeGuard absent          | Slice 1 remains incomplete                          |
-| AUTH-002 | Trusted reverse-proxy/client-IP policy not configured        | Production proxy/rate-limit confidence pending      |
-| CAT-002  | Pricing is intentionally absent                              | Must be built before POS                            |
-| CAT-003  | `GET /api/v1/products/search` counter-speed lookup not built | POS needs it                                        |
-| INV-002  | Inventory has APIs but no UI and no HTTP integration spec    | Finish before Purchasing                            |
-| INV-003  | Nothing creates units/batches yet — receiving is Slice 4     | Inventory is correctly empty; never seed fake stock |
-| CON-008  | Docker unavailable locally                                   | Container/volume/proxy evidence must run elsewhere  |
-| ENV-002  | Local Node 25 is outside Prisma-supported release lines      | Repeat release gates on supported Node 24 LTS       |
+| ID       | Remaining item                                               | Impact                                             |
+| -------- | ------------------------------------------------------------ | -------------------------------------------------- |
+| AUTH-001 | Password change, user/role admin, ScopeGuard absent          | Slice 1 remains incomplete                         |
+| AUTH-002 | Trusted reverse-proxy/client-IP policy not configured        | Production proxy/rate-limit confidence pending     |
+| CAT-002  | Pricing is intentionally absent                              | Must be built before POS                           |
+| CAT-003  | `GET /api/v1/products/search` counter-speed lookup not built | POS needs it                                       |
+| INV-004  | Stock location editor UI is not exposed yet                  | API exists; current Locations tab is read-only     |
+| CON-008  | Docker unavailable locally                                   | Container/volume/proxy evidence must run elsewhere |
+| ENV-002  | Local Node 25 is outside Prisma-supported release lines      | Repeat release gates on supported Node 24 LTS      |
 
 ## Next smallest executable work
 
-1. Slice 3 Inventory foundation, contracts and migration `0007` first:
-   serialized units and device identifiers, quantity batches, stock locations,
-   immutable movements, derived balances.
-2. Finish Slice 1: password change, user/role administration, ScopeGuard.
-3. Pricing, then POS.
+1. Pricing and counter-speed product search, then POS.
+2. Customer management and customer demand.
+3. Finish Slice 1: password change, user/role administration and ScopeGuard.

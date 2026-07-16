@@ -514,11 +514,12 @@ export class InventoryService {
    * SQL because one page has to be ordered and counted across both sources.
    */
   async listStockBalances(
-    organizationId: string,
+    context: InventoryActorContext,
     query: StockBalanceListQuery,
   ): Promise<StockBalancePage> {
-    const pairs = this.stockBalancePairs(organizationId);
-    const source = this.stockBalanceSource(organizationId, query);
+    await this.assertReadableLocation(context, query.stockLocationId);
+    const pairs = this.stockBalancePairs(context);
+    const source = this.stockBalanceSource(context, query);
     const offset = (query.page - 1) * query.pageSize;
 
     const [totals, rows] = await this.prisma.client.$transaction([
@@ -570,7 +571,15 @@ export class InventoryService {
    * contributes a count of its units, where `reserved` is a subset of `on hand`
    * — which is what keeps `reserved <= onHand` true for both sources.
    */
-  private stockBalancePairs(organizationId: string): Prisma.Sql {
+  private stockBalancePairs(context: InventoryActorContext): Prisma.Sql {
+    const batchLocationScope = this.locationScope(
+      Prisma.sql`b.stock_location_id`,
+      context.allowedLocationIds,
+    );
+    const unitLocationScope = this.locationScope(
+      Prisma.sql`u.stock_location_id`,
+      context.allowedLocationIds,
+    );
     return Prisma.sql`
       WITH pairs AS (
         SELECT b.product_variant_id AS variant_id,
@@ -578,7 +587,9 @@ export class InventoryService {
                b.quantity_on_hand AS on_hand,
                b.quantity_reserved AS reserved
           FROM stock_batches b
-         WHERE b.organization_id = ${organizationId}::uuid
+         WHERE b.organization_id = ${context.organizationId}::uuid
+           AND b.branch_id = ${context.branchId}::uuid
+           AND ${batchLocationScope}
         UNION ALL
         SELECT u.product_variant_id,
                u.stock_location_id,
@@ -587,13 +598,15 @@ export class InventoryService {
                )::int,
                COUNT(*) FILTER (WHERE u.state::text = ${RESERVED_STATE})::int
           FROM serialized_units u
-         WHERE u.organization_id = ${organizationId}::uuid
+         WHERE u.organization_id = ${context.organizationId}::uuid
+           AND u.branch_id = ${context.branchId}::uuid
+           AND ${unitLocationScope}
          GROUP BY u.product_variant_id, u.stock_location_id
       )`;
   }
 
   private stockBalanceSource(
-    organizationId: string,
+    context: InventoryActorContext,
     query: StockBalanceListQuery,
   ): Prisma.Sql {
     const filters: Prisma.Sql[] = [];
@@ -621,50 +634,138 @@ export class InventoryService {
     return Prisma.sql`
       FROM pairs p
       JOIN product_variants v
-        ON v.id = p.variant_id AND v.organization_id = ${organizationId}::uuid
+        ON v.id = p.variant_id
+       AND v.organization_id = ${context.organizationId}::uuid
       JOIN stock_locations l
-        ON l.id = p.location_id AND l.organization_id = ${organizationId}::uuid
+        ON l.id = p.location_id
+       AND l.organization_id = ${context.organizationId}::uuid
+       AND l.branch_id = ${context.branchId}::uuid
+       AND ${this.locationScope(Prisma.sql`l.id`, context.allowedLocationIds)}
       WHERE ${filters.length === 0 ? Prisma.sql`TRUE` : Prisma.join(filters, " AND ")}`;
   }
 
-  async listMovements(
-    organizationId: string,
-    query: InventoryMovementListQuery,
-  ): Promise<InventoryMovementPage> {
-    return this.movementPage(organizationId, query, {});
+  /**
+   * A requested location is resolved at the same boundary as the rows it will
+   * filter. Returning NOT_FOUND for an absent, foreign-branch, or hidden
+   * location keeps those three cases indistinguishable to the caller.
+   */
+  private async assertReadableLocation(
+    context: InventoryActorContext,
+    stockLocationId: string | undefined,
+  ): Promise<void> {
+    if (stockLocationId === undefined) return;
+    if (
+      context.allowedLocationIds !== null &&
+      !context.allowedLocationIds.includes(stockLocationId)
+    ) {
+      throw notFoundError("stock location");
+    }
+
+    const location = await this.prisma.client.stockLocation.findFirst({
+      where: {
+        id: stockLocationId,
+        organizationId: context.organizationId,
+        branchId: context.branchId,
+        ...(context.allowedLocationIds === null
+          ? {}
+          : { id: { equals: stockLocationId, in: [...context.allowedLocationIds] } }),
+      },
+      select: { id: true },
+    });
+    if (location === null) throw notFoundError("stock location");
   }
 
-  async listSerializedUnitMovements(
-    organizationId: string,
+  /** A unit id from a query or path is readable only at an allowed location. */
+  private async assertReadableSerializedUnit(
+    context: InventoryActorContext,
     serializedUnitId: string,
-    query: InventoryMovementListQuery,
-  ): Promise<InventoryMovementPage> {
-    // The unit is resolved first so that another tenant's id reports NOT_FOUND
-    // rather than an empty page, which would confirm the id exists.
+  ): Promise<void> {
     const unit = await this.prisma.client.serializedUnit.findFirst({
-      where: { id: serializedUnitId, organizationId },
+      where: {
+        id: serializedUnitId,
+        organizationId: context.organizationId,
+        branchId: context.branchId,
+        ...(context.allowedLocationIds === null
+          ? {}
+          : { stockLocationId: { in: [...context.allowedLocationIds] } }),
+      },
       select: { id: true },
     });
     if (unit === null) throw notFoundError("serialized unit");
+  }
+
+  /**
+   * Prisma cannot express an authenticated location scope separately from an
+   * optional requested location on the same scalar. One filter carries both:
+   * `in` is the access boundary and `equals` is the caller's narrower request.
+   */
+  private readableLocationFilter(
+    context: InventoryActorContext,
+    requestedLocationId: string | undefined,
+  ): string | { in: string[]; equals?: string } | undefined {
+    if (context.allowedLocationIds === null) return requestedLocationId;
+    return {
+      in: [...context.allowedLocationIds],
+      ...(requestedLocationId === undefined
+        ? {}
+        : { equals: requestedLocationId }),
+    };
+  }
+
+  /** The raw-SQL equivalent of `readableLocationFilter`. */
+  private locationScope(
+    column: Prisma.Sql,
+    allowedLocationIds: readonly string[] | null,
+  ): Prisma.Sql {
+    if (allowedLocationIds === null) return Prisma.sql`TRUE`;
+    if (allowedLocationIds.length === 0) return Prisma.sql`FALSE`;
+    return Prisma.sql`${column} IN (${Prisma.join(
+      allowedLocationIds.map((id) => Prisma.sql`${id}::uuid`),
+    )})`;
+  }
+
+  async listMovements(
+    context: InventoryActorContext,
+    query: InventoryMovementListQuery,
+  ): Promise<InventoryMovementPage> {
+    await this.assertReadableLocation(context, query.stockLocationId);
+    if (query.serializedUnitId !== undefined) {
+      await this.assertReadableSerializedUnit(context, query.serializedUnitId);
+    }
+    return this.movementPage(context, query, {});
+  }
+
+  async listSerializedUnitMovements(
+    context: InventoryActorContext,
+    serializedUnitId: string,
+    query: InventoryMovementListQuery,
+  ): Promise<InventoryMovementPage> {
+    await this.assertReadableLocation(context, query.stockLocationId);
+    // The unit is resolved first so that another tenant's id reports NOT_FOUND
+    // rather than an empty page, which would confirm the id exists.
+    await this.assertReadableSerializedUnit(context, serializedUnitId);
 
     // The path owns the unit; a query string cannot widen the result past it.
-    return this.movementPage(organizationId, query, { serializedUnitId });
+    return this.movementPage(context, query, { serializedUnitId });
   }
 
   private async movementPage(
-    organizationId: string,
+    context: InventoryActorContext,
     query: InventoryMovementListQuery,
     pinned: { readonly serializedUnitId?: string },
   ): Promise<InventoryMovementPage> {
     const serializedUnitId = pinned.serializedUnitId ?? query.serializedUnitId;
+    const stockLocationId = this.readableLocationFilter(
+      context,
+      query.stockLocationId,
+    );
     const where: Prisma.InventoryMovementWhereInput = {
-      organizationId,
+      organizationId: context.organizationId,
+      branchId: context.branchId,
       ...(query.productVariantId === undefined
         ? {}
         : { productVariantId: query.productVariantId }),
-      ...(query.stockLocationId === undefined
-        ? {}
-        : { stockLocationId: query.stockLocationId }),
+      ...(stockLocationId === undefined ? {} : { stockLocationId }),
       ...(serializedUnitId === undefined ? {} : { serializedUnitId }),
       ...(query.movementType === undefined
         ? {}
@@ -717,17 +818,21 @@ export class InventoryService {
   // ===========================================================================
 
   async listSerializedUnits(
-    organizationId: string,
+    context: InventoryActorContext,
     query: SerializedUnitListQuery,
   ): Promise<SerializedUnitSummaryPage> {
+    await this.assertReadableLocation(context, query.stockLocationId);
+    const stockLocationId = this.readableLocationFilter(
+      context,
+      query.stockLocationId,
+    );
     const where: Prisma.SerializedUnitWhereInput = {
-      organizationId,
+      organizationId: context.organizationId,
+      branchId: context.branchId,
       ...(query.productVariantId === undefined
         ? {}
         : { productVariantId: query.productVariantId }),
-      ...(query.stockLocationId === undefined
-        ? {}
-        : { stockLocationId: query.stockLocationId }),
+      ...(stockLocationId === undefined ? {} : { stockLocationId }),
       ...(query.state === undefined ? {} : { state: query.state }),
       ...(query.condition === undefined ? {} : { condition: query.condition }),
       ...(query.ptaStatus === undefined ? {} : { ptaStatus: query.ptaStatus }),
@@ -793,11 +898,18 @@ export class InventoryService {
   }
 
   async getSerializedUnit(
-    organizationId: string,
+    context: InventoryActorContext,
     id: string,
   ): Promise<SerializedUnitDetail> {
     const unit = await this.prisma.client.serializedUnit.findFirst({
-      where: { id, organizationId },
+      where: {
+        id,
+        organizationId: context.organizationId,
+        branchId: context.branchId,
+        ...(context.allowedLocationIds === null
+          ? {}
+          : { stockLocationId: { in: [...context.allowedLocationIds] } }),
+      },
       select: serializedUnitDetailSelect,
     });
     if (unit === null) throw notFoundError("serialized unit");

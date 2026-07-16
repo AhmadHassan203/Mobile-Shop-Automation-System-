@@ -46,7 +46,7 @@ export class SerializedUnitsController {
     query: SerializedUnitListQuery,
   ): Promise<SerializedUnitSummaryPage> {
     return this.inventory.listSerializedUnits(
-      inventoryActorContext(request).organizationId,
+      inventoryActorContext(request),
       query,
     );
   }
@@ -73,10 +73,7 @@ export class SerializedUnitsController {
     @Req() request: Request,
     @Param("id", uuidParam) id: string,
   ): Promise<SerializedUnitDetail> {
-    return this.inventory.getSerializedUnit(
-      inventoryActorContext(request).organizationId,
-      id,
-    );
+    return this.inventory.getSerializedUnit(inventoryActorContext(request), id);
   }
 
   @Get(":id/movements")
@@ -89,7 +86,7 @@ export class SerializedUnitsController {
     query: InventoryMovementListQuery,
   ): Promise<InventoryMovementPage> {
     return this.inventory.listSerializedUnitMovements(
-      inventoryActorContext(request).organizationId,
+      inventoryActorContext(request),
       id,
       query,
     );

@@ -10,6 +10,7 @@ import {
   ActivityIcon,
   BoxIcon,
   CloseIcon,
+  LayersIcon,
   MenuIcon,
 } from "@/components/ui/icons";
 import { ApiStatusPill } from "@/components/system-status/api-status-pill";
@@ -27,6 +28,8 @@ export function AppShell({ children }: AppShellProps) {
   const [navigationOpen, setNavigationOpen] = useState(false);
   const canViewCatalog =
     auth.data?.permissions.includes(PERMISSIONS.CATALOG_VIEW) === true;
+  const canViewInventory =
+    auth.data?.permissions.includes(PERMISSIONS.INVENTORY_VIEW) === true;
 
   const navClass = (active: boolean): string =>
     `flex items-center gap-2.5 rounded-control px-3 py-2 text-[0.84375rem] font-semibold no-underline transition-colors ${
@@ -106,28 +109,47 @@ export function AppShell({ children }: AppShellProps) {
             </Link>
           </nav>
 
-          {canViewCatalog ? (
+          {canViewCatalog || canViewInventory ? (
             <nav className="px-2.5 py-1" aria-label="Stock">
               <p className="px-2.5 pb-1 pt-3 text-[0.65625rem] font-bold uppercase tracking-[0.09em] text-sidebar-muted">
                 Stock
               </p>
-              <Link
-                aria-current={
-                  pathname === "/inventory" ||
-                  pathname.startsWith("/inventory/")
-                    ? "page"
-                    : undefined
-                }
-                className={navClass(
-                  pathname === "/inventory" ||
-                    pathname.startsWith("/inventory/"),
-                )}
-                href="/inventory"
-                onClick={() => setNavigationOpen(false)}
-              >
-                <BoxIcon className="size-[1.125rem] shrink-0" />
-                Product catalog
-              </Link>
+              {canViewCatalog ? (
+                <Link
+                  aria-current={
+                    pathname === "/inventory" ||
+                    pathname.startsWith("/inventory/")
+                      ? "page"
+                      : undefined
+                  }
+                  className={navClass(
+                    pathname === "/inventory" ||
+                      pathname.startsWith("/inventory/"),
+                  )}
+                  href="/inventory"
+                  onClick={() => setNavigationOpen(false)}
+                >
+                  <BoxIcon className="size-[1.125rem] shrink-0" />
+                  Product catalog
+                </Link>
+              ) : null}
+              {canViewInventory ? (
+                <Link
+                  aria-current={
+                    pathname === "/stock" || pathname.startsWith("/stock/")
+                      ? "page"
+                      : undefined
+                  }
+                  className={navClass(
+                    pathname === "/stock" || pathname.startsWith("/stock/"),
+                  )}
+                  href="/stock"
+                  onClick={() => setNavigationOpen(false)}
+                >
+                  <LayersIcon className="size-[1.125rem] shrink-0" />
+                  Stock inventory
+                </Link>
+              ) : null}
             </nav>
           ) : null}
 

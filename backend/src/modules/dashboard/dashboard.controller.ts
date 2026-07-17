@@ -15,6 +15,7 @@ import type { Request } from "express";
 import { z } from "zod";
 import { RequirePermissions } from "../../common/auth/require-permissions.decorator";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
+import { authRequestMetadata } from "../auth/request-metadata";
 import {
   DashboardService,
   type DashboardActorContext,
@@ -72,10 +73,15 @@ export function dashboardActorContext(request: Request): DashboardActorContext {
 
   return {
     organizationId: current.organization.id,
+    organizationName: current.organization.name,
     branchId: current.branch.id,
+    branchName: current.branch.name,
+    actorUserId: current.user.id,
+    actorFullName: current.user.fullName,
     currency: current.organization.currency,
     permissions: new Set(current.permissions as PermissionKey[]),
     allowedLocationIds,
+    metadata: authRequestMetadata(request),
   };
 }
 

@@ -339,7 +339,11 @@ describe("WorkspaceDashboard", () => {
     expect(html).toContain("Follow up with supplier");
     expect(html).toContain("Partial");
     expect(html).toContain("Restricted");
-    expect(html).toContain("Unavailable");
+    // Distinct unavailable states are never conflated: the expenses KPI source
+    // is not built (Coming soon) and the buying plan is not set up.
+    expect(html).toContain("Coming soon");
+    expect(html).toContain("Not configured");
+    expect(html).not.toContain("Provider net commission");
   });
 
   it("hides write and recommendation actions when permissions are absent", () => {

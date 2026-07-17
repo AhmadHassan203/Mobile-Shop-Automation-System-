@@ -14,6 +14,7 @@ import {
   type DashboardRecentSales,
   type DashboardSnapshot,
   type DashboardTodaysTasks,
+  type DashboardUnavailableReason,
   type FinancialSummaryPeriod,
 } from "@mobileshop/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -45,9 +46,11 @@ const DIGITAL_METRICS = [
     tone: "earnings",
   },
   {
+    // The server fills this field with the providers' charges (our cost), so it
+    // is labelled and toned as a cost, not an earning.
     key: "providerNetCommission",
-    label: "Provider net commission",
-    tone: "earnings",
+    label: "Provider charges today",
+    tone: "neutral",
   },
   {
     key: "netEarnings",
@@ -59,7 +62,33 @@ const DIGITAL_METRICS = [
 type SectionUnavailable = {
   readonly availability: "unavailable" | "redacted";
   readonly message: string;
+  readonly reason?: DashboardUnavailableReason;
 };
+
+/**
+ * Each unavailable reason reads as a distinct, honest state — never conflated.
+ * A source that does not exist yet is "Coming soon"; one that exists but is not
+ * set up is "Not configured"; a live source that failed to load is "Temporarily
+ * unavailable". A source that exists with no data is never unavailable — it
+ * renders a real zero.
+ */
+const UNAVAILABLE_LABELS: Readonly<Record<DashboardUnavailableReason, string>> =
+  Object.freeze({
+    source_not_built: "Coming soon",
+    source_not_configured: "Not configured",
+    incomplete_source_data: "Incomplete data",
+    temporarily_unavailable: "Temporarily unavailable",
+  });
+
+function isComingSoon(reason: DashboardUnavailableReason | undefined): boolean {
+  return reason === "source_not_built";
+}
+
+function unavailableLabel(
+  reason: DashboardUnavailableReason | undefined,
+): string {
+  return reason === undefined ? "Unavailable" : UNAVAILABLE_LABELS[reason];
+}
 
 function hourInTimezone(date: Date, timezone: string): number | null {
   try {
@@ -140,12 +169,12 @@ function trendLabel(basisPoints: number): string {
 function StatusPill({
   status,
 }: {
-  readonly status: "partial" | "unavailable" | "redacted";
+  readonly status: "partial" | "unavailable" | "coming_soon" | "redacted";
 }): JSX.Element {
   const styles =
     status === "partial"
       ? "border-warning/25 bg-warning-soft text-warning"
-      : status === "redacted"
+      : status === "redacted" || status === "coming_soon"
         ? "border-info/25 bg-info-soft text-info"
         : "border-line bg-surface-subtle text-ink-muted";
   const label =
@@ -153,7 +182,9 @@ function StatusPill({
       ? "Partial"
       : status === "redacted"
         ? "Restricted"
-        : "Unavailable";
+        : status === "coming_soon"
+          ? "Coming soon"
+          : "Unavailable";
   return (
     <span
       className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide ${styles}`}
@@ -166,10 +197,13 @@ function StatusPill({
 
 function SectionNotice({ state }: { readonly state: SectionUnavailable }) {
   const redacted = state.availability === "redacted";
+  const comingSoon = !redacted && isComingSoon(state.reason);
+  const soft = redacted || comingSoon;
+  const title = redacted ? "Restricted" : unavailableLabel(state.reason);
   return (
     <div
       className={`rounded-control border px-4 py-5 text-center ${
-        redacted
+        soft
           ? "border-info/25 bg-info-soft"
           : "border-dashed border-line bg-surface-subtle"
       }`}
@@ -177,9 +211,7 @@ function SectionNotice({ state }: { readonly state: SectionUnavailable }) {
     >
       <span
         className={`mx-auto grid size-9 place-items-center rounded-full ${
-          redacted
-            ? "bg-surface text-info"
-            : "bg-surface text-ink-muted"
+          soft ? "bg-surface text-info" : "bg-surface text-ink-muted"
         }`}
       >
         {redacted ? (
@@ -188,9 +220,7 @@ function SectionNotice({ state }: { readonly state: SectionUnavailable }) {
           <AlertTriangleIcon className="size-4" />
         )}
       </span>
-      <p className="mt-2 text-sm font-bold text-ink">
-        {redacted ? "Restricted" : "Unavailable"}
-      </p>
+      <p className="mt-2 text-sm font-bold text-ink">{title}</p>
       <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-ink-muted">
         {state.message}
       </p>
@@ -210,19 +240,17 @@ function PartialNotice({ children }: { readonly children: string }) {
 }
 
 function UnavailableInline({ state }: { readonly state: SectionUnavailable }) {
+  const redacted = state.availability === "redacted";
+  const highlight = redacted || isComingSoon(state.reason);
   return (
     <span className="inline-flex items-center gap-1.5" title={state.message}>
-      {state.availability === "redacted" ? (
-        <LockIcon className="size-3 text-info" />
-      ) : null}
+      {redacted ? <LockIcon className="size-3 text-info" /> : null}
       <span
         className={`text-xs font-semibold ${
-          state.availability === "redacted"
-            ? "text-info"
-            : "text-ink-muted"
+          highlight ? "text-info" : "text-ink-muted"
         }`}
       >
-        {state.availability === "redacted" ? "Restricted" : "Unavailable"}
+        {redacted ? "Restricted" : unavailableLabel(state.reason)}
       </span>
     </span>
   );
@@ -255,10 +283,15 @@ function MoneyInline({
   readonly tone?: "neutral" | "earnings";
 }) {
   if (value.availability === "unavailable") {
+    const comingSoon = isComingSoon(value.reason);
     return (
       <span className="inline-flex items-center gap-1.5" title={value.message}>
-        <span className="font-sans text-xs font-semibold text-ink-muted">
-          Unavailable
+        <span
+          className={`font-sans text-xs font-semibold ${
+            comingSoon ? "text-info" : "text-ink-muted"
+          }`}
+        >
+          {unavailableLabel(value.reason)}
         </span>
       </span>
     );
@@ -297,8 +330,13 @@ function MoneyInline({
 function CountInline({ value }: { readonly value: DashboardCountValue }) {
   if (value.availability === "unavailable") {
     return (
-      <span className="text-xs font-semibold text-ink-muted" title={value.message}>
-        Unavailable
+      <span
+        className={`text-xs font-semibold ${
+          isComingSoon(value.reason) ? "text-info" : "text-ink-muted"
+        }`}
+        title={value.message}
+      >
+        {unavailableLabel(value.reason)}
       </span>
     );
   }
@@ -334,14 +372,16 @@ function KpiTile({
   readonly currency: string;
 }) {
   const value = item.value;
+  const comingSoon =
+    value.availability === "unavailable" && isComingSoon(value.reason);
   const valueLabel =
     value.availability === "redacted"
       ? "Restricted"
       : value.availability === "unavailable"
-        ? "Unavailable"
+        ? unavailableLabel(value.reason)
         : dashboardMoney(value.valueMinor, currency);
   const valueClass =
-    value.availability === "redacted"
+    value.availability === "redacted" || comingSoon
       ? "text-info"
       : value.availability === "unavailable"
         ? "text-ink-muted"
@@ -362,7 +402,7 @@ function KpiTile({
         ) : value.availability === "redacted" ? (
           <StatusPill status="redacted" />
         ) : value.availability === "unavailable" ? (
-          <StatusPill status="unavailable" />
+          <StatusPill status={comingSoon ? "coming_soon" : "unavailable"} />
         ) : null}
       </div>
       <p className={`mt-2 text-xl font-bold ${valueClass}`}>{valueLabel}</p>

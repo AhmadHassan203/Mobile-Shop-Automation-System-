@@ -39,6 +39,12 @@ export const DailyFinancialSummarySchema = z
     from: z.iso.date(),
     to: z.iso.date(),
     salesRevenueMinor: responseMoneySchema,
+    /** Order-level discounts applied to posted sales (contra-revenue memo). */
+    discountsMinor: responseMoneySchema,
+    /** Posted customer refunds in the period (contra-revenue memo). */
+    returnsMinor: responseMoneySchema,
+    /** Sales revenue net of posted returns; signed (a heavy-refund day can be negative). */
+    netSalesMinor: signedResponseMoneySchema,
     cogsMinor: responseMoneySchema,
     grossProfitMinor: signedResponseMoneySchema,
     serviceProfitMinor: signedResponseMoneySchema,
@@ -64,6 +70,13 @@ export const DailyFinancialSummarySchema = z
         code: "custom",
         message: "Gross profit must equal sales revenue minus COGS.",
         path: ["grossProfitMinor"],
+      });
+    }
+    if (summary.netSalesMinor !== summary.salesRevenueMinor - summary.returnsMinor) {
+      context.addIssue({
+        code: "custom",
+        message: "Net sales must equal sales revenue minus returns.",
+        path: ["netSalesMinor"],
       });
     }
     if (

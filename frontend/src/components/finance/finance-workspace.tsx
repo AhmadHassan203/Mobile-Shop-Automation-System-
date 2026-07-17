@@ -7,12 +7,14 @@ import {
   PAYMENT_METHODS,
   PERMISSIONS,
   toMinor,
+  type DailyFinancialSummary,
+  type DashboardMoneyValue,
   type ExpenseCategory,
   type PaymentMethod,
 } from "@mobileshop/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useState, type JSX } from "react";
+import { useState, type JSX, type ReactNode } from "react";
 import { CatalogDrawer } from "@/components/catalog/catalog-drawer";
 import {
   CatalogEmptyState,
@@ -24,72 +26,54 @@ import { ShieldCheckIcon } from "@/components/ui/icons";
 import { createExpense } from "@/lib/api/expenses";
 import { toApiError, type ApiError } from "@/lib/api/client";
 import { currentAuthQueryOptions } from "@/lib/query/auth-query";
+import { dailyFinancialSummaryQueryOptions } from "@/lib/query/dashboard-summary-query";
+import { dashboardQueryOptions } from "@/lib/query/dashboard-query";
 import { expensesQueryOptions } from "@/lib/query/expenses-query";
 import { queryKeys } from "@/lib/query/keys";
 import { financeCapabilities } from "./finance-state";
 
-const MAIN_KPIS = [
-  { label: "Sales revenue", meta: "Sales ledger pending", href: "/reports" },
-  { label: "Gross profit", meta: "Margin analytics pending", href: "/reports" },
-  {
-    label: "Operating expenses",
-    meta: "Expense ledger pending",
-    href: "#expenses",
-  },
-  {
-    label: "Estimated net operating",
-    meta: "Finance read model pending",
-    href: "/reports",
-  },
-] as const;
-
-const DIGITAL_KPIS = [
-  {
-    label: "Digital sent",
-    meta: "Principal movement only",
-    href: "/digital/history",
-  },
-  {
-    label: "Digital received",
-    meta: "Principal movement only",
-    href: "/digital/history",
-  },
-  {
-    label: "Digital fees + commission",
-    meta: "Gross service earnings",
-    href: "/digital/commission",
-  },
-  {
-    label: "Net digital earnings",
-    meta: "Settlement API pending",
-    href: "/digital/commission",
-  },
-] as const;
-
-const PNL_ROWS = [
-  "Sales revenue",
-  "Less: Discounts given",
-  "Less: Returns & refunds",
-  "Net sales",
-  "Less: Cost of goods sold (COGS)",
-  "Gross profit",
-  "Less: Operating expenses",
-  "Estimated net operating profit",
-] as const;
-
-const DIGITAL_PNL_ROWS = [
-  "Digital principal sent",
-  "Digital principal received",
-  "Customer service fees",
-  "Provider gross commission",
-  "Less: Commission tax",
-  "Less: Other direct charges",
-  "Net digital-service earnings",
-  "Combined operating + digital earnings",
-] as const;
-
 function money(minor: number, currency: string): string {
   return formatMoney(toMinor(minor, "finance amount"), currency);
+}
+
+/**
+ * Render one read-model money value. An implemented source with no data shows a
+ * real zero (PKR 0.00) because the server sends `available` with a zero amount;
+ * only a genuinely missing permission or source reads as text.
+ */
+function DashMoney({
+  value,
+  currency,
+  tone = "ink",
+}: {
+  readonly value: DashboardMoneyValue;
+  readonly currency: string;
+  readonly tone?: "ink" | "accent" | "earnings";
+}): JSX.Element {
+  if (value.availability === "available" || value.availability === "partial") {
+    const cls =
+      tone === "accent"
+        ? "text-accent"
+        : tone === "earnings" && value.valueMinor > 0
+          ? "text-positive"
+          : tone === "earnings" && value.valueMinor < 0
+            ? "text-negative"
+            : "text-ink";
+    return <span className={cls}>{money(value.valueMinor, currency)}</span>;
+  }
+  const label =
+    value.availability === "redacted"
+      ? "Restricted"
+      : value.reason === "source_not_configured"
+        ? "No open session"
+        : value.reason === "source_not_built"
+          ? "Coming soon"
+          : "Unavailable";
+  return (
+    <span className="text-ink-muted" title={value.message}>
+      {label}
+    </span>
+  );
 }
 
 function parseMinor(value: string): number | null {
@@ -126,64 +110,313 @@ const PAYMENT_METHOD_LABELS: Readonly<Record<PaymentMethod, string>> =
     credit: "Credit",
   });
 
-function PendingKpi({
-  accent = false,
-  href,
+function KpiCard({
   label,
-  meta,
+  href,
+  accent = false,
+  children,
+  sub,
 }: {
-  readonly accent?: boolean;
-  readonly href: string;
   readonly label: string;
-  readonly meta: string;
+  readonly href: string;
+  readonly accent?: boolean;
+  readonly children: ReactNode;
+  readonly sub: string;
 }): JSX.Element {
   return (
     <Link
-      className={`rounded-card border bg-surface p-4 shadow-card ${
+      className={`rounded-card border bg-surface p-4 shadow-card no-underline transition hover:-translate-y-0.5 hover:border-accent ${
         accent ? "border-accent/35" : "border-line"
       }`}
       href={href}
     >
       <p className="text-xs font-semibold text-ink-muted">{label}</p>
-      <p
-        className={`mt-2 text-xl font-bold ${accent ? "text-accent" : "text-ink-muted"}`}
-      >
-        —
+      <p className={`mt-2 font-mono text-xl font-bold ${accent ? "text-accent" : "text-ink"}`}>
+        {children}
       </p>
-      <p className="mt-1 text-[0.6875rem] text-ink-muted">{meta}</p>
+      <p className="mt-1 text-[0.6875rem] text-ink-muted">{sub}</p>
     </Link>
   );
 }
 
-function PendingRows({ rows }: { readonly rows: readonly string[] }): JSX.Element {
+function KpiSkeleton(): JSX.Element {
   return (
-    <dl className="divide-y divide-line-subtle">
-      {rows.map((label, index) => {
-        const total = [3, 5, 7].includes(index);
-        return (
-          <div
-            className={`flex items-start justify-between gap-4 py-3 ${
-              total ? "font-bold" : ""
-            }`}
-            key={label}
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {Array.from({ length: 4 }, (_, index) => (
+        <div
+          className="h-24 animate-pulse rounded-card border border-line bg-line-subtle/60"
+          key={index}
+        />
+      ))}
+    </div>
+  );
+}
+
+function MoneyRow({
+  label,
+  minor,
+  currency,
+  kind = "line",
+  note,
+}: {
+  readonly label: string;
+  readonly minor: number;
+  readonly currency: string;
+  readonly kind?: "line" | "less" | "add" | "total";
+  readonly note?: string;
+}): JSX.Element {
+  const total = kind === "total";
+  return (
+    <div
+      className={`flex items-start justify-between gap-4 py-3 ${total ? "font-bold" : ""}`}
+    >
+      <dt className={kind === "less" || kind === "add" ? "text-ink-muted" : "text-ink"}>
+        {label}
+        {note ? (
+          <span className="mt-1 block max-w-md text-[0.6875rem] font-normal text-ink-muted">
+            {note}
+          </span>
+        ) : null}
+      </dt>
+      <dd
+        className={`font-mono ${
+          total ? "text-ink" : kind === "less" || kind === "add" ? "text-ink-muted" : "text-ink"
+        }`}
+      >
+        {kind === "less" ? "(" : ""}
+        {money(minor, currency)}
+        {kind === "less" ? ")" : ""}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * The financial KPIs and the profit-and-loss waterfall, driven entirely by the
+ * shared daily finance summary — the same read model the Dashboard and Reports
+ * use, so the three pages can never disagree for the same business date. Every
+ * figure is a real server value; an empty day is a real PKR 0.00.
+ */
+function FinancialSection({
+  canFinancial,
+  currency,
+}: {
+  readonly canFinancial: boolean;
+  readonly currency: string;
+}): JSX.Element {
+  const summary = useQuery(
+    dailyFinancialSummaryQueryOptions({ period: "day" }, canFinancial),
+  );
+
+  if (!canFinancial) {
+    return (
+      <section className="rounded-card border border-line bg-surface p-5 shadow-card">
+        <CatalogForbiddenState
+          description="The financial summary requires the reports.view_financial permission. No figures are shown."
+          title="Financial summary not permitted"
+        />
+      </section>
+    );
+  }
+  if (summary.isPending) {
+    return <KpiSkeleton />;
+  }
+  if (summary.data === undefined) {
+    const error = toApiError(summary.error);
+    return (
+      <section className="rounded-card border border-line bg-surface p-5 shadow-card">
+        <CatalogErrorState
+          description="The financial summary API could not be reached. No fallback figures are shown."
+          onRetry={() => {
+            void summary.refetch();
+          }}
+          title="Financial summary unavailable"
+          {...(error.requestId === undefined ? {} : { requestId: error.requestId })}
+        />
+      </section>
+    );
+  }
+
+  const data: DailyFinancialSummary = summary.data;
+  const kpis = [
+    { label: "Sales revenue", minor: data.salesRevenueMinor, sub: "Posted sales today", accent: true, href: "/reports" },
+    { label: "Gross profit", minor: data.grossProfitMinor, sub: "Revenue less COGS", href: "/reports" },
+    { label: "Operating expenses", minor: data.expensesMinor, sub: "Recorded today", href: "#expenses" },
+    { label: "Estimated net operating", minor: data.estimatedNetProfitMinor, sub: "Gross + service − expenses", href: "/reports" },
+  ] as const;
+
+  return (
+    <>
+      <section
+        aria-label="Finance key performance indicators"
+        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+      >
+        {kpis.map((item) => (
+          <KpiCard
+            accent={"accent" in item ? item.accent : false}
+            href={item.href}
+            key={item.label}
+            label={item.label}
+            sub={item.sub}
           >
-            <dt
-              className={
-                label.startsWith("Less:") ? "text-ink-muted" : "text-ink"
-              }
-            >
-              {label}
-              {label === "Less: Cost of goods sold (COGS)" ? (
-                <span className="mt-1 block max-w-md text-[0.6875rem] font-normal text-ink-muted">
-                  Booked only when items sell—not when stock is bought.
-                </span>
-              ) : null}
-            </dt>
-            <dd className="font-mono text-ink-muted">—</dd>
+            {money(item.minor, currency)}
+          </KpiCard>
+        ))}
+      </section>
+
+      <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
+        <div className="flex items-center gap-3 border-b border-line px-5 py-4">
+          <h2 className="font-bold text-ink">Profit &amp; loss—today</h2>
+          <span className="ml-auto text-xs text-ink-muted">
+            {data.salesCount.toLocaleString("en-PK")} sales · business date {data.from}
+          </span>
+        </div>
+        <div className="grid gap-0 md:grid-cols-2 md:gap-8 md:px-5">
+          <dl className="divide-y divide-line-subtle px-5 md:px-0">
+            <MoneyRow currency={currency} kind="line" label="Sales revenue" minor={data.salesRevenueMinor} />
+            <MoneyRow
+              currency={currency}
+              kind="less"
+              label="Less: Cost of goods sold (COGS)"
+              minor={data.cogsMinor}
+              note="Booked only when items sell—not when stock is bought."
+            />
+            <MoneyRow currency={currency} kind="total" label="Gross profit" minor={data.grossProfitMinor} />
+            <MoneyRow currency={currency} kind="add" label="Add: Digital service profit" minor={data.serviceProfitMinor} />
+            <MoneyRow currency={currency} kind="less" label="Less: Operating expenses" minor={data.expensesMinor} />
+            <MoneyRow currency={currency} kind="total" label="Estimated net operating profit" minor={data.estimatedNetProfitMinor} />
+          </dl>
+          <div className="border-t border-line-subtle px-5 py-4 md:border-l md:border-t-0 md:pl-8">
+            <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
+              Sales adjustments (memo)
+            </p>
+            <dl className="mt-2 divide-y divide-line-subtle">
+              <MoneyRow currency={currency} kind="line" label="Discounts given today" minor={data.discountsMinor} />
+              <MoneyRow currency={currency} kind="line" label="Returns &amp; refunds today" minor={data.returnsMinor} />
+              <MoneyRow currency={currency} kind="total" label="Net sales after returns" minor={data.netSalesMinor} />
+            </dl>
+            <p className="mt-3 text-[0.6875rem] leading-5 text-ink-muted">
+              Discounts are already reflected in sales revenue. Returns reverse a
+              prior sale&apos;s cash and stock and are tracked separately from the
+              day&apos;s sales profit.
+            </p>
           </div>
-        );
-      })}
-    </dl>
+        </div>
+      </section>
+    </>
+  );
+}
+
+/**
+ * Digital-service earnings and the live cash drawer position, read from the
+ * shared dashboard snapshot so they equal the Dashboard exactly. Provider
+ * charges are the shop's cost; net earnings are customer fees less those charges.
+ */
+function DigitalAndCashSection({ currency }: { readonly currency: string }): JSX.Element {
+  const auth = useQuery(currentAuthQueryOptions);
+  const dashboard = useQuery({
+    ...dashboardQueryOptions,
+    enabled: auth.data !== undefined,
+  });
+
+  if (dashboard.isPending) {
+    return <KpiSkeleton />;
+  }
+  if (dashboard.data === undefined) {
+    const error = toApiError(dashboard.error);
+    return (
+      <section className="rounded-card border border-line bg-surface p-5 shadow-card">
+        <CatalogErrorState
+          description="The dashboard read model could not be reached. No fallback figures are shown."
+          onRetry={() => {
+            void dashboard.refetch();
+          }}
+          title="Digital & cash figures unavailable"
+          {...(error.requestId === undefined ? {} : { requestId: error.requestId })}
+        />
+      </section>
+    );
+  }
+
+  const digital = dashboard.data.digitalServices;
+  const hasDigital =
+    digital.availability === "available" || digital.availability === "partial";
+  const dv = (
+    key:
+      | "sentToday"
+      | "receivedToday"
+      | "customerFeesToday"
+      | "providerNetCommission"
+      | "netEarnings",
+  ): DashboardMoneyValue => (hasDigital ? digital.data[key] : digital);
+  const cash =
+    dashboard.data.moneyKpis.find((kpi) => kpi.key === "cash_position")?.value ??
+    ({ availability: "redacted", message: "Cash position unavailable." } as const);
+
+  const kpis: readonly {
+    label: string;
+    value: DashboardMoneyValue;
+    sub: string;
+    href: string;
+    accent?: boolean;
+    tone?: "ink" | "accent" | "earnings";
+  }[] = [
+    { label: "Digital sent", value: dv("sentToday"), sub: "Principal sent today", href: "/digital/history" },
+    { label: "Digital received", value: dv("receivedToday"), sub: "Principal received today", href: "/digital/history" },
+    { label: "Net digital earnings", value: dv("netEarnings"), sub: "Fees less provider charges", href: "/digital/commission", tone: "earnings" },
+    { label: "Cash position", value: cash, sub: "Expected drawer now", href: "/closing", accent: true },
+  ];
+
+  return (
+    <>
+      <section
+        aria-label="Digital service and cash key performance indicators"
+        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+      >
+        {kpis.map((item) => (
+          <KpiCard
+            accent={item.accent ?? false}
+            href={item.href}
+            key={item.label}
+            label={item.label}
+            sub={item.sub}
+          >
+            <DashMoney
+              currency={currency}
+              tone={item.accent ? "accent" : (item.tone ?? "ink")}
+              value={item.value}
+            />
+          </KpiCard>
+        ))}
+      </section>
+
+      <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
+        <div className="border-b border-line px-5 py-4">
+          <h2 className="font-bold text-ink">Digital services earnings—today</h2>
+        </div>
+        <dl className="divide-y divide-line-subtle px-5">
+          {[
+            { label: "Digital principal sent", value: dv("sentToday") },
+            { label: "Digital principal received", value: dv("receivedToday") },
+            { label: "Customer service fees", value: dv("customerFeesToday") },
+            { label: "Provider charges", value: dv("providerNetCommission") },
+          ].map((row) => (
+            <div className="flex items-center justify-between gap-4 py-3" key={row.label}>
+              <dt className="text-ink">{row.label}</dt>
+              <dd className="font-mono">
+                <DashMoney currency={currency} value={row.value} />
+              </dd>
+            </div>
+          ))}
+          <div className="flex items-center justify-between gap-4 py-3 font-bold">
+            <dt className="text-ink">Net digital-service earnings</dt>
+            <dd className="font-mono">
+              <DashMoney currency={currency} tone="earnings" value={dv("netEarnings")} />
+            </dd>
+          </div>
+        </dl>
+      </section>
+    </>
   );
 }
 
@@ -496,6 +729,9 @@ export function FinanceWorkspace(): JSX.Element {
   const canViewExpenses = auth.data.permissions.includes(
     PERMISSIONS.EXPENSES_VIEW,
   );
+  const canFinancial = auth.data.permissions.includes(
+    PERMISSIONS.REPORTS_VIEW_FINANCIAL,
+  );
   const currency = auth.data.organization.currency;
 
   if (!capabilities.canViewFinance) {
@@ -557,70 +793,18 @@ export function FinanceWorkspace(): JSX.Element {
         </div>
       </header>
 
-      <section
-        aria-label="Finance key performance indicators"
-        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
-      >
-        {MAIN_KPIS.map((item, index) => (
-          <PendingKpi
-            accent={index === 0}
-            href={item.href}
-            key={item.label}
-            label={item.label}
-            meta={item.meta}
-          />
-        ))}
-      </section>
+      <FinancialSection canFinancial={canFinancial} currency={currency} />
 
       <div className="flex items-start gap-2.5 rounded-card border border-info/25 bg-info-soft px-4 py-3 text-sm text-info">
         <ShieldCheckIcon className="mt-0.5 size-4 shrink-0" />
         <p>
           <strong>Profit is not cash.</strong> Buying stock reduces cash now, but
-          becomes COGS only when the item sells. The revenue KPIs stay blank
-          until the source-led Finance and Sales APIs exist; recorded expenses
-          below are live.
+          becomes COGS only when the item sells. Every figure here is live from
+          the same reconciled read model the Dashboard and Reports use.
         </p>
       </div>
 
-      <section
-        aria-label="Digital service key performance indicators"
-        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
-      >
-        {DIGITAL_KPIS.map((item, index) => (
-          <PendingKpi
-            accent={index === 3}
-            href={item.href}
-            key={item.label}
-            label={item.label}
-            meta={item.meta}
-          />
-        ))}
-      </section>
-
-      <div className="grid items-start gap-4 xl:grid-cols-3">
-        <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card xl:col-span-2">
-          <div className="flex items-center gap-3 border-b border-line px-5 py-4">
-            <h2 className="font-bold text-ink">Profit &amp; loss—today</h2>
-            <span className="ml-auto text-xs text-ink-muted">
-              How revenue becomes profit
-            </span>
-          </div>
-          <div className="p-5">
-            <PendingRows rows={PNL_ROWS} />
-          </div>
-        </section>
-
-        <aside className="space-y-4">
-          <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
-            <div className="border-b border-line px-5 py-4">
-              <h2 className="font-bold text-ink">Digital services earnings</h2>
-            </div>
-            <div className="p-5">
-              <PendingRows rows={DIGITAL_PNL_ROWS} />
-            </div>
-          </section>
-        </aside>
-      </div>
+      <DigitalAndCashSection currency={currency} />
 
       <ExpensesSection
         canCreate={capabilities.canCreateExpense}

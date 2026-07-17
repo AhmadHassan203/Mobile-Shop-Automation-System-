@@ -163,7 +163,7 @@ const MODULE_NAVIGATION: readonly ModuleNavigationGroup[] = [
         label: "Finance",
         href: "/finance",
         icon: FinanceIcon,
-        status: "building",
+        status: "ready",
         permissions: [
           PERMISSIONS.LEDGER_VIEW,
           PERMISSIONS.EXPENSES_VIEW,
@@ -175,7 +175,7 @@ const MODULE_NAVIGATION: readonly ModuleNavigationGroup[] = [
         label: "Daily closing",
         href: "/closing",
         icon: CalendarCheckIcon,
-        status: "building",
+        status: "ready",
         permissions: [PERMISSIONS.CASH_SESSIONS_VIEW],
       },
     ],
@@ -187,7 +187,7 @@ const MODULE_NAVIGATION: readonly ModuleNavigationGroup[] = [
         label: "New transaction",
         href: "/digital/new",
         icon: WalletIcon,
-        status: "building",
+        status: "ready",
         permissions: [PERMISSIONS.EXTERNAL_SERVICES_VIEW],
       },
       {

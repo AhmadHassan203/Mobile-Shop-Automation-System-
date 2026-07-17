@@ -1,17 +1,34 @@
 "use client";
 
+import {
+  FINANCIAL_SUMMARY_PERIODS,
+  formatMoney,
+  toMinor,
+  type FinancialSummaryPeriod,
+} from "@mobileshop/shared";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, type JSX } from "react";
-import { CatalogForbiddenState } from "@/components/catalog/catalog-states";
 import {
-  AlertTriangleIcon,
+  CatalogErrorState,
+  CatalogForbiddenState,
+} from "@/components/catalog/catalog-states";
+import {
+  BoxIcon,
   CloseIcon,
   LayersIcon,
+  LockIcon,
   ShieldCheckIcon,
 } from "@/components/ui/icons";
+import { toApiError } from "@/lib/api/client";
+import type { SalesTrendPoint } from "@/lib/api/reports";
 import { currentAuthQueryOptions } from "@/lib/query/auth-query";
+import { dailyFinancialSummaryQueryOptions } from "@/lib/query/dashboard-summary-query";
+import {
+  salesTrendQueryOptions,
+  topProductsQueryOptions,
+} from "@/lib/query/reports-query";
 import {
   REPORT_GROUP_ORDER,
   REPORT_RANGES,
@@ -22,6 +39,54 @@ import {
   reportsByGroup,
   type ReportDefinition,
 } from "./reports-state";
+
+const SUMMARY_PERIOD_LABELS: Readonly<Record<FinancialSummaryPeriod, string>> =
+  Object.freeze({ day: "Day", week: "Week", month: "Month" });
+
+function money(valueMinor: number, currency: string): string {
+  return formatMoney(toMinor(valueMinor, "reports value"), currency);
+}
+
+/** Whole-unit amount without the currency symbol, for tight chart labels. */
+function compactAmount(valueMinor: number, currency: string): string {
+  const [whole] = formatMoney(toMinor(valueMinor, "reports value"), currency, {
+    withSymbol: false,
+  }).split(".");
+  return whole ?? "0";
+}
+
+function shortBusinessDay(businessDate: string): string {
+  const day = businessDate.slice(8, 10);
+  return day.startsWith("0") ? day.slice(1) : day;
+}
+
+function SummaryPeriodToggle({
+  period,
+  onChange,
+}: {
+  readonly period: FinancialSummaryPeriod;
+  readonly onChange: (next: FinancialSummaryPeriod) => void;
+}): JSX.Element {
+  return (
+    <div className="flex rounded-control border border-line p-0.5">
+      {FINANCIAL_SUMMARY_PERIODS.map((value) => (
+        <button
+          aria-pressed={period === value}
+          className={`rounded-control px-3 py-1 text-xs font-bold ${
+            period === value
+              ? "bg-accent text-white"
+              : "text-ink-muted hover:bg-surface-subtle"
+          }`}
+          key={value}
+          onClick={() => onChange(value)}
+          type="button"
+        >
+          {SUMMARY_PERIOD_LABELS[value]}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function ReportsIcon({
   className = "size-5",
@@ -63,74 +128,378 @@ function ReportsLoading(): JSX.Element {
   );
 }
 
-function DigitalKpi({
-  label,
-  meta,
-  accent = false,
+function PanelError({
+  error,
+  onRetry,
+  title,
 }: {
-  readonly accent?: boolean;
-  readonly label: string;
-  readonly meta: string;
+  readonly error: unknown;
+  readonly onRetry: () => void;
+  readonly title: string;
 }): JSX.Element {
+  const apiError = toApiError(error);
+  if (apiError.status === 403 || apiError.code === "FORBIDDEN_PERMISSION") {
+    return (
+      <CatalogForbiddenState
+        description="Your current permissions do not allow this financial report. No figures are shown."
+        title="Financial report not permitted"
+      />
+    );
+  }
   return (
-    <article
-      className={`rounded-card border bg-surface p-4 shadow-card ${accent ? "border-accent/35" : "border-line"}`}
-    >
-      <p className="text-xs font-semibold text-ink-muted">{label}</p>
-      <p
-        className={`mt-2 text-2xl font-bold ${accent ? "text-positive" : "text-ink"}`}
-      >
-        —
-      </p>
-      <p className="mt-1 text-xs text-ink-muted">{meta}</p>
-    </article>
+    <CatalogErrorState
+      description="The reporting API could not be reached. No fallback or sample figures are shown."
+      onRetry={onRetry}
+      title={title}
+      {...(apiError.requestId === undefined
+        ? {}
+        : { requestId: apiError.requestId })}
+    />
   );
 }
 
-function SalesTrend(): JSX.Element {
+function FinancialAnalyticsRestricted(): JSX.Element {
+  return (
+    <section className="rounded-card border border-info/20 bg-info-soft p-5 text-info">
+      <div className="flex items-start gap-3">
+        <LockIcon className="mt-0.5 size-5 shrink-0" />
+        <div>
+          <h2 className="text-base font-semibold">
+            Financial analytics restricted
+          </h2>
+          <p className="mt-1 text-sm leading-6">
+            Live profit, sales-trend and top-product analytics require
+            reports.view_financial. The report catalogue below is still
+            available; no financial figures were requested.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ProfitSummaryPanel({
+  currency,
+}: {
+  readonly currency: string;
+}): JSX.Element {
+  const [period, setPeriod] = useState<FinancialSummaryPeriod>("day");
+  const summary = useQuery(dailyFinancialSummaryQueryOptions({ period }, true));
+  const data = summary.data;
+
+  let body: JSX.Element;
+  if (summary.isPending) {
+    body = (
+      <div
+        aria-label="Loading profit summary"
+        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
+        role="status"
+      >
+        {Array.from({ length: 6 }, (_, index) => (
+          <div
+            className="h-24 animate-pulse rounded-card bg-line-subtle"
+            key={index}
+          />
+        ))}
+      </div>
+    );
+  } else if (data === undefined) {
+    body = (
+      <PanelError
+        error={summary.error}
+        onRetry={() => {
+          void summary.refetch();
+        }}
+        title="Profit summary unavailable"
+      />
+    );
+  } else {
+    const tiles = [
+      { label: "Sales revenue", minor: data.salesRevenueMinor, earnings: false },
+      { label: "COGS", minor: data.cogsMinor, earnings: false },
+      { label: "Gross profit", minor: data.grossProfitMinor, earnings: true },
+      {
+        label: "Service profit",
+        minor: data.serviceProfitMinor,
+        earnings: true,
+      },
+      { label: "Expenses", minor: data.expensesMinor, earnings: false },
+      {
+        label: "Estimated net profit",
+        minor: data.estimatedNetProfitMinor,
+        earnings: true,
+      },
+    ] as const;
+    const empty = data.salesCount === 0 && data.externalTxnCount === 0;
+    body = (
+      <div className="space-y-3">
+        {empty ? (
+          <p className="rounded-control border border-dashed border-line bg-surface-subtle px-4 py-3 text-center text-xs text-ink-muted">
+            No posted sales or external transactions in this period yet. Figures
+            update as activity is recorded.
+          </p>
+        ) : null}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {tiles.map((tile) => {
+            const toneClass =
+              tile.earnings && tile.minor > 0
+                ? "text-positive"
+                : tile.earnings && tile.minor < 0
+                  ? "text-negative"
+                  : "text-ink";
+            return (
+              <div
+                className="min-h-24 rounded-card border border-line bg-surface p-4 shadow-card"
+                key={tile.label}
+              >
+                <p className="text-xs font-semibold text-ink-muted">
+                  {tile.label}
+                </p>
+                <p className={`mt-2 font-mono text-lg font-bold ${toneClass}`}>
+                  {money(tile.minor, currency)}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-[0.6875rem] leading-5 text-ink-muted">
+          {data.from === data.to
+            ? `Business date ${data.from}`
+            : `${data.from} — ${data.to}`}{" "}
+          · {data.salesCount.toLocaleString("en-PK")} sales ·{" "}
+          {data.externalTxnCount.toLocaleString("en-PK")} external transactions.
+          Estimated net profit = gross profit + service profit − expenses.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-5">
-        <h2 className="font-bold text-ink">Sales — last 6 days</h2>
-        <span className="text-xs text-ink-muted">
-          Average and total · Sales API pending
-        </span>
-      </div>
-      <div className="p-4 sm:p-5">
-        <div
-          aria-label="Sales trend unavailable"
-          className="flex h-52 items-end gap-2 border-b border-line sm:gap-4"
-          role="img"
-        >
-          {Array.from({ length: 6 }, (_, index) => (
-            <div
-              className="flex h-full min-w-0 flex-1 flex-col justify-end"
-              key={index}
-            >
-              <span className="mb-2 text-center text-xs font-bold text-ink-muted">
-                —
-              </span>
-              <span
-                className={`mx-auto block h-8 w-full max-w-12 rounded-t-control border border-dashed ${index === 5 ? "border-accent/50 bg-accent-soft" : "border-line bg-surface-subtle"}`}
-              />
-              <span
-                className={`mt-2 pb-2 text-center text-[0.6875rem] ${index === 5 ? "font-semibold text-accent" : "text-ink-muted"}`}
-              >
-                {index === 5 ? "Today" : `Day ${index + 1}`}
-              </span>
-            </div>
-          ))}
-        </div>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs leading-5 text-ink-muted">
-            Bars remain empty until immutable posted-sale totals are available
-            for each business day.
+        <div>
+          <h2 className="font-bold text-ink">Profit &amp; loss</h2>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            Reconciled from posted sales, service profit and expenses
           </p>
-          <Link className="text-xs font-semibold text-accent" href="/finance">
-            Open Daily sales &amp; profit →
-          </Link>
         </div>
+        <SummaryPeriodToggle onChange={setPeriod} period={period} />
       </div>
+      <div className="p-4 sm:p-5">{body}</div>
+    </section>
+  );
+}
+
+function SalesTrendBars({
+  currency,
+  points,
+}: {
+  readonly currency: string;
+  readonly points: readonly SalesTrendPoint[];
+}): JSX.Element {
+  const maxRevenue = Math.max(...points.map((point) => point.salesRevenueMinor));
+  const lastIndex = points.length - 1;
+  return (
+    <div className="flex h-52 items-end gap-2 border-b border-line sm:gap-4">
+      {points.map((point, index) => {
+        const isToday = index === lastIndex;
+        const heightPercent =
+          maxRevenue > 0
+            ? Math.max(4, Math.round((point.salesRevenueMinor / maxRevenue) * 100))
+            : 2;
+        return (
+          <div
+            className="flex h-full min-w-0 flex-1 flex-col justify-end"
+            key={point.businessDate}
+            title={`${point.businessDate}: ${money(point.salesRevenueMinor, currency)} · ${point.salesCount.toLocaleString("en-PK")} sales`}
+          >
+            <span className="mb-2 text-center text-[0.6875rem] font-bold text-ink-muted">
+              {point.salesRevenueMinor > 0
+                ? compactAmount(point.salesRevenueMinor, currency)
+                : "—"}
+            </span>
+            <span
+              className={`mx-auto block w-full max-w-12 rounded-t-control ${isToday ? "bg-accent" : "bg-accent-soft"}`}
+              style={{ height: `${heightPercent}%` }}
+            />
+            <span
+              className={`mt-2 pb-2 text-center text-[0.6875rem] ${isToday ? "font-semibold text-accent" : "text-ink-muted"}`}
+            >
+              {isToday ? "Today" : shortBusinessDay(point.businessDate)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SalesTrendPanel({
+  currency,
+}: {
+  readonly currency: string;
+}): JSX.Element {
+  const trend = useQuery(salesTrendQueryOptions({ days: 7 }, true));
+  const data = trend.data;
+
+  let body: JSX.Element;
+  let hint = "Posted sales by business day";
+  if (trend.isPending) {
+    body = (
+      <div
+        aria-label="Loading sales trend"
+        className="h-52 animate-pulse rounded-card bg-line-subtle"
+        role="status"
+      />
+    );
+  } else if (data === undefined) {
+    body = (
+      <PanelError
+        error={trend.error}
+        onRetry={() => {
+          void trend.refetch();
+        }}
+        title="Sales trend unavailable"
+      />
+    );
+  } else {
+    const total = data.points.reduce(
+      (sum, point) => sum + point.salesRevenueMinor,
+      0,
+    );
+    const average = data.points.length === 0 ? 0 : Math.round(total / data.points.length);
+    hint = `Total ${money(total, currency)} · avg ${money(average, currency)}/day`;
+    body =
+      total === 0 ? (
+        <div>
+          <SalesTrendBars currency={currency} points={data.points} />
+          <p className="mt-3 text-xs leading-5 text-ink-muted">
+            No posted sales in the last {data.days} business days. Bars fill from
+            immutable posted-sale totals as sales are recorded.
+          </p>
+        </div>
+      ) : (
+        <div>
+          <SalesTrendBars currency={currency} points={data.points} />
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs leading-5 text-ink-muted">
+              {data.from} — {data.to} · revenue per business day at posted totals.
+            </p>
+            <Link className="text-xs font-semibold text-accent" href="/finance">
+              Open Daily sales &amp; profit →
+            </Link>
+          </div>
+        </div>
+      );
+  }
+
+  return (
+    <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-5">
+        <h2 className="font-bold text-ink">Sales — last 7 days</h2>
+        <span className="text-xs text-ink-muted">{hint}</span>
+      </div>
+      <div className="p-4 sm:p-5">{body}</div>
+    </section>
+  );
+}
+
+function TopProductsPanel({
+  currency,
+}: {
+  readonly currency: string;
+}): JSX.Element {
+  const [period, setPeriod] = useState<FinancialSummaryPeriod>("month");
+  const products = useQuery(topProductsQueryOptions({ period, limit: 5 }, true));
+  const data = products.data;
+
+  let body: JSX.Element;
+  if (products.isPending) {
+    body = (
+      <div
+        aria-label="Loading top products"
+        className="space-y-2"
+        role="status"
+      >
+        {Array.from({ length: 5 }, (_, index) => (
+          <div
+            className="h-11 animate-pulse rounded-control bg-line-subtle"
+            key={index}
+          />
+        ))}
+      </div>
+    );
+  } else if (data === undefined) {
+    body = (
+      <PanelError
+        error={products.error}
+        onRetry={() => {
+          void products.refetch();
+        }}
+        title="Top products unavailable"
+      />
+    );
+  } else if (data.items.length === 0) {
+    body = (
+      <p className="rounded-control border border-dashed border-line bg-surface-subtle px-4 py-8 text-center text-xs text-ink-muted">
+        No posted sale lines in {data.from} — {data.to}. Rankings appear as sales
+        post.
+      </p>
+    );
+  } else {
+    body = (
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[34rem] border-collapse text-left text-sm">
+          <thead className="border-b border-line text-[0.6875rem] font-bold uppercase tracking-wide text-ink-muted">
+            <tr>
+              <th className="py-2 pr-3">Product</th>
+              <th className="px-3 py-2 text-right">Units</th>
+              <th className="px-3 py-2 text-right">Revenue</th>
+              <th className="py-2 pl-3 text-right">Gross profit</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line-subtle">
+            {data.items.map((item) => (
+              <tr key={item.productVariantId}>
+                <td className="py-2.5 pr-3">
+                  <span className="block font-semibold text-ink">
+                    {item.name}
+                  </span>
+                  <span className="block font-mono text-[0.6875rem] text-ink-muted">
+                    {item.sku}
+                  </span>
+                </td>
+                <td className="px-3 py-2.5 text-right font-mono text-ink">
+                  {item.unitsSold.toLocaleString("en-PK")}
+                </td>
+                <td className="px-3 py-2.5 text-right font-mono font-semibold text-ink">
+                  {money(item.revenueMinor, currency)}
+                </td>
+                <td
+                  className={`py-2.5 pl-3 text-right font-mono font-semibold ${item.grossProfitMinor >= 0 ? "text-positive" : "text-negative"}`}
+                >
+                  {money(item.grossProfitMinor, currency)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  return (
+    <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-5">
+        <div className="flex items-center gap-2">
+          <span className="grid size-8 place-items-center rounded-control bg-accent-soft text-accent">
+            <BoxIcon className="size-4" />
+          </span>
+          <h2 className="font-bold text-ink">Top products by revenue</h2>
+        </div>
+        <SummaryPeriodToggle onChange={setPeriod} period={period} />
+      </div>
+      <div className="p-4 sm:p-5">{body}</div>
     </section>
   );
 }
@@ -278,6 +647,7 @@ export function ReportsWorkspace(): JSX.Element {
       />
     );
   }
+  const currency = auth.data.organization.currency;
   const range = reportRangeFrom(new URLSearchParams(searchParams.toString()));
   const rangeLabel =
     REPORT_RANGES.find((item) => item.id === range)?.label ?? "This month";
@@ -345,39 +715,22 @@ export function ReportsWorkspace(): JSX.Element {
         </div>
       </header>
 
-      <div className="flex items-start gap-2.5 rounded-card border border-warning/25 bg-warning-soft px-4 py-3 text-sm leading-6 text-warning">
-        <AlertTriangleIcon className="mt-0.5 size-5 shrink-0" />
-        The planned catalogue and drill-down structure are ready. Report
-        execution and exports remain disabled until the reporting API can return
-        permission-scoped source data.
-      </div>
-
-      <SalesTrend />
-
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <DigitalKpi
-          label="Digital principal sent"
-          meta="Not sales revenue · API pending"
-        />
-        <DigitalKpi
-          label="Digital principal received"
-          meta="Not sales revenue · API pending"
-        />
-        <DigitalKpi
-          accent
-          label="Net digital earnings"
-          meta="Fees + net commission − charges"
-        />
-        <DigitalKpi
-          label="Pending digital txns"
-          meta="Excluded from settled earnings"
-        />
-      </div>
+      {capabilities.canViewFinancial ? (
+        <div className="space-y-4">
+          <ProfitSummaryPanel currency={currency} />
+          <div className="grid items-start gap-4 xl:grid-cols-2">
+            <SalesTrendPanel currency={currency} />
+            <TopProductsPanel currency={currency} />
+          </div>
+        </div>
+      ) : (
+        <FinancialAnalyticsRestricted />
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-2 px-0.5 text-xs text-ink-muted">
         <p>
-          Planned standard report catalogue across {REPORT_GROUP_ORDER.length}{" "}
-          areas · API pending
+          Standard report catalogue across {REPORT_GROUP_ORDER.length} areas ·
+          execution &amp; export API pending
         </p>
         <p className="flex items-center gap-1.5">
           Formats:{" "}

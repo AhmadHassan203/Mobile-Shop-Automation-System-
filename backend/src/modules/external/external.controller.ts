@@ -17,9 +17,20 @@ import { z } from "zod";
 import { RequirePermissions } from "../../common/auth/require-permissions.decorator";
 import { ZodValidationPipe, zodBody } from "../../common/pipes/zod-validation.pipe";
 import { authRequestMetadata } from "../auth/request-metadata";
-import { ExternalService, type ExternalActorContext } from "./external.service";
+import {
+  ExternalService,
+  type ExternalActorContext,
+  type ExternalBalancesResult,
+  type ExternalCommissionResult,
+} from "./external.service";
 
 const uuidParam = new ZodValidationPipe(z.uuid());
+
+/** Commission roll-up window; defaults to the current calendar month. */
+const ExternalCommissionQuerySchema = z
+  .object({ period: z.enum(["day", "week", "month"]).default("month") })
+  .strict();
+type ExternalCommissionQuery = z.output<typeof ExternalCommissionQuerySchema>;
 
 /** The idempotency header is optional here; a missing key simply records once. */
 function optionalIdempotencyKey(value: string | undefined): string | null {
@@ -60,6 +71,31 @@ export class ExternalController {
     query: ExternalTransactionListQuery,
   ): Promise<ExternalTransactionPage> {
     return this.external.list(externalActorContext(request), query);
+  }
+
+  // Static GET routes MUST be declared before the parameterized `:id` route
+  // below: NestJS/Express matches in declaration order, so were `:id` first it
+  // would greedily capture `/external/balances` as id="balances".
+  @Get("balances")
+  @RequirePermissions(PERMISSIONS.EXTERNAL_VIEW)
+  @ApiOperation({
+    summary: "Per-provider service balances derived for the current business date",
+  })
+  balances(@Req() request: Request): Promise<ExternalBalancesResult> {
+    return this.external.balances(externalActorContext(request));
+  }
+
+  @Get("commission")
+  @RequirePermissions(PERMISSIONS.EXTERNAL_VIEW)
+  @ApiOperation({
+    summary: "Commission totals for a business-date period, overall and grouped",
+  })
+  commission(
+    @Req() request: Request,
+    @Query(new ZodValidationPipe(ExternalCommissionQuerySchema))
+    query: ExternalCommissionQuery,
+  ): Promise<ExternalCommissionResult> {
+    return this.external.commission(externalActorContext(request), query.period);
   }
 
   @Post()

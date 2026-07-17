@@ -1,5 +1,5 @@
 import { PERMISSIONS, type PermissionKey } from "@mobileshop/shared";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../../database/prisma.service";
 import {
   DashboardService,
@@ -12,6 +12,13 @@ const IDS = Object.freeze({
   location: "10000000-0000-4000-8000-000000000003",
   otherLocation: "10000000-0000-4000-8000-000000000004",
 });
+
+/** A second tenant whose rows must never appear in tenant A's reports. */
+const TENANT_B = Object.freeze({
+  organization: "20000000-0000-4000-8000-000000000001",
+  branch: "20000000-0000-4000-8000-000000000002",
+});
+const VARIANT_A = "10000000-0000-4000-8000-0000000000aa";
 
 interface InventoryTestRow {
   readonly onHandUnits: bigint;
@@ -296,5 +303,384 @@ describe("DashboardService.summary", () => {
     };
     expect(expenseWhere.businessDate.gte).toEqual(new Date("2026-07-01T00:00:00.000Z"));
     expect(expenseWhere.businessDate.lte).toEqual(new Date("2026-07-31T00:00:00.000Z"));
+  });
+});
+
+interface TrendGroupRow {
+  readonly businessDate: Date | null;
+  readonly _sum: { totalMinor: bigint | null; cogsMinor: bigint | null };
+  readonly _count: { _all: number };
+}
+
+function trendServiceWith(rows: readonly TrendGroupRow[]) {
+  const groupBy = vi.fn().mockResolvedValue(rows);
+  const prisma = {
+    client: { sale: { groupBy } },
+  } as unknown as PrismaService;
+  return { service: new DashboardService(prisma), groupBy };
+}
+
+describe("DashboardService.salesTrend (Asia/Karachi business date)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("resolves a 20:30Z instant to the next Karachi business date and includes it in the day report", async () => {
+    // 2026-07-16T20:30Z is 2026-07-17 01:30 in Asia/Karachi (UTC+5).
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-16T20:30:00.000Z"));
+    const { service, groupBy } = trendServiceWith([
+      {
+        businessDate: new Date("2026-07-17T00:00:00.000Z"),
+        _sum: { totalMinor: 500_000n, cogsMinor: 300_000n },
+        _count: { _all: 4 },
+      },
+    ]);
+
+    const trend = await service.salesTrend(
+      context([PERMISSIONS.REPORTS_VIEW_FINANCIAL]),
+      1,
+    );
+
+    expect({ from: trend.from, to: trend.to }).toEqual({
+      from: "2026-07-17",
+      to: "2026-07-17",
+    });
+    expect(trend.points).toEqual([
+      {
+        businessDate: "2026-07-17",
+        salesRevenueMinor: 500_000,
+        cogsMinor: 300_000,
+        grossProfitMinor: 200_000,
+        salesCount: 4,
+      },
+    ]);
+    const where = groupBy.mock.calls[0]?.[0]?.where as {
+      businessDate: { gte: Date; lte: Date };
+    };
+    expect(where.businessDate.gte).toEqual(new Date("2026-07-17T00:00:00.000Z"));
+    expect(where.businessDate.lte).toEqual(new Date("2026-07-17T00:00:00.000Z"));
+  });
+
+  it("builds a contiguous forward window that never shifts backward under UTC", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-17T06:00:00.000Z"));
+    const { service } = trendServiceWith([
+      {
+        businessDate: new Date("2026-07-15T00:00:00.000Z"),
+        _sum: { totalMinor: 120_000n, cogsMinor: 70_000n },
+        _count: { _all: 2 },
+      },
+    ]);
+
+    const trend = await service.salesTrend(
+      context([PERMISSIONS.REPORTS_VIEW_FINANCIAL]),
+      7,
+    );
+
+    // The window runs forward from today: 11th..17th, inclusive of today.
+    expect({ from: trend.from, to: trend.to }).toEqual({
+      from: "2026-07-11",
+      to: "2026-07-17",
+    });
+    expect(trend.points).toHaveLength(7);
+    expect(trend.points[0]?.businessDate).toBe("2026-07-11");
+    expect(trend.points[6]?.businessDate).toBe("2026-07-17");
+    expect(trend.points.find((point) => point.businessDate === "2026-07-15")).toEqual({
+      businessDate: "2026-07-15",
+      salesRevenueMinor: 120_000,
+      cogsMinor: 70_000,
+      grossProfitMinor: 50_000,
+      salesCount: 2,
+    });
+    // Every day without posted sales is an explicit zero, never a gap.
+    expect(trend.points.filter((point) => point.salesCount === 0)).toHaveLength(
+      6,
+    );
+  });
+});
+
+function topProductsServiceWith(rows: readonly unknown[]) {
+  const queryRaw = vi.fn().mockResolvedValue(rows);
+  const prisma = {
+    client: { $queryRaw: queryRaw },
+  } as unknown as PrismaService;
+  return { service: new DashboardService(prisma), queryRaw };
+}
+
+describe("DashboardService.topProducts (Asia/Karachi business date)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("filters posted sale lines by the Karachi month range without shifting backward", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-17T06:00:00.000Z"));
+    const { service, queryRaw } = topProductsServiceWith([
+      {
+        productVariantId: IDS.location,
+        name: "Test Phone",
+        sku: "SKU-1",
+        unitsSold: 6n,
+        revenueMinor: 600_000n,
+        cogsMinor: 360_000n,
+        grossProfitMinor: 240_000n,
+      },
+    ]);
+
+    const report = await service.topProducts(
+      context([PERMISSIONS.REPORTS_VIEW_FINANCIAL]),
+      "month",
+      5,
+    );
+
+    expect({ from: report.from, to: report.to }).toEqual({
+      from: "2026-07-01",
+      to: "2026-07-31",
+    });
+    expect(report.items).toEqual([
+      {
+        productVariantId: IDS.location,
+        name: "Test Phone",
+        sku: "SKU-1",
+        unitsSold: 6,
+        revenueMinor: 600_000,
+        cogsMinor: 360_000,
+        grossProfitMinor: 240_000,
+      },
+    ]);
+    const sql = queryRaw.mock.calls[0]?.[0] as { readonly values: unknown[] };
+    expect(sql.values).toContain("2026-07-01");
+    expect(sql.values).toContain("2026-07-31");
+    // Tenant + branch are bound as query parameters (isolation proxy at the unit
+    // level; a static $queryRaw mock cannot execute the WHERE — the orchestrator's
+    // live server check exercises the real filter).
+    expect(sql.values).toContain(IDS.organization);
+    expect(sql.values).toContain(IDS.branch);
+    expect(sql.values).not.toContain(TENANT_B.organization);
+  });
+});
+
+interface SeededDay {
+  readonly organizationId: string;
+  readonly branchId: string;
+  readonly businessDate: string;
+  readonly totalMinor: bigint;
+  readonly cogsMinor: bigint;
+  readonly count: number;
+}
+
+/**
+ * A `sale.groupBy` mock that actually honours the `where` it is given, so the
+ * test fails if the service ever drops the tenant/branch/business-date filter.
+ */
+function filteringTrendServiceWith(seeded: readonly SeededDay[]) {
+  const groupBy = vi.fn().mockImplementation((args: unknown) => {
+    const where = (
+      args as {
+        where: {
+          organizationId: string;
+          branchId: string;
+          businessDate: { gte: Date; lte: Date };
+        };
+      }
+    ).where;
+    const matched = seeded.filter((row) => {
+      const instant = new Date(`${row.businessDate}T00:00:00.000Z`);
+      return (
+        row.organizationId === where.organizationId &&
+        row.branchId === where.branchId &&
+        instant >= where.businessDate.gte &&
+        instant <= where.businessDate.lte
+      );
+    });
+    return Promise.resolve(
+      matched.map((row) => ({
+        businessDate: new Date(`${row.businessDate}T00:00:00.000Z`),
+        _sum: { totalMinor: row.totalMinor, cogsMinor: row.cogsMinor },
+        _count: { _all: row.count },
+      })),
+    );
+  });
+  const prisma = {
+    client: { sale: { groupBy } },
+  } as unknown as PrismaService;
+  return { service: new DashboardService(prisma), groupBy };
+}
+
+describe("DashboardService.salesTrend (tenant isolation and money cross-check)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("aggregates only the caller's tenant/branch and totals exactly the seeded rows", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-17T06:00:00.000Z"));
+    const seeded: readonly SeededDay[] = [
+      {
+        organizationId: IDS.organization,
+        branchId: IDS.branch,
+        businessDate: "2026-07-16",
+        totalMinor: 200_000n,
+        cogsMinor: 120_000n,
+        count: 2,
+      },
+      {
+        organizationId: IDS.organization,
+        branchId: IDS.branch,
+        businessDate: "2026-07-17",
+        totalMinor: 500_000n,
+        cogsMinor: 300_000n,
+        count: 3,
+      },
+      // Tenant B, identical dates — must never surface in tenant A's report.
+      {
+        organizationId: TENANT_B.organization,
+        branchId: TENANT_B.branch,
+        businessDate: "2026-07-16",
+        totalMinor: 999_000n,
+        cogsMinor: 1_000n,
+        count: 9,
+      },
+      {
+        organizationId: TENANT_B.organization,
+        branchId: TENANT_B.branch,
+        businessDate: "2026-07-17",
+        totalMinor: 888_000n,
+        cogsMinor: 2_000n,
+        count: 8,
+      },
+    ];
+    const { service } = filteringTrendServiceWith(seeded);
+
+    const trend = await service.salesTrend(
+      context([PERMISSIONS.REPORTS_VIEW_FINANCIAL]),
+      2,
+    );
+
+    // Expected total computed independently by reducing tenant A's fixtures.
+    const expectedRevenue = seeded
+      .filter(
+        (row) =>
+          row.organizationId === IDS.organization &&
+          row.branchId === IDS.branch,
+      )
+      .reduce((sum, row) => sum + Number(row.totalMinor), 0);
+    const actualRevenue = trend.points.reduce(
+      (sum, point) => sum + point.salesRevenueMinor,
+      0,
+    );
+    expect(actualRevenue).toBe(expectedRevenue);
+    expect(actualRevenue).toBe(700_000);
+    expect(
+      trend.points.find((point) => point.businessDate === "2026-07-17")
+        ?.salesRevenueMinor,
+    ).toBe(500_000);
+    // No tenant-B amount leaks in.
+    expect(
+      trend.points.some(
+        (point) =>
+          point.salesRevenueMinor === 999_000 ||
+          point.salesRevenueMinor === 888_000,
+      ),
+    ).toBe(false);
+  });
+});
+
+interface ReorderRawFixture {
+  readonly productVariantId: string;
+  readonly name: string;
+  readonly sku: string;
+  readonly reorderPoint: number | null;
+  readonly casePackSize: number | null;
+  readonly onHandUnits: bigint;
+  readonly reservedUnits: bigint;
+  readonly availableUnits: bigint;
+  readonly costedUnits: bigint;
+  readonly costedValueMinor: bigint;
+  readonly windowUnitsSold: bigint;
+  readonly windowRevenueMinor: bigint;
+  readonly windowProfitMinor: bigint;
+}
+
+function reorderServiceWith(
+  rawRows: readonly ReorderRawFixture[],
+  demandRows: readonly {
+    matchedProductVariantId: string | null;
+    _count: { _all: number };
+  }[],
+) {
+  const queryRaw = vi.fn().mockResolvedValue(rawRows);
+  const groupBy = vi.fn().mockResolvedValue(demandRows);
+  const prisma = {
+    client: { $queryRaw: queryRaw, demandRequestItem: { groupBy } },
+  } as unknown as PrismaService;
+  return { service: new DashboardService(prisma), queryRaw, groupBy };
+}
+
+describe("DashboardService.reorderSuggestions (scoping and money cross-check)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("binds tenant/branch/window and returns money exactly derived from the fixture", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-17T06:00:00.000Z"));
+    const { service, queryRaw, groupBy } = reorderServiceWith(
+      [
+        {
+          productVariantId: VARIANT_A,
+          name: "Reorder Phone",
+          sku: "RP-1",
+          reorderPoint: null,
+          casePackSize: null,
+          onHandUnits: 0n,
+          reservedUnits: 0n,
+          availableUnits: 0n,
+          costedUnits: 10n,
+          costedValueMinor: 50_000n, // unit landed cost = 5,000
+          windowUnitsSold: 30n, // 30 sold over a 30-day window -> velocity 1/day
+          windowRevenueMinor: 300_000n,
+          windowProfitMinor: 90_000n, // unit profit = 3,000
+        },
+      ],
+      [{ matchedProductVariantId: VARIANT_A, _count: { _all: 2 } }],
+    );
+
+    const report = await service.reorderSuggestions(
+      context([PERMISSIONS.RECOMMENDATIONS_VIEW]),
+      30,
+      20,
+    );
+
+    // Independent hand-computation from the fixture:
+    //   velocity 1/day * 30 cover days = target 30; available 0 -> qty 30
+    //   unit cost 50,000/10 = 5,000 -> est cost 30 * 5,000 = 150,000
+    //   unit profit 90,000/30 = 3,000 -> exp profit 30 * 3,000 = 90,000
+    expect(report.suggestions).toHaveLength(1);
+    const suggestion = report.suggestions[0];
+    expect(suggestion?.recommendedQty).toBe(30);
+    expect(suggestion?.unitLandedCostMinor).toBe(5_000);
+    expect(suggestion?.estCostMinor).toBe(150_000);
+    expect(suggestion?.expProfitMinor).toBe(90_000);
+    expect(suggestion?.roiBasisPoints).toBe(6_000);
+    expect(suggestion?.demandOpenCount).toBe(2);
+    expect(suggestion?.confidence).toBe("high");
+    expect(report.totalEstCostMinor).toBe(150_000);
+    expect(report.totalExpProfitMinor).toBe(90_000);
+    expect(report.costCoverage).toEqual({ costed: 1, total: 1 });
+
+    // Tenant + branch bound into the raw aggregate and the demand group-by.
+    const sql = queryRaw.mock.calls[0]?.[0] as { readonly values: unknown[] };
+    expect(sql.values).toContain(IDS.organization);
+    expect(sql.values).toContain(IDS.branch);
+    expect(sql.values).toContain("2026-07-17");
+    expect(sql.values).not.toContain(TENANT_B.organization);
+    const demandWhere = groupBy.mock.calls[0]?.[0]?.where as {
+      organizationId: string;
+      branchId: string;
+    };
+    expect(demandWhere.organizationId).toBe(IDS.organization);
+    expect(demandWhere.branchId).toBe(IDS.branch);
   });
 });

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@mobileshop/database";
 import {
+  addBusinessDays,
   computeCashImpactMinor,
   computeExternalFeeMinor,
   computeServiceProfitMinor,
@@ -13,14 +14,18 @@ import {
   EXTERNAL_FEE_CONFIG_KEYS,
   ExternalTransactionPageSchema,
   ExternalTransactionSchema,
+  parseBusinessDate,
   PERMISSIONS,
   SEQUENCE_KEYS,
   toBusinessDate,
+  type BusinessDate,
   type CreateExternalTransactionData,
   type ExternalFeeConfig,
+  type ExternalProvider,
   type ExternalTransaction,
   type ExternalTransactionListQuery,
   type ExternalTransactionPage,
+  type ExternalTransactionType,
 } from "@mobileshop/shared";
 import { allocateDocumentNumber } from "../../common/numbers/number-sequence";
 import { PrismaService } from "../../database/prisma.service";
@@ -32,6 +37,56 @@ export interface ExternalActorContext {
   readonly actorUserId: string;
   readonly permissions: readonly string[];
   readonly metadata: AuthRequestMetadata;
+}
+
+/**
+ * Per-provider service movement DERIVED from recorded transactions. Only the
+ * fields backed by real data are populated; opening balance, current balance
+ * and the low-balance threshold have no configured source in this data model
+ * and are returned as null so the client renders "not configured" rather than
+ * inventing a figure.
+ */
+export interface ExternalProviderBalance {
+  readonly provider: ExternalProvider;
+  readonly amountSentTodayMinor: number;
+  readonly amountReceivedTodayMinor: number;
+  readonly netMovementMinor: number;
+  readonly transactionCount: number;
+  readonly lastTransactionAt: string | null;
+  readonly openingBalanceMinor: number | null;
+  readonly currentBalanceMinor: number | null;
+  readonly lowBalanceThresholdMinor: number | null;
+}
+
+export interface ExternalBalancesResult {
+  readonly businessDate: string;
+  readonly providers: readonly ExternalProviderBalance[];
+}
+
+export type ExternalCommissionPeriod = "day" | "week" | "month";
+
+export interface ExternalCommissionTotals {
+  readonly grossFeeMinor: number;
+  readonly providerCostMinor: number;
+  readonly netCommissionMinor: number;
+  readonly transactionCount: number;
+}
+
+export interface ExternalCommissionByProvider extends ExternalCommissionTotals {
+  readonly provider: ExternalProvider;
+}
+
+export interface ExternalCommissionByType extends ExternalCommissionTotals {
+  readonly transactionType: ExternalTransactionType;
+}
+
+export interface ExternalCommissionResult {
+  readonly period: ExternalCommissionPeriod;
+  readonly from: string;
+  readonly to: string;
+  readonly totals: ExternalCommissionTotals;
+  readonly byProvider: readonly ExternalCommissionByProvider[];
+  readonly byType: readonly ExternalCommissionByType[];
 }
 
 /**
@@ -186,6 +241,189 @@ export class ExternalService {
     ]);
     if (row === null) throw notFound();
     return externalResponse(row, config);
+  }
+
+  /**
+   * Per-provider service balances for the current business date, tenant- and
+   * branch-scoped exactly like {@link list}.
+   *
+   * Direction semantics (13_ §13): `cash_in` means physical cash enters the
+   * drawer while value leaves the shop's provider float (money send, bill,
+   * load, bank transfer); `cash_out` means the shop pays cash out and receives
+   * value into its float (a withdrawal). Principal on `cash_in` is therefore
+   * "sent" out of the float and principal on `cash_out` is "received" into it,
+   * so net float movement is received − sent.
+   */
+  async balances(context: ExternalActorContext): Promise<ExternalBalancesResult> {
+    const businessDateValue = toBusinessDate(new Date());
+    const businessDate = new Date(`${businessDateValue}T00:00:00.000Z`);
+    const grouped = await this.prisma.client.externalTransaction.groupBy({
+      by: ["provider", "direction"],
+      where: {
+        organizationId: context.organizationId,
+        branchId: context.branchId,
+        businessDate,
+      },
+      _sum: { principalMinor: true },
+      _count: { _all: true },
+      _max: { createdAt: true },
+    });
+
+    const aggregated = new Map<
+      ExternalProvider,
+      { sent: number; received: number; count: number; last: Date | null }
+    >();
+    for (const row of grouped) {
+      const entry = aggregated.get(row.provider) ?? {
+        sent: 0,
+        received: 0,
+        count: 0,
+        last: null,
+      };
+      const principal = safeInteger(row._sum.principalMinor ?? 0n, "principal", 0);
+      if (row.direction === "cash_in") entry.sent += principal;
+      else entry.received += principal;
+      entry.count += row._count._all;
+      const last = row._max.createdAt;
+      if (last !== null && (entry.last === null || last.getTime() > entry.last.getTime())) {
+        entry.last = last;
+      }
+      aggregated.set(row.provider, entry);
+    }
+
+    const providers: ExternalProviderBalance[] = [...aggregated.entries()]
+      .map(([provider, entry]) => ({
+        provider,
+        amountSentTodayMinor: entry.sent,
+        amountReceivedTodayMinor: entry.received,
+        netMovementMinor: entry.received - entry.sent,
+        transactionCount: entry.count,
+        lastTransactionAt: entry.last === null ? null : iso(entry.last),
+        // No configured source in this data model — never invented.
+        openingBalanceMinor: null,
+        currentBalanceMinor: null,
+        lowBalanceThresholdMinor: null,
+      }))
+      .sort((a, b) => a.provider.localeCompare(b.provider));
+
+    return { businessDate: businessDateValue, providers };
+  }
+
+  /**
+   * Commission roll-up over a business-date period, tenant- and branch-scoped
+   * exactly like {@link list}. Gross fee is the customer service revenue, the
+   * provider charge is our cost, and net commission is gross − cost.
+   */
+  async commission(
+    context: ExternalActorContext,
+    period: ExternalCommissionPeriod,
+  ): Promise<ExternalCommissionResult> {
+    const anchor = toBusinessDate(new Date());
+    const { from, to } = this.commissionRange(period, anchor);
+    const where: Prisma.ExternalTransactionWhereInput = {
+      organizationId: context.organizationId,
+      branchId: context.branchId,
+      businessDate: {
+        gte: new Date(`${from}T00:00:00.000Z`),
+        lte: new Date(`${to}T00:00:00.000Z`),
+      },
+    };
+
+    const [overall, byProviderRows, byTypeRows] = await Promise.all([
+      this.prisma.client.externalTransaction.aggregate({
+        where,
+        _sum: { feeChargedMinor: true, providerChargeMinor: true },
+        _count: true,
+      }),
+      this.prisma.client.externalTransaction.groupBy({
+        by: ["provider"],
+        where,
+        _sum: { feeChargedMinor: true, providerChargeMinor: true },
+        _count: { _all: true },
+      }),
+      this.prisma.client.externalTransaction.groupBy({
+        by: ["transactionType"],
+        where,
+        _sum: { feeChargedMinor: true, providerChargeMinor: true },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const byProvider: ExternalCommissionByProvider[] = byProviderRows
+      .map((row) => ({
+        provider: row.provider,
+        ...this.commissionTotals(
+          row._sum.feeChargedMinor,
+          row._sum.providerChargeMinor,
+          row._count._all,
+        ),
+      }))
+      .sort((a, b) => a.provider.localeCompare(b.provider));
+    const byType: ExternalCommissionByType[] = byTypeRows
+      .map((row) => ({
+        transactionType: row.transactionType,
+        ...this.commissionTotals(
+          row._sum.feeChargedMinor,
+          row._sum.providerChargeMinor,
+          row._count._all,
+        ),
+      }))
+      .sort((a, b) => a.transactionType.localeCompare(b.transactionType));
+
+    return {
+      period,
+      from,
+      to,
+      totals: this.commissionTotals(
+        overall._sum.feeChargedMinor,
+        overall._sum.providerChargeMinor,
+        overall._count,
+      ),
+      byProvider,
+      byType,
+    };
+  }
+
+  private commissionTotals(
+    feeSum: bigint | null,
+    costSum: bigint | null,
+    count: number,
+  ): ExternalCommissionTotals {
+    const grossFeeMinor = safeInteger(feeSum ?? 0n, "gross fee", 0);
+    const providerCostMinor = safeInteger(costSum ?? 0n, "provider cost", 0);
+    return {
+      grossFeeMinor,
+      providerCostMinor,
+      netCommissionMinor: grossFeeMinor - providerCostMinor,
+      transactionCount: safeInteger(count, "transaction count", 0),
+    };
+  }
+
+  /** Inclusive business-date range for a period, anchored on today. Mirrors the
+   * dashboard summary convention: calendar day, ISO week (Mon–Sun) and calendar
+   * month. */
+  private commissionRange(
+    period: ExternalCommissionPeriod,
+    anchor: BusinessDate,
+  ): { from: BusinessDate; to: BusinessDate } {
+    if (period === "day") return { from: anchor, to: anchor };
+    if (period === "week") {
+      const dayOfWeek = new Date(`${anchor}T12:00:00.000Z`).getUTCDay();
+      const daysFromMonday = (dayOfWeek + 6) % 7;
+      const from = addBusinessDays(anchor, -daysFromMonday);
+      return { from, to: addBusinessDays(from, 6) };
+    }
+    const year = Number(anchor.slice(0, 4));
+    const month = Number(anchor.slice(5, 7));
+    // Date.UTC month is 0-based, so `month` names the following month and day 0
+    // resolves to the last calendar day of the anchor's month.
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return {
+      from: parseBusinessDate(`${anchor.slice(0, 7)}-01`),
+      to: parseBusinessDate(
+        `${anchor.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`,
+      ),
+    };
   }
 
   async record(

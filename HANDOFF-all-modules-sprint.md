@@ -1,6 +1,8 @@
 # Handoff — `all-modules-sprint` (breadth-first module sprint)
 
-_Last updated by Claude before context handoff. Branch `all-modules-sprint`, HEAD `1097f3e`, pushed to `origin/all-modules-sprint`._
+_Last updated by Claude. Branch `all-modules-sprint`, HEAD `a649c7b`, pushed to `origin/all-modules-sprint`._
+
+> **UPDATE — runtime gate COMPLETE (commit a649c7b).** The runtime + browser gate described below has now PASSED, and these five modules are **READY**: Transaction History, Service Balances, Commission, Reports, Reorder Intelligence. Verified on a fresh stack against **mobileshop_test** (backend `node dist/main` on :4000, rebuilt frontend `next start` on :3000) via `e2e/tests/readmodels-runtime.spec.ts` (2 passed): live routes 200+shape; `/external/<well-formed-ghost-uuid>` → 404; independent money cross-check (commission `grossFeeMinor==Σ feeChargedMinor`, `providerCostMinor==Σ providerChargeMinor`, `count==rows`; balances `netMovementMinor==received−sent`); and all five pages render real authenticated data. The live NestJS router registration confirms `/external/:id` is the **last** GET (static routes not shadowed). ⚠️ **The currently-running backend is on `mobileshop_test`, not dev** — if you resume normal dev work, restart it against the root `.env` (dev) URL. Still `building` (unverified): Reconciliation (needs backend), Repairs/Warranty/Used-Intake (foundation in `stash@{0}`, needs a migration), Tasks/Settings (need new tables).
 
 ## Safety state (do not violate)
 - **Branch:** work only on `all-modules-sprint`. Do NOT merge into `main` or `mvp-integrated-checkpoint`.

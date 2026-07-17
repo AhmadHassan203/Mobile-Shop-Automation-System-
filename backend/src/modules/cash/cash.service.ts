@@ -24,6 +24,17 @@ export interface CashActorContext {
   readonly metadata: AuthRequestMetadata;
 }
 
+/** Live expected-cash breakdown for the branch's open drawer session. */
+export interface CashPosition {
+  readonly sessionId: string;
+  readonly sessionNumber: string;
+  readonly openingCashMinor: number;
+  readonly cashSalesMinor: number;
+  readonly externalCashImpactMinor: number;
+  readonly cashExpensesMinor: number;
+  readonly expectedCashMinor: number;
+}
+
 /** States that count as an active drawer for one branch. */
 const OPEN_STATES = ["open", "reopened_with_authorization"] as const;
 
@@ -146,6 +157,108 @@ export class CashService {
     return sessionResponse(record);
   }
 
+  /**
+   * The live drawer position for the branch's open session: opening float plus
+   * every cash-affecting movement tied to the session, exactly as {@link close}
+   * computes the expected balance. Returns null when no session is open — the
+   * position is undefined then, never zero. This is the single source of truth
+   * for expected cash, reused by the dashboard read model.
+   */
+  async position(context: CashActorContext): Promise<CashPosition | null> {
+    const session = await this.prisma.client.cashSession.findFirst({
+      where: {
+        organizationId: context.organizationId,
+        branchId: context.branchId,
+        status: { in: [...OPEN_STATES] },
+      },
+      orderBy: [{ openedAt: "desc" }, { id: "asc" }],
+      select: { id: true, sessionNumber: true, openingCashMinor: true },
+    });
+    if (session === null) return null;
+    const openingCashMinor = safeInteger(session.openingCashMinor, "opening cash", 0);
+    const movement = await this.drawerMovement(
+      this.prisma.client,
+      context,
+      session.id,
+    );
+    return {
+      sessionId: session.id,
+      sessionNumber: session.sessionNumber,
+      openingCashMinor,
+      cashSalesMinor: movement.cashSalesMinor,
+      externalCashImpactMinor: movement.externalCashImpactMinor,
+      cashExpensesMinor: movement.cashExpensesMinor,
+      expectedCashMinor: safeInteger(
+        openingCashMinor +
+          movement.cashSalesMinor +
+          movement.externalCashImpactMinor -
+          movement.cashExpensesMinor,
+        "expected cash",
+        0,
+      ),
+    };
+  }
+
+  /**
+   * Signed cash-affecting movement for one session: cash payments in, signed
+   * external cash impact, cash expenses out. The single formula both the live
+   * {@link position} and the {@link close} settlement rely on.
+   */
+  private async drawerMovement(
+    client: Prisma.TransactionClient | PrismaService["client"],
+    context: CashActorContext,
+    sessionId: string,
+  ): Promise<{
+    readonly cashSalesMinor: number;
+    readonly externalCashImpactMinor: number;
+    readonly cashExpensesMinor: number;
+  }> {
+    const [cashPayments, externals, cashExpenses] = await Promise.all([
+      client.payment.aggregate({
+        where: {
+          organizationId: context.organizationId,
+          branchId: context.branchId,
+          cashSessionId: sessionId,
+          paymentMethod: "cash",
+        },
+        _sum: { amountMinor: true },
+      }),
+      client.externalTransaction.aggregate({
+        where: {
+          organizationId: context.organizationId,
+          branchId: context.branchId,
+          cashSessionId: sessionId,
+        },
+        _sum: { cashImpactMinor: true },
+      }),
+      client.expense.aggregate({
+        where: {
+          organizationId: context.organizationId,
+          branchId: context.branchId,
+          cashSessionId: sessionId,
+          paymentMethod: "cash",
+        },
+        _sum: { amountMinor: true },
+      }),
+    ]);
+    return {
+      cashSalesMinor: safeInteger(
+        cashPayments._sum.amountMinor ?? 0n,
+        "cash sales",
+        0,
+      ),
+      externalCashImpactMinor: safeInteger(
+        externals._sum.cashImpactMinor ?? 0n,
+        "external cash impact",
+      ),
+      cashExpensesMinor: safeInteger(
+        cashExpenses._sum.amountMinor ?? 0n,
+        "cash expenses",
+        0,
+      ),
+    };
+  }
+
   async current(context: CashActorContext): Promise<CashSession | null> {
     const record = await this.prisma.client.cashSession.findFirst({
       where: {
@@ -230,40 +343,18 @@ export class CashService {
         if (current.version !== input.version) throw optimistic();
 
         // Server-authoritative expected drawer balance: opening float plus every
-        // cash-affecting movement tied to this session. External impact is signed.
-        const [cashPayments, externals, cashExpenses] = await Promise.all([
-          tx.payment.aggregate({
-            where: {
-              organizationId: context.organizationId,
-              branchId: context.branchId,
-              cashSessionId: id,
-              paymentMethod: "cash",
-            },
-            _sum: { amountMinor: true },
-          }),
-          tx.externalTransaction.aggregate({
-            where: {
-              organizationId: context.organizationId,
-              branchId: context.branchId,
-              cashSessionId: id,
-            },
-            _sum: { cashImpactMinor: true },
-          }),
-          tx.expense.aggregate({
-            where: {
-              organizationId: context.organizationId,
-              branchId: context.branchId,
-              cashSessionId: id,
-              paymentMethod: "cash",
-            },
-            _sum: { amountMinor: true },
-          }),
-        ]);
+        // cash-affecting movement tied to this session, via the shared formula.
+        const openingCashMinor = safeInteger(
+          current.openingCashMinor,
+          "opening cash",
+          0,
+        );
+        const movement = await this.drawerMovement(tx, context, id);
         const expectedCashMinor = safeInteger(
-          BigInt(current.openingCashMinor) +
-            (cashPayments._sum.amountMinor ?? 0n) +
-            (externals._sum.cashImpactMinor ?? 0n) -
-            (cashExpenses._sum.amountMinor ?? 0n),
+          openingCashMinor +
+            movement.cashSalesMinor +
+            movement.externalCashImpactMinor -
+            movement.cashExpensesMinor,
           "expected cash",
           0,
         );

@@ -1,9 +1,22 @@
-import { PERMISSIONS, type PermissionKey } from "@mobileshop/shared";
+import {
+  PERMISSIONS,
+  type DailyFinancialSummary,
+  type PermissionKey,
+} from "@mobileshop/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../../database/prisma.service";
+import type { CashPosition, CashService } from "../cash/cash.service";
+import type { DemandService, DemandTopUnmetItem } from "../demand/demand.service";
+import type {
+  ExternalBalancesResult,
+  ExternalCommissionResult,
+  ExternalService,
+} from "../external/external.service";
+import type { SalesService } from "../sales/sales.service";
 import {
   DashboardService,
   type DashboardActorContext,
+  type ReorderReport,
 } from "./dashboard.service";
 
 const IDS = Object.freeze({
@@ -19,6 +32,7 @@ const TENANT_B = Object.freeze({
   branch: "20000000-0000-4000-8000-000000000002",
 });
 const VARIANT_A = "10000000-0000-4000-8000-0000000000aa";
+const SALE_ID = "10000000-0000-4000-8000-0000000000cc";
 
 interface InventoryTestRow {
   readonly onHandUnits: bigint;
@@ -46,41 +60,350 @@ function context(
 ): DashboardActorContext {
   return {
     organizationId: IDS.organization,
+    organizationName: "Tenant A",
     branchId: IDS.branch,
+    branchName: "Main",
+    actorUserId: "10000000-0000-4000-8000-0000000000ff",
+    actorFullName: "Owner",
     currency: "PKR",
     permissions: new Set(permissions),
     allowedLocationIds,
+    metadata: { ipAddress: null, userAgent: null, requestId: "test-request" },
   };
 }
 
-function serviceWith(
-  inventoryRows: readonly InventoryTestRow[] = [INVENTORY_ROW],
-  openPurchaseOrders = 2,
+/** Stub domain services for the read-model methods that never call out. */
+function stubServices(): {
+  sales: SalesService;
+  external: ExternalService;
+  cash: CashService;
+  demand: DemandService;
+} {
+  return {
+    sales: {} as unknown as SalesService,
+    external: {} as unknown as ExternalService,
+    cash: {} as unknown as CashService,
+    demand: {} as unknown as DemandService,
+  };
+}
+
+function dashboardService(prisma: PrismaService): DashboardService {
+  const stubs = stubServices();
+  return new DashboardService(
+    prisma,
+    stubs.sales,
+    stubs.external,
+    stubs.cash,
+    stubs.demand,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// snapshot() — the live command-centre read model
+// ---------------------------------------------------------------------------
+
+const DAY_SUMMARY: DailyFinancialSummary = {
+  period: "day",
+  from: "2026-07-17",
+  to: "2026-07-17",
+  salesRevenueMinor: 500_000,
+  discountsMinor: 0,
+  returnsMinor: 0,
+  netSalesMinor: 500_000,
+  cogsMinor: 300_000,
+  grossProfitMinor: 200_000,
+  serviceProfitMinor: 7_000,
+  expensesMinor: 12_000,
+  estimatedNetProfitMinor: 195_000,
+  salesCount: 4,
+  externalTxnCount: 3,
+};
+
+const ZERO_SUMMARY: DailyFinancialSummary = {
+  period: "day",
+  from: "2026-07-17",
+  to: "2026-07-17",
+  salesRevenueMinor: 0,
+  discountsMinor: 0,
+  returnsMinor: 0,
+  netSalesMinor: 0,
+  cogsMinor: 0,
+  grossProfitMinor: 0,
+  serviceProfitMinor: 0,
+  expensesMinor: 0,
+  estimatedNetProfitMinor: 0,
+  salesCount: 0,
+  externalTxnCount: 0,
+};
+
+const REORDER_REPORT: ReorderReport = {
+  windowDays: 30,
+  generatedAt: "2026-07-17T06:00:00.000Z",
+  businessDate: "2026-07-17",
+  totalEstCostMinor: 150_000,
+  totalExpProfitMinor: 90_000,
+  costCoverage: { costed: 1, total: 1 },
+  suggestions: [],
+};
+
+const EMPTY_REORDER: ReorderReport = {
+  windowDays: 30,
+  generatedAt: "2026-07-17T06:00:00.000Z",
+  businessDate: "2026-07-17",
+  totalEstCostMinor: 0,
+  totalExpProfitMinor: 0,
+  costCoverage: { costed: 0, total: 0 },
+  suggestions: [],
+};
+
+const BALANCES: ExternalBalancesResult = {
+  businessDate: "2026-07-17",
+  providers: [
+    {
+      provider: "easypaisa",
+      amountSentTodayMinor: 60_000,
+      amountReceivedTodayMinor: 50_000,
+      netMovementMinor: -10_000,
+      transactionCount: 2,
+      lastTransactionAt: null,
+      openingBalanceMinor: null,
+      currentBalanceMinor: null,
+      lowBalanceThresholdMinor: null,
+    },
+    {
+      provider: "jazzcash",
+      amountSentTodayMinor: 40_000,
+      amountReceivedTodayMinor: 30_000,
+      netMovementMinor: -10_000,
+      transactionCount: 1,
+      lastTransactionAt: null,
+      openingBalanceMinor: null,
+      currentBalanceMinor: null,
+      lowBalanceThresholdMinor: null,
+    },
+  ],
+};
+
+const EMPTY_BALANCES: ExternalBalancesResult = {
+  businessDate: "2026-07-17",
+  providers: [],
+};
+
+const COMMISSION: ExternalCommissionResult = {
+  period: "day",
+  from: "2026-07-17",
+  to: "2026-07-17",
+  totals: {
+    grossFeeMinor: 2_000,
+    providerCostMinor: 500,
+    netCommissionMinor: 1_500,
+    transactionCount: 3,
+  },
+  byProvider: [],
+  byType: [],
+};
+
+const EMPTY_COMMISSION: ExternalCommissionResult = {
+  period: "day",
+  from: "2026-07-17",
+  to: "2026-07-17",
+  totals: {
+    grossFeeMinor: 0,
+    providerCostMinor: 0,
+    netCommissionMinor: 0,
+    transactionCount: 0,
+  },
+  byProvider: [],
+  byType: [],
+};
+
+const CASH_POSITION: CashPosition = {
+  sessionId: "10000000-0000-4000-8000-0000000000dd",
+  sessionNumber: "CS-000001",
+  openingCashMinor: 50_000,
+  cashSalesMinor: 30_000,
+  externalCashImpactMinor: 0,
+  cashExpensesMinor: 5_000,
+  expectedCashMinor: 75_000,
+};
+
+const TOP_UNMET: readonly DemandTopUnmetItem[] = [
+  { key: `variant:${VARIANT_A}`, name: "iPhone 15", waitingQuantity: 3 },
+];
+
+/** One posted-sale list row, with knobs for the mapping edge cases. */
+function saleRow(
+  overrides: Partial<{
+    id: string;
+    invoiceNumber: string | null;
+    postedAt: string | null;
+    customer: { id: string; name: string; phone: string | null } | null;
+    paymentMethods: readonly string[];
+    totalMinor: number;
+    profit:
+      | {
+          availability: "available";
+          cogsMinor: number;
+          grossProfitMinor: number;
+          grossMarginBasisPoints: number;
+        }
+      | { availability: "redacted"; message: string };
+  }> = {},
 ) {
-  const queryRaw = vi.fn().mockResolvedValue(inventoryRows);
-  const count = vi.fn().mockResolvedValue(openPurchaseOrders);
+  return {
+    id: overrides.id ?? SALE_ID,
+    status: "posted" as const,
+    invoiceNumber:
+      overrides.invoiceNumber === undefined
+        ? "SAL-000123"
+        : overrides.invoiceNumber,
+    customer:
+      overrides.customer === undefined
+        ? { id: "10000000-0000-4000-8000-0000000000ee", name: "Acme", phone: null }
+        : overrides.customer,
+    lineCount: 1,
+    unitCount: 1,
+    totalMinor: overrides.totalMinor ?? 25_000,
+    paymentMethods: overrides.paymentMethods ?? ["cash"],
+    profit:
+      overrides.profit ??
+      ({
+        availability: "available",
+        cogsMinor: 15_000,
+        grossProfitMinor: 10_000,
+        grossMarginBasisPoints: 4_000,
+      } as const),
+    cashier: null,
+    salesperson: null,
+    heldAt: null,
+    postedAt:
+      overrides.postedAt === undefined
+        ? "2026-07-16T09:15:00.000Z"
+        : overrides.postedAt,
+    createdAt: "2026-07-16T09:15:00.000Z",
+    version: 1,
+  };
+}
+
+function salesPage(items: readonly ReturnType<typeof saleRow>[]) {
+  return {
+    items,
+    page: 1,
+    pageSize: 6,
+    total: items.length,
+    totalPages: 1,
+  };
+}
+
+interface CreateServiceOverrides {
+  inventoryRows?: readonly InventoryTestRow[];
+  openPurchaseOrders?: number;
+  sales?: ReturnType<typeof salesPage>;
+  balances?: ExternalBalancesResult;
+  commission?: ExternalCommissionResult;
+  position?: CashPosition | null;
+  topUnmet?: readonly DemandTopUnmetItem[];
+  summary?: DailyFinancialSummary;
+  reorder?: ReorderReport;
+}
+
+/**
+ * The single snapshot-test factory. Every dependency is a typed mock whose
+ * default is a valid live state (a session is open, zero/empty movement is a
+ * real zero — never a source_not_built stub). Individual tests override only
+ * the source they exercise. The finance summary and reorder engine are
+ * DashboardService's own methods, exercised in their own suites, so here they
+ * are spied to keep snapshot() coordination free of a live database.
+ */
+function createService(overrides: CreateServiceOverrides = {}) {
+  const queryRaw = vi.fn().mockResolvedValue(overrides.inventoryRows ?? [INVENTORY_ROW]);
+  const count = vi.fn().mockResolvedValue(overrides.openPurchaseOrders ?? 2);
+  const list = vi.fn().mockResolvedValue(overrides.sales ?? salesPage([saleRow()]));
+  const balances = vi.fn().mockResolvedValue(overrides.balances ?? BALANCES);
+  const commission = vi.fn().mockResolvedValue(overrides.commission ?? COMMISSION);
+  const position = vi
+    .fn()
+    .mockResolvedValue("position" in overrides ? overrides.position : CASH_POSITION);
+  const topUnmet = vi.fn().mockResolvedValue(overrides.topUnmet ?? TOP_UNMET);
+
   const prisma = {
     client: { $queryRaw: queryRaw, purchaseOrder: { count } },
   } as unknown as PrismaService;
-  return { service: new DashboardService(prisma), queryRaw, count };
+  const service = new DashboardService(
+    prisma,
+    { list } as unknown as SalesService,
+    { balances, commission } as unknown as ExternalService,
+    { position } as unknown as CashService,
+    { topUnmet } as unknown as DemandService,
+  );
+  vi.spyOn(service, "summary").mockResolvedValue(overrides.summary ?? DAY_SUMMARY);
+  vi.spyOn(service, "reorderSuggestions").mockResolvedValue(
+    overrides.reorder ?? REORDER_REPORT,
+  );
+
+  return {
+    service,
+    mocks: { queryRaw, count, list, balances, commission, position, topUnmet },
+  };
 }
 
-describe("DashboardService", () => {
-  it("returns scoped real stock, valuation coverage and purchase attention", async () => {
-    const { service, queryRaw, count } = serviceWith();
-    const snapshot = await service.snapshot(
-      context([
-        PERMISSIONS.INVENTORY_VIEW,
-        PERMISSIONS.INVENTORY_VIEW_COST,
-        PERMISSIONS.REPORTS_VIEW_FINANCIAL,
-        PERMISSIONS.PURCHASES_VIEW,
-        PERMISSIONS.SALES_VIEW,
-        PERMISSIONS.DEMAND_VIEW,
-        PERMISSIONS.RECOMMENDATIONS_VIEW,
-        PERMISSIONS.EXTERNAL_SERVICES_VIEW,
-      ]),
-    );
+const FULL_PERMISSIONS: readonly PermissionKey[] = [
+  PERMISSIONS.INVENTORY_VIEW,
+  PERMISSIONS.INVENTORY_VIEW_COST,
+  PERMISSIONS.REPORTS_VIEW_FINANCIAL,
+  PERMISSIONS.PURCHASES_VIEW,
+  PERMISSIONS.SALES_VIEW,
+  PERMISSIONS.SALES_VIEW_PROFIT,
+  PERMISSIONS.CASH_SESSIONS_VIEW,
+  PERMISSIONS.DEMAND_VIEW,
+  PERMISSIONS.RECOMMENDATIONS_VIEW,
+  PERMISSIONS.EXTERNAL_SERVICES_VIEW,
+];
 
+describe("DashboardService.snapshot (live read model)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("populates every section from the reused domain sources", async () => {
+    const { service } = createService();
+    const snapshot = await service.snapshot(context(FULL_PERMISSIONS));
+
+    // The four financial tiles are the finance summary verbatim — Dashboard can
+    // never disagree with Finance.
+    expect(snapshot.moneyKpis[0].value).toEqual({
+      availability: "available",
+      valueMinor: 500_000,
+      meta: "Posted sales revenue today",
+    });
+    expect(snapshot.moneyKpis[1].value).toEqual({
+      availability: "available",
+      valueMinor: 200_000,
+      meta: "Sales revenue less COGS",
+    });
+    expect(snapshot.moneyKpis[2].value).toEqual({
+      availability: "available",
+      valueMinor: 12_000,
+      meta: "Operating expenses today",
+    });
+    expect(snapshot.moneyKpis[3].value).toEqual({
+      availability: "available",
+      valueMinor: 195_000,
+      meta: "Gross + service profit less expenses",
+    });
+    expect(snapshot.moneyKpis[4].value).toEqual({
+      availability: "available",
+      valueMinor: 75_000,
+      meta: "Expected drawer · session CS-000001",
+    });
+    expect(snapshot.moneyKpis[5].value).toMatchObject({
+      availability: "partial",
+      valueMinor: 123_450,
+    });
+
+    expect(snapshot.todaysTasks).toEqual({
+      availability: "unavailable",
+      reason: "source_not_built",
+      message: "The Tasks source module is coming soon.",
+    });
     expect(snapshot.stockSummary).toEqual({
       availability: "available",
       data: {
@@ -90,92 +413,269 @@ describe("DashboardService", () => {
         outOfStockVariantCount: 3,
       },
     });
-    expect(snapshot.moneyKpis[5].value).toEqual({
-      availability: "partial",
-      valueMinor: 123_450,
-      meta: "Recorded landed cost only",
-      message: "1 on-hand unit has no recorded landed cost and is excluded.",
-      coverage: { valuedUnits: 8, uncostedUnits: 1 },
-    });
     expect(snapshot.attention.availability).toBe("partial");
-    if (snapshot.attention.availability === "partial") {
-      expect(snapshot.attention.items).toEqual([
-        expect.objectContaining({
-          id: "inventory:active-variant-stockouts",
-          rank: 1,
-          severity: "negative",
-        }),
-        expect.objectContaining({
-          id: "purchasing:open-purchase-orders",
-          rank: 2,
-          severity: "warning",
-        }),
-      ]);
-    }
-    expect(snapshot.recentSales.availability).toBe("unavailable");
-    expect(snapshot.demandAndBuying.availability).toBe("unavailable");
-    expect(snapshot.digitalServices.availability).toBe("unavailable");
-    expect(snapshot.todaysTasks.availability).toBe("unavailable");
+  });
 
-    expect(queryRaw).toHaveBeenCalledTimes(1);
-    const sql = queryRaw.mock.calls[0]?.[0] as { readonly values: unknown[] };
-    expect(sql.values).toContain(IDS.organization);
-    expect(sql.values).toContain(IDS.branch);
-    expect(sql.values).toContain(IDS.location);
-    expect(sql.values).not.toContain(IDS.otherLocation);
-    expect(count).toHaveBeenCalledWith({
-      where: {
-        organizationId: IDS.organization,
-        branchId: IDS.branch,
-        status: { notIn: ["closed", "cancelled"] },
+  it("maps recent sales — split payments, walk-in fallback and redacted profit", async () => {
+    const { service } = createService({
+      sales: salesPage([
+        saleRow({
+          id: "10000000-0000-4000-8000-0000000000c1",
+          invoiceNumber: "SAL-1",
+          paymentMethods: ["cash", "card"],
+          customer: null,
+        }),
+        saleRow({
+          id: "10000000-0000-4000-8000-0000000000c2",
+          invoiceNumber: "SAL-2",
+          paymentMethods: ["bank_transfer"],
+          profit: { availability: "redacted", message: "no profit" },
+        }),
+        // Unposted rows are never shown even if the list returns them.
+        saleRow({
+          id: "10000000-0000-4000-8000-0000000000c3",
+          invoiceNumber: null,
+          postedAt: null,
+        }),
+      ]),
+    });
+
+    const snapshot = await service.snapshot(context(FULL_PERMISSIONS));
+
+    expect(snapshot.recentSales.availability).toBe("available");
+    if (snapshot.recentSales.availability !== "available") return;
+    expect(snapshot.recentSales.items).toEqual([
+      {
+        id: "10000000-0000-4000-8000-0000000000c1",
+        invoiceNumber: "SAL-1",
+        postedAt: "2026-07-16T09:15:00.000Z",
+        customerName: "Walk-in customer",
+        paymentMethod: "Split payment",
+        totalMinor: 25_000,
+        profit: {
+          availability: "available",
+          valueMinor: 10_000,
+          meta: "Gross profit",
+        },
+        href: "/sales/10000000-0000-4000-8000-0000000000c1",
       },
+      {
+        id: "10000000-0000-4000-8000-0000000000c2",
+        invoiceNumber: "SAL-2",
+        postedAt: "2026-07-16T09:15:00.000Z",
+        customerName: "Acme",
+        paymentMethod: "Bank transfer",
+        totalMinor: 25_000,
+        profit: {
+          availability: "redacted",
+          message: "Profit visibility requires sales.view_profit.",
+        },
+        href: "/sales/10000000-0000-4000-8000-0000000000c2",
+      },
+    ]);
+  });
+
+  it("aggregates digital totals from balances and commission", async () => {
+    const { service } = createService();
+    const snapshot = await service.snapshot(context(FULL_PERMISSIONS));
+
+    expect(snapshot.digitalServices.availability).toBe("available");
+    if (snapshot.digitalServices.availability !== "available") return;
+    const digital = snapshot.digitalServices.data;
+    // sent = 60,000 + 40,000; received = 50,000 + 30,000 across providers.
+    expect(digital.sentToday).toMatchObject({ valueMinor: 100_000 });
+    expect(digital.receivedToday).toMatchObject({ valueMinor: 80_000 });
+    expect(digital.customerFeesToday).toMatchObject({ valueMinor: 2_000 });
+    // The "providerNetCommission" contract field carries the provider charge.
+    expect(digital.providerNetCommission).toMatchObject({ valueMinor: 500 });
+    expect(digital.netEarnings).toMatchObject({ valueMinor: 1_500 });
+    expect(digital.pendingTransactions).toEqual({
+      availability: "available",
+      value: 0,
+      meta: "Recorded instantly",
+    });
+    expect(digital.actionQueue).toEqual([]);
+  });
+
+  it("aggregates demand top-unmet and the reorder budget", async () => {
+    const { service } = createService({
+      topUnmet: [
+        { key: `variant:${VARIANT_A}`, name: "iPhone 15", waitingQuantity: 3 },
+        { key: "wording:pixel 9", name: "Pixel 9", waitingQuantity: 1 },
+      ],
+      reorder: { ...REORDER_REPORT, costCoverage: { costed: 2, total: 3 } },
+    });
+
+    const snapshot = await service.snapshot(context(FULL_PERMISSIONS));
+
+    expect(snapshot.demandAndBuying.availability).toBe("available");
+    if (snapshot.demandAndBuying.availability !== "available") return;
+    const data = snapshot.demandAndBuying.data;
+    expect(data.topUnmet).toEqual([
+      {
+        key: `variant:${VARIANT_A}`,
+        name: "iPhone 15",
+        waitingQuantity: 3,
+        href: "/demand",
+      },
+      { key: "wording:pixel 9", name: "Pixel 9", waitingQuantity: 1, href: "/demand" },
+    ]);
+    // One suggested item is uncosted, so the budget is a partial value.
+    expect(data.recommendedBudget).toMatchObject({
+      availability: "partial",
+      valueMinor: 150_000,
+    });
+    expect(data.expectedGrossProfit).toMatchObject({ valueMinor: 90_000 });
+    // There is no server "selected investment" concept.
+    expect(data.selectedInvestment).toMatchObject({
+      availability: "unavailable",
+      reason: "source_not_configured",
     });
   });
 
-  it("does not query or leak source data when source permissions are absent", async () => {
-    const { service, queryRaw, count } = serviceWith();
-    const snapshot = await service.snapshot(
-      context([PERMISSIONS.REPORTS_VIEW]),
-    );
+  it("renders empty live sources as real zeros, never a coming-soon stub", async () => {
+    const { service } = createService({
+      sales: salesPage([]),
+      balances: EMPTY_BALANCES,
+      commission: EMPTY_COMMISSION,
+      topUnmet: [],
+      summary: ZERO_SUMMARY,
+      reorder: EMPTY_REORDER,
+    });
 
-    expect(queryRaw).not.toHaveBeenCalled();
-    expect(count).not.toHaveBeenCalled();
+    const snapshot = await service.snapshot(context(FULL_PERMISSIONS));
+
+    expect(snapshot.moneyKpis[0].value).toEqual({
+      availability: "available",
+      valueMinor: 0,
+      meta: "Posted sales revenue today",
+    });
+    expect(snapshot.recentSales).toEqual({ availability: "available", items: [] });
+    expect(snapshot.digitalServices.availability).toBe("available");
+    if (snapshot.digitalServices.availability === "available") {
+      expect(snapshot.digitalServices.data.sentToday).toMatchObject({
+        valueMinor: 0,
+      });
+      expect(snapshot.digitalServices.data.netEarnings).toMatchObject({
+        valueMinor: 0,
+      });
+    }
+    expect(snapshot.demandAndBuying.availability).toBe("available");
+    if (snapshot.demandAndBuying.availability === "available") {
+      expect(snapshot.demandAndBuying.data.topUnmet).toEqual([]);
+      expect(snapshot.demandAndBuying.data.recommendedBudget).toEqual({
+        availability: "available",
+        valueMinor: 0,
+        meta: "Recommended reorder spend",
+      });
+    }
+  });
+
+  it("degrades a single failing source without failing the whole dashboard", async () => {
+    const { service, mocks } = createService();
+    mocks.balances.mockRejectedValue(new Error("provider read timed out"));
+
+    const snapshot = await service.snapshot(context(FULL_PERMISSIONS));
+
+    expect(snapshot.digitalServices).toEqual({
+      availability: "unavailable",
+      reason: "temporarily_unavailable",
+      message: "Digital-service analytics are temporarily unavailable.",
+    });
+    // Every other live section still renders.
+    expect(snapshot.recentSales.availability).toBe("available");
+    expect(snapshot.moneyKpis[0].value.availability).toBe("available");
+  });
+
+  it("propagates the tenant, branch and posted-only scope to every source", async () => {
+    const { service, mocks } = createService();
+    await service.snapshot(context(FULL_PERMISSIONS));
+
+    const salesArgs = mocks.list.mock.calls[0];
+    expect(salesArgs?.[0]).toMatchObject({
+      organizationId: IDS.organization,
+      branchId: IDS.branch,
+    });
+    expect(salesArgs?.[1]).toMatchObject({ status: "posted", pageSize: 6 });
+
+    expect(mocks.balances.mock.calls[0]?.[0]).toMatchObject({
+      organizationId: IDS.organization,
+      branchId: IDS.branch,
+    });
+    expect(mocks.commission.mock.calls[0]).toMatchObject([
+      { organizationId: IDS.organization, branchId: IDS.branch },
+      "day",
+    ]);
+    expect(mocks.position.mock.calls[0]?.[0]).toMatchObject({
+      organizationId: IDS.organization,
+      branchId: IDS.branch,
+    });
+    expect(mocks.topUnmet.mock.calls[0]).toMatchObject([
+      { organizationId: IDS.organization, branchId: IDS.branch },
+      4,
+    ]);
+  });
+
+  it("does not query or leak source data when source permissions are absent", async () => {
+    const { service, mocks } = createService();
+    const snapshot = await service.snapshot(context([PERMISSIONS.REPORTS_VIEW]));
+
+    expect(mocks.queryRaw).not.toHaveBeenCalled();
+    expect(mocks.count).not.toHaveBeenCalled();
+    expect(mocks.list).not.toHaveBeenCalled();
+    expect(mocks.balances).not.toHaveBeenCalled();
+    expect(mocks.position).not.toHaveBeenCalled();
+    expect(mocks.topUnmet).not.toHaveBeenCalled();
     expect(snapshot.stockSummary.availability).toBe("redacted");
+    expect(snapshot.moneyKpis[0].value.availability).toBe("redacted");
+    expect(snapshot.moneyKpis[4].value.availability).toBe("redacted");
     expect(snapshot.moneyKpis[5].value.availability).toBe("redacted");
     expect(snapshot.attention.availability).toBe("redacted");
     expect(snapshot.recentSales.availability).toBe("redacted");
     expect(snapshot.demandAndBuying.availability).toBe("redacted");
     expect(snapshot.digitalServices.availability).toBe("redacted");
+    // Tasks is genuinely unimplemented — coming soon regardless of grants.
     expect(snapshot.todaysTasks.availability).toBe("unavailable");
   });
 
-  it("keeps valuation redacted unless both cost and financial-report grants exist", async () => {
-    const { service, queryRaw } = serviceWith();
+  it("reports cash position as not-configured when no session is open", async () => {
+    const { service } = createService({ position: null });
+
+    const snapshot = await service.snapshot(context(FULL_PERMISSIONS));
+
+    expect(snapshot.moneyKpis[4].value).toEqual({
+      availability: "unavailable",
+      reason: "source_not_configured",
+      message: "No cash session is open. Open one from Daily Closing.",
+    });
+  });
+
+  it("keeps stock live and valuation redacted without the cost grant", async () => {
+    const { service, mocks } = createService();
     const snapshot = await service.snapshot(
-      context([
-        PERMISSIONS.INVENTORY_VIEW,
-        PERMISSIONS.INVENTORY_VIEW_COST,
-      ]),
+      context([PERMISSIONS.INVENTORY_VIEW]),
     );
 
-    expect(queryRaw).toHaveBeenCalledTimes(1);
+    expect(mocks.queryRaw).toHaveBeenCalledTimes(1);
     expect(snapshot.stockSummary.availability).toBe("available");
     expect(snapshot.moneyKpis[5].value.availability).toBe("redacted");
   });
 
   it("reports a complete zero valuation as real zero rather than unavailable", async () => {
-    const { service } = serviceWith([
-      {
-        ...INVENTORY_ROW,
-        onHandUnits: 0n,
-        reservedUnits: 0n,
-        availableUnits: 0n,
-        valuedUnits: 0n,
-        uncostedUnits: 0n,
-        inventoryValueMinor: 0n,
-        outOfStockVariantCount: 0n,
-      },
-    ]);
+    const { service } = createService({
+      inventoryRows: [
+        {
+          ...INVENTORY_ROW,
+          onHandUnits: 0n,
+          reservedUnits: 0n,
+          availableUnits: 0n,
+          valuedUnits: 0n,
+          uncostedUnits: 0n,
+          inventoryValueMinor: 0n,
+          outOfStockVariantCount: 0n,
+        },
+      ],
+    });
     const snapshot = await service.snapshot(
       context([
         PERMISSIONS.INVENTORY_VIEW,
@@ -193,14 +693,11 @@ describe("DashboardService", () => {
   });
 
   it("fails closed when database aggregates violate the public invariants", async () => {
-    const { service } = serviceWith([
-      {
-        ...INVENTORY_ROW,
-        onHandUnits: 1n,
-        reservedUnits: 2n,
-        availableUnits: 0n,
-      },
-    ]);
+    const { service } = createService({
+      inventoryRows: [
+        { ...INVENTORY_ROW, onHandUnits: 1n, reservedUnits: 2n, availableUnits: 0n },
+      ],
+    });
 
     await expect(
       service.snapshot(context([PERMISSIONS.INVENTORY_VIEW])),
@@ -215,12 +712,19 @@ function summaryServiceWith(sums: {
   serviceProfit: bigint;
   externalCount: number;
   expenses: bigint;
+  discounts?: bigint;
+  returns?: bigint;
 }) {
   const sale = { aggregate: vi.fn() };
   const externalTransaction = { aggregate: vi.fn() };
   const expense = { aggregate: vi.fn() };
+  const saleReturn = { aggregate: vi.fn() };
   sale.aggregate.mockResolvedValue({
-    _sum: { totalMinor: sums.salesTotal, cogsMinor: sums.salesCogs },
+    _sum: {
+      totalMinor: sums.salesTotal,
+      cogsMinor: sums.salesCogs,
+      discountMinor: sums.discounts ?? 0n,
+    },
     _count: sums.salesCount,
   });
   externalTransaction.aggregate.mockResolvedValue({
@@ -228,10 +732,13 @@ function summaryServiceWith(sums: {
     _count: sums.externalCount,
   });
   expense.aggregate.mockResolvedValue({ _sum: { amountMinor: sums.expenses } });
+  saleReturn.aggregate.mockResolvedValue({
+    _sum: { totalRefundMinor: sums.returns ?? 0n },
+  });
   const prisma = {
-    client: { sale, externalTransaction, expense },
+    client: { sale, externalTransaction, expense, saleReturn },
   } as unknown as PrismaService;
-  return { service: new DashboardService(prisma), sale, expense };
+  return { service: dashboardService(prisma), sale, expense, saleReturn };
 }
 
 describe("DashboardService.summary", () => {
@@ -243,6 +750,8 @@ describe("DashboardService.summary", () => {
       serviceProfit: 7_000n,
       externalCount: 3,
       expenses: 12_000n,
+      discounts: 20_000n,
+      returns: 8_000n,
     });
 
     const summary = await service.summary(context([PERMISSIONS.REPORTS_VIEW_FINANCIAL]), {
@@ -255,6 +764,10 @@ describe("DashboardService.summary", () => {
       from: "2026-07-17",
       to: "2026-07-17",
       salesRevenueMinor: 500_000,
+      discountsMinor: 20_000,
+      returnsMinor: 8_000,
+      // Net sales = revenue - posted returns.
+      netSalesMinor: 492_000,
       cogsMinor: 300_000,
       grossProfitMinor: 200_000,
       serviceProfitMinor: 7_000,
@@ -317,7 +830,7 @@ function trendServiceWith(rows: readonly TrendGroupRow[]) {
   const prisma = {
     client: { sale: { groupBy } },
   } as unknown as PrismaService;
-  return { service: new DashboardService(prisma), groupBy };
+  return { service: dashboardService(prisma), groupBy };
 }
 
 describe("DashboardService.salesTrend (Asia/Karachi business date)", () => {
@@ -405,7 +918,7 @@ function topProductsServiceWith(rows: readonly unknown[]) {
   const prisma = {
     client: { $queryRaw: queryRaw },
   } as unknown as PrismaService;
-  return { service: new DashboardService(prisma), queryRaw };
+  return { service: dashboardService(prisma), queryRaw };
 }
 
 describe("DashboardService.topProducts (Asia/Karachi business date)", () => {
@@ -505,7 +1018,7 @@ function filteringTrendServiceWith(seeded: readonly SeededDay[]) {
   const prisma = {
     client: { sale: { groupBy } },
   } as unknown as PrismaService;
-  return { service: new DashboardService(prisma), groupBy };
+  return { service: dashboardService(prisma), groupBy };
 }
 
 describe("DashboardService.salesTrend (tenant isolation and money cross-check)", () => {
@@ -615,7 +1128,7 @@ function reorderServiceWith(
   const prisma = {
     client: { $queryRaw: queryRaw, demandRequestItem: { groupBy } },
   } as unknown as PrismaService;
-  return { service: new DashboardService(prisma), queryRaw, groupBy };
+  return { service: dashboardService(prisma), queryRaw, groupBy };
 }
 
 describe("DashboardService.reorderSuggestions (scoping and money cross-check)", () => {

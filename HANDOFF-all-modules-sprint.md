@@ -1,6 +1,27 @@
 # Handoff — `all-modules-sprint` (breadth-first module sprint)
 
-_Last updated by Claude. Branch `all-modules-sprint`, HEAD `a649c7b`, pushed to `origin/all-modules-sprint`._
+_Last updated by Claude. Branch `all-modules-sprint`, pushed to `origin/all-modules-sprint`._
+
+> **SPRINT 2 — Dashboard + Finance command centre COMPLETE (browser-verified, reconciled).**
+> The Dashboard and the Finance & Cash page are now genuinely live — no misleading "pending"/"not built" placeholders remain for sources that exist.
+>
+> **Architecture.** The Dashboard stays a single read-model endpoint (`GET /reports/dashboard`); the page makes one request. `DashboardService` is a read-model **orchestrator** that reuses each owning module's own logic (no duplicated business math):
+> - Money KPIs (sales/gross/expenses/net-operating) + P&L come from the finance summary (`DashboardService.summary`, i.e. `GET /reports/dashboard/summary`).
+> - Digital sent/received/fees/**provider charges**/net-earnings reuse `ExternalService.balances` + `commission`.
+> - Cash position reuses a new `CashService.position` (the expected-drawer formula was extracted and is now shared with `close()` — single source of truth for cash).
+> - Recent sales reuse `SalesService.list`; demand top-unmet is a new tenant/branch-safe `DemandService.topUnmet` aggregation (the one place no reusable read existed); reorder budget reuses `DashboardService.reorderSuggestions`.
+> - Each snapshot section loads independently (`safe()` wrapper): one failing source degrades only its own card to *temporarily unavailable*, never a false "coming soon".
+> - `DashboardModule` now imports Sales/External/Cash/Demand modules; `DashboardActorContext` carries the fields needed to build each sub-context.
+>
+> **Finance read model extended (reused by Dashboard + Reports + Finance):** `DailyFinancialSummary` gained `discountsMinor`, `returnsMinor`, `netSalesMinor` (Σ posted `sale.discount_minor`, Σ posted `returns.total_refund_minor`, revenue−returns). Schema refine enforces `netSales === revenue − returns`. The verified fields (revenue/cogs/grossProfit/serviceProfit/expenses/estimatedNetProfit) are unchanged, so the P&L waterfall stays exact and identical to the Dashboard; discounts/returns/net-sales render as a clearly-labelled **contra-revenue memo**.
+>
+> **State semantics (frontend):** `source_not_built → "Coming soon"`, `source_not_configured → "Not configured"` (e.g. no open cash session), `temporarily_unavailable → "Temporarily unavailable"`, and an implemented source with no data → **PKR 0.00** (never "—"/"Unavailable"). Only genuinely-unbuilt sources (Tasks) read "Coming soon".
+>
+> **Verification (all green):** backend + frontend + shared typecheck; backend 314 unit + frontend 359 + shared 569 tests; backend/frontend/shared eslint clean. Authenticated Playwright smokes on a fresh `mobileshop_test` stack: `dashboard-workspace.spec.ts`, `finance-command-centre.spec.ts`, plus the existing `finance-closing`, `digital-workspace`, `readmodels-runtime` all pass. **Reconciled live:** Dashboard KPIs == `/summary` == raw Postgres aggregates; digital sent/received/fees/charges/net == `/external/balances`+`/external/commission` == raw rows; discounts/returns/netSales == raw rows. Finance reuses the same `/summary` + snapshot, so Dashboard == Finance == Reports == Digital by construction for the same business date.
+>
+> **New/changed files:** `shared/src/dashboard-summary.ts`; `backend/.../dashboard.{service,controller,module}.ts` (+specs), `cash/cash.service.ts`, `demand/demand.service.ts`; `frontend/.../dashboard/workspace-dashboard.tsx` (+spec), `finance/finance-workspace.tsx` (+new spec); `e2e/tests/dashboard-workspace.spec.ts`, `e2e/tests/finance-command-centre.spec.ts`.
+>
+> **Notes for next session:** (1) The **sidebar `ModuleStatus` in `app-shell.tsx` is a static hand-set flag**, not derived from runtime — Finance/Dashboard `"ready"` is now backed by the verification above, but the flag itself won't auto-reflect regressions. (2) Pre-existing e2e lint debt: `e2e/tests/readmodels-runtime.spec.ts` has 37 `no-unsafe-member-access` errors from a prior commit (not touched this sprint). (3) A `mobileshop_test` stack may still be running (backend `node dist/main` :4000 with test `DATABASE_URL`, frontend `next dev` :3000). Restart the backend against the root `.env` (dev) URL before resuming normal dev work.
 
 > **UPDATE — runtime gate COMPLETE (commit a649c7b).** The runtime + browser gate described below has now PASSED, and these five modules are **READY**: Transaction History, Service Balances, Commission, Reports, Reorder Intelligence. Verified on a fresh stack against **mobileshop_test** (backend `node dist/main` on :4000, rebuilt frontend `next start` on :3000) via `e2e/tests/readmodels-runtime.spec.ts` (2 passed): live routes 200+shape; `/external/<well-formed-ghost-uuid>` → 404; independent money cross-check (commission `grossFeeMinor==Σ feeChargedMinor`, `providerCostMinor==Σ providerChargeMinor`, `count==rows`; balances `netMovementMinor==received−sent`); and all five pages render real authenticated data. The live NestJS router registration confirms `/external/:id` is the **last** GET (static routes not shadowed). ⚠️ **The currently-running backend is on `mobileshop_test`, not dev** — if you resume normal dev work, restart it against the root `.env` (dev) URL. Still `building` (unverified): Reconciliation (needs backend), Repairs/Warranty/Used-Intake (foundation in `stash@{0}`, needs a migration), Tasks/Settings (need new tables).
 

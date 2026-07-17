@@ -8,25 +8,61 @@ import {
   parseBusinessDate,
   PERMISSIONS,
   rollingWindow,
+  SaleListQuerySchema,
   toBusinessDate,
   type BusinessDate,
   type DailyFinancialSummary,
   type DailyFinancialSummaryQuery,
   type DashboardAttentionItem,
+  type DashboardDemandAndBuying,
+  type DashboardDigitalServices,
   type DashboardMoneyValue,
+  type DashboardRecentSales,
   type DashboardSnapshot,
   type FinancialSummaryPeriod,
+  type PaymentMethod,
   type PermissionKey,
 } from "@mobileshop/shared";
 import { PrismaService } from "../../database/prisma.service";
+import type { AuthRequestMetadata } from "../auth/request-metadata";
+import { CashService, type CashActorContext } from "../cash/cash.service";
+import { DemandService, type DemandActorContext } from "../demand/demand.service";
+import {
+  ExternalService,
+  type ExternalActorContext,
+} from "../external/external.service";
+import { SalesService, type SalesActorContext } from "../sales/sales.service";
 
 export interface DashboardActorContext {
   readonly organizationId: string;
+  readonly organizationName: string;
   readonly branchId: string;
+  readonly branchName: string;
+  readonly actorUserId: string;
+  readonly actorFullName: string;
   readonly currency: string;
   readonly permissions: ReadonlySet<PermissionKey>;
   /** Null means the authenticated user can read every location in the branch. */
   readonly allowedLocationIds: readonly string[] | null;
+  readonly metadata: AuthRequestMetadata;
+}
+
+/** Human labels for the settlement rails a posted sale can carry. */
+const PAYMENT_METHOD_LABELS: Readonly<Record<PaymentMethod, string>> =
+  Object.freeze({
+    cash: "Cash",
+    bank_transfer: "Bank transfer",
+    card: "Card",
+    digital_wallet: "Digital wallet",
+    credit: "Credit",
+  });
+
+/** Collapse a sale's (possibly split) settlement rails into one honest label. */
+function paymentMethodLabel(methods: readonly string[]): string {
+  if (methods.length === 0) return "Unsettled";
+  if (methods.length > 1) return "Split payment";
+  const method = methods[0] as PaymentMethod;
+  return PAYMENT_METHOD_LABELS[method] ?? method;
 }
 
 interface InventoryAggregateRow {
@@ -144,17 +180,38 @@ interface ReorderRawRow {
 /** Days of demand cover the reorder engine targets holding in stock. */
 const REORDER_COVER_DAYS = 30;
 
-const SOURCE_NOT_BUILT = {
-  availability: "unavailable",
-  reason: "source_not_built",
-} as const;
+/** The source module does not exist yet — the client renders this as "Coming soon". */
+function comingSoon(message: string) {
+  return { availability: "unavailable", reason: "source_not_built", message } as const;
+}
 
-function unavailable(message: string) {
-  return { ...SOURCE_NOT_BUILT, message } as const;
+/** The source module exists but has nothing to report from in this context. */
+function notConfigured(message: string) {
+  return {
+    availability: "unavailable",
+    reason: "source_not_configured",
+    message,
+  } as const;
+}
+
+/** A live source failed to load; the rest of the dashboard still renders. */
+function temporarilyUnavailable(message: string) {
+  return {
+    availability: "unavailable",
+    reason: "temporarily_unavailable",
+    message,
+  } as const;
 }
 
 function redacted(message: string) {
   return { availability: "redacted", message } as const;
+}
+
+function availableMoney(
+  valueMinor: number,
+  meta: string,
+): DashboardMoneyValue {
+  return { availability: "available", valueMinor, meta };
 }
 
 function safeNonnegativeInteger(value: bigint, label: string): number {
@@ -183,20 +240,50 @@ function dashboardResponse(value: unknown): DashboardSnapshot {
 
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sales: SalesService,
+    private readonly external: ExternalService,
+    private readonly cash: CashService,
+    private readonly demand: DemandService,
+  ) {}
 
+  /**
+   * The single permission-aware command-centre read model. Every section is
+   * populated from the owning module's own read logic — the finance summary
+   * ({@link summary}), {@link ExternalService} balances/commission, the
+   * {@link CashService} drawer position, {@link SalesService} posted list and
+   * {@link DemandService} unmet aggregation — so the dashboard can never drift
+   * from the pages it summarizes. No business figure is recomputed here.
+   *
+   * Each live source is loaded independently: a source that throws degrades only
+   * its own section to a temporarily-unavailable notice, and the rest of the
+   * dashboard still renders (contract §13).
+   */
   async snapshot(context: DashboardActorContext): Promise<DashboardSnapshot> {
-    const canViewInventory = context.permissions.has(
-      PERMISSIONS.INVENTORY_VIEW,
-    );
+    const permissions = context.permissions;
+    const canViewInventory = permissions.has(PERMISSIONS.INVENTORY_VIEW);
     const canViewInventoryValue =
-      context.permissions.has(PERMISSIONS.INVENTORY_VIEW_COST) &&
-      context.permissions.has(PERMISSIONS.REPORTS_VIEW_FINANCIAL);
-    const canViewPurchases = context.permissions.has(
-      PERMISSIONS.PURCHASES_VIEW,
-    );
+      permissions.has(PERMISSIONS.INVENTORY_VIEW_COST) &&
+      permissions.has(PERMISSIONS.REPORTS_VIEW_FINANCIAL);
+    const canViewPurchases = permissions.has(PERMISSIONS.PURCHASES_VIEW);
+    const canViewFinancial = permissions.has(PERMISSIONS.REPORTS_VIEW_FINANCIAL);
+    const canViewSales = permissions.has(PERMISSIONS.SALES_VIEW);
+    const canViewDigital = permissions.has(PERMISSIONS.EXTERNAL_SERVICES_VIEW);
+    const canViewDemand =
+      permissions.has(PERMISSIONS.DEMAND_VIEW) &&
+      permissions.has(PERMISSIONS.RECOMMENDATIONS_VIEW);
+    const canViewCash = permissions.has(PERMISSIONS.CASH_SESSIONS_VIEW);
 
-    const [inventory, openPurchaseOrders] = await Promise.all([
+    const [
+      inventory,
+      openPurchaseOrders,
+      summary,
+      cashPosition,
+      digitalServices,
+      recentSales,
+      demandAndBuying,
+    ] = await Promise.all([
       canViewInventory || canViewInventoryValue
         ? this.inventoryAggregate(context)
         : Promise.resolve(null),
@@ -209,76 +296,77 @@ export class DashboardService {
             },
           })
         : Promise.resolve(null),
+      canViewFinancial
+        ? this.safe(
+            () => this.summary(context, { period: "day" }),
+            null as DailyFinancialSummary | null,
+          )
+        : Promise.resolve(null),
+      canViewCash
+        ? this.safe(
+            () => this.cashPositionValue(context),
+            temporarilyUnavailable(
+              "The cash drawer position is temporarily unavailable.",
+            ) as DashboardMoneyValue,
+          )
+        : Promise.resolve(
+            redacted("Cash position requires cash_sessions.view."),
+          ),
+      canViewDigital
+        ? this.safe<DashboardDigitalServices>(
+            () => this.digitalServicesSection(context),
+            temporarilyUnavailable(
+              "Digital-service analytics are temporarily unavailable.",
+            ),
+          )
+        : Promise.resolve<DashboardDigitalServices>(
+            redacted(
+              "Digital service analytics require external_services.view.",
+            ),
+          ),
+      canViewSales
+        ? this.safe<DashboardRecentSales>(
+            () => this.recentSalesSection(context),
+            temporarilyUnavailable(
+              "Recent sales are temporarily unavailable.",
+            ),
+          )
+        : Promise.resolve<DashboardRecentSales>(
+            redacted("Recent sales require sales.view."),
+          ),
+      canViewDemand
+        ? this.safe<DashboardDemandAndBuying>(
+            () => this.demandAndBuyingSection(context),
+            temporarilyUnavailable(
+              "Demand and buying insights are temporarily unavailable.",
+            ),
+          )
+        : Promise.resolve<DashboardDemandAndBuying>(
+            redacted(
+              "Demand and buying insights require demand and recommendation access.",
+            ),
+          ),
     ]);
-
-    const attentionItems: DashboardAttentionItem[] = [];
-    const liveAttentionSources = [
-      ...(canViewInventory ? ["Stock"] : []),
-      ...(canViewPurchases ? ["Purchasing"] : []),
-    ];
-    if (
-      canViewInventory &&
-      inventory !== null &&
-      inventory.outOfStockVariantCount > 0
-    ) {
-      const count = inventory.outOfStockVariantCount;
-      attentionItems.push({
-        id: "inventory:active-variant-stockouts",
-        rank: attentionItems.length + 1,
-        severity: "negative",
-        title: "Active products are out of stock",
-        detail: `${count.toLocaleString("en-PK")} active variant${count === 1 ? " has" : "s have"} no available stock in your location scope.`,
-        href: "/stock",
-      });
-    }
-    if (
-      canViewPurchases &&
-      openPurchaseOrders !== null &&
-      openPurchaseOrders > 0
-    ) {
-      attentionItems.push({
-        id: "purchasing:open-purchase-orders",
-        rank: attentionItems.length + 1,
-        severity: "warning",
-        title: "Purchase orders need action",
-        detail: `${openPurchaseOrders.toLocaleString("en-PK")} open order${openPurchaseOrders === 1 ? "" : "s"} need approval, ordering, receiving or closure.`,
-        href: "/purchases?tab=orders",
-      });
-    }
 
     const now = new Date();
     return dashboardResponse({
       asOf: now.toISOString(),
       businessDate: toBusinessDate(now),
-      moneyKpis: this.moneyKpis(context, inventory),
-      attention:
-        canViewInventory || canViewPurchases
-          ? {
-              availability: "partial",
-              items: attentionItems,
-              message: `Live ${liveAttentionSources.join(" and ")} exceptions are shown; other attention sources are not built yet.`,
-            }
-          : redacted(
-              "Stock and Purchasing attention requires source-module access.",
-            ),
-      recentSales: context.permissions.has(PERMISSIONS.SALES_VIEW)
-        ? unavailable("The Sales ledger is not built yet.")
-        : redacted("Recent sales require sales.view."),
-      demandAndBuying:
-        context.permissions.has(PERMISSIONS.DEMAND_VIEW) &&
-        context.permissions.has(PERMISSIONS.RECOMMENDATIONS_VIEW)
-          ? unavailable(
-              "Demand capture and reorder recommendations are not built yet.",
-            )
-          : redacted(
-              "Demand and buying insights require demand and recommendation access.",
-            ),
-      digitalServices: context.permissions.has(
-        PERMISSIONS.EXTERNAL_SERVICES_VIEW,
-      )
-        ? unavailable("The Digital Services ledger is not built yet.")
-        : redacted("Digital service analytics require external_services.view."),
-      todaysTasks: unavailable("The Tasks source module is not built yet."),
+      moneyKpis: this.moneyKpis(context, inventory, {
+        canView: canViewFinancial,
+        summary,
+        cashPosition,
+      }),
+      attention: this.buildAttention({
+        canViewInventory,
+        canViewPurchases,
+        inventory,
+        openPurchaseOrders,
+      }),
+      recentSales,
+      demandAndBuying,
+      digitalServices,
+      todaysTasks: comingSoon("The Tasks source module is coming soon."),
       stockSummary:
         canViewInventory && inventory !== null
           ? {
@@ -292,6 +380,265 @@ export class DashboardService {
             }
           : redacted("Live stock totals require inventory.view."),
     });
+  }
+
+  /**
+   * Run a live source builder, degrading a failure to `fallback` so one broken
+   * source never takes the whole dashboard down. A thrown error here is a source
+   * outage, not a contract breach — the contract is still honoured by the
+   * fallback, and the top-level {@link dashboardResponse} parse still guards it.
+   */
+  private async safe<T>(build: () => Promise<T>, fallback: T): Promise<T> {
+    try {
+      return await build();
+    } catch {
+      return fallback;
+    }
+  }
+
+  /**
+   * The "needs your attention" queue, aggregated only from live sources the
+   * caller can see (stock stockouts, open purchase orders). Sources that are not
+   * built yet are not faked; the partial message names what is and isn't live.
+   */
+  private buildAttention(input: {
+    readonly canViewInventory: boolean;
+    readonly canViewPurchases: boolean;
+    readonly inventory: InventoryAggregate | null;
+    readonly openPurchaseOrders: number | null;
+  }): DashboardSnapshot["attention"] {
+    const { canViewInventory, canViewPurchases, inventory, openPurchaseOrders } =
+      input;
+    if (!canViewInventory && !canViewPurchases) {
+      return redacted(
+        "Stock and Purchasing attention requires source-module access.",
+      );
+    }
+    const items: DashboardAttentionItem[] = [];
+    if (
+      canViewInventory &&
+      inventory !== null &&
+      inventory.outOfStockVariantCount > 0
+    ) {
+      const count = inventory.outOfStockVariantCount;
+      items.push({
+        id: "inventory:active-variant-stockouts",
+        rank: items.length + 1,
+        severity: "negative",
+        title: "Active products are out of stock",
+        detail: `${count.toLocaleString("en-PK")} active variant${count === 1 ? " has" : "s have"} no available stock in your location scope.`,
+        href: "/stock",
+      });
+    }
+    if (
+      canViewPurchases &&
+      openPurchaseOrders !== null &&
+      openPurchaseOrders > 0
+    ) {
+      items.push({
+        id: "purchasing:open-purchase-orders",
+        rank: items.length + 1,
+        severity: "warning",
+        title: "Purchase orders need action",
+        detail: `${openPurchaseOrders.toLocaleString("en-PK")} open order${openPurchaseOrders === 1 ? "" : "s"} need approval, ordering, receiving or closure.`,
+        href: "/purchases?tab=orders",
+      });
+    }
+    const liveSources = [
+      ...(canViewInventory ? ["Stock"] : []),
+      ...(canViewPurchases ? ["Purchasing"] : []),
+    ];
+    return {
+      availability: "partial",
+      items,
+      message: `Live ${liveSources.join(" and ")} exceptions are shown; other attention sources are coming soon.`,
+    };
+  }
+
+  /** Today's digital-service movement and earnings, reusing {@link ExternalService}. */
+  private async digitalServicesSection(
+    context: DashboardActorContext,
+  ): Promise<DashboardDigitalServices> {
+    const externalContext = this.externalContext(context);
+    const [balances, commission] = await Promise.all([
+      this.external.balances(externalContext),
+      this.external.commission(externalContext, "day"),
+    ]);
+    const sentToday = balances.providers.reduce(
+      (sum, provider) => sum + provider.amountSentTodayMinor,
+      0,
+    );
+    const receivedToday = balances.providers.reduce(
+      (sum, provider) => sum + provider.amountReceivedTodayMinor,
+      0,
+    );
+    return {
+      availability: "available",
+      data: {
+        sentToday: availableMoney(sentToday, "Settled principal sent"),
+        receivedToday: availableMoney(receivedToday, "Settled principal received"),
+        customerFeesToday: availableMoney(
+          commission.totals.grossFeeMinor,
+          "Fees charged to customers",
+        ),
+        // The contract field is a misnomer; it carries the provider's charge —
+        // our real cost — which the client labels "Provider charges".
+        providerNetCommission: availableMoney(
+          commission.totals.providerCostMinor,
+          "Charges billed by providers",
+        ),
+        netEarnings: availableMoney(
+          commission.totals.netCommissionMinor,
+          "Customer fees less provider charges",
+        ),
+        // External transactions settle the instant they are recorded — there is
+        // no pending-settlement workflow, so this is an honest real zero.
+        pendingTransactions: {
+          availability: "available",
+          value: 0,
+          meta: "Recorded instantly",
+        },
+        actionQueue: [],
+      },
+    };
+  }
+
+  /** Expected drawer cash for the open session, reusing {@link CashService}. */
+  private async cashPositionValue(
+    context: DashboardActorContext,
+  ): Promise<DashboardMoneyValue> {
+    const position = await this.cash.position(this.cashContext(context));
+    if (position === null) {
+      return notConfigured(
+        "No cash session is open. Open one from Daily Closing.",
+      );
+    }
+    return availableMoney(
+      position.expectedCashMinor,
+      `Expected drawer · session ${position.sessionNumber}`,
+    );
+  }
+
+  /** Latest posted invoices, reusing {@link SalesService} exactly like Finance. */
+  private async recentSalesSection(
+    context: DashboardActorContext,
+  ): Promise<DashboardRecentSales> {
+    const page = await this.sales.list(
+      this.salesContext(context),
+      SaleListQuerySchema.parse({ status: "posted", pageSize: 6 }),
+    );
+    const items = page.items.flatMap((sale) => {
+      if (sale.postedAt === null || sale.invoiceNumber === null) return [];
+      return [
+        {
+          id: sale.id,
+          invoiceNumber: sale.invoiceNumber,
+          postedAt: sale.postedAt,
+          customerName: sale.customer?.name ?? "Walk-in customer",
+          paymentMethod: paymentMethodLabel(sale.paymentMethods),
+          totalMinor: sale.totalMinor,
+          profit:
+            sale.profit.availability === "available"
+              ? availableMoney(sale.profit.grossProfitMinor, "Gross profit")
+              : redacted("Profit visibility requires sales.view_profit."),
+          href: `/sales/${sale.id}`,
+        },
+      ];
+    });
+    return { availability: "available", items };
+  }
+
+  /**
+   * Unmet-demand ranking plus the reorder budget, reusing {@link DemandService}
+   * and the in-service {@link reorderSuggestions} engine. There is no server
+   * "selected investment" concept (selection lives in the buying-plan UI), so
+   * that field is honestly reported as not configured rather than invented.
+   */
+  private async demandAndBuyingSection(
+    context: DashboardActorContext,
+  ): Promise<DashboardDemandAndBuying> {
+    const [topUnmet, reorder] = await Promise.all([
+      this.demand.topUnmet(this.demandContext(context), 4),
+      this.reorderSuggestions(context, REORDER_COVER_DAYS, 100),
+    ]);
+    const uncosted = reorder.costCoverage.total - reorder.costCoverage.costed;
+    const recommendedBudget: DashboardMoneyValue =
+      uncosted > 0
+        ? {
+            availability: "partial",
+            valueMinor: reorder.totalEstCostMinor,
+            meta: "Recorded landed cost only",
+            message: `${uncosted.toLocaleString("en-PK")} suggested item${uncosted === 1 ? " has" : "s have"} no recorded cost and is excluded.`,
+          }
+        : availableMoney(reorder.totalEstCostMinor, "Recommended reorder spend");
+    return {
+      availability: "available",
+      data: {
+        topUnmet: topUnmet.map((item) => ({
+          key: item.key.slice(0, 120),
+          name: item.name.slice(0, 240),
+          waitingQuantity: item.waitingQuantity,
+          href: "/demand" as const,
+        })),
+        recommendedBudget,
+        selectedInvestment: notConfigured(
+          "Select items in the buying plan to set an investment.",
+        ),
+        expectedGrossProfit: availableMoney(
+          reorder.totalExpProfitMinor,
+          "Expected gross profit on suggestions",
+        ),
+      },
+    };
+  }
+
+  private salesContext(context: DashboardActorContext): SalesActorContext {
+    return {
+      organizationId: context.organizationId,
+      organizationName: context.organizationName,
+      branchId: context.branchId,
+      branchName: context.branchName,
+      actorUserId: context.actorUserId,
+      actorFullName: context.actorFullName,
+      currency: context.currency,
+      allowedLocationIds: context.allowedLocationIds,
+      permissions: [...context.permissions],
+      canViewProfit: context.permissions.has(PERMISSIONS.SALES_VIEW_PROFIT),
+      metadata: context.metadata,
+    };
+  }
+
+  private externalContext(
+    context: DashboardActorContext,
+  ): ExternalActorContext {
+    return {
+      organizationId: context.organizationId,
+      branchId: context.branchId,
+      actorUserId: context.actorUserId,
+      permissions: [...context.permissions],
+      metadata: context.metadata,
+    };
+  }
+
+  private cashContext(context: DashboardActorContext): CashActorContext {
+    return {
+      organizationId: context.organizationId,
+      branchId: context.branchId,
+      actorUserId: context.actorUserId,
+      metadata: context.metadata,
+    };
+  }
+
+  private demandContext(context: DashboardActorContext): DemandActorContext {
+    return {
+      organizationId: context.organizationId,
+      branchId: context.branchId,
+      actorUserId: context.actorUserId,
+      actorFullName: context.actorFullName,
+      allowedLocationIds: context.allowedLocationIds,
+      permissions: [...context.permissions],
+      metadata: context.metadata,
+    };
   }
 
   /**
@@ -321,12 +668,12 @@ export class DashboardService {
       branchId: context.branchId,
     };
 
-    const [sales, external, expenses] = await Promise.all([
+    const [sales, external, expenses, returns] = await Promise.all([
       // A business date is stamped only when a sale posts, so the range filter
       // already excludes drafts and cancellations.
       this.prisma.client.sale.aggregate({
         where: { ...tenant, postedAt: { not: null }, businessDate },
-        _sum: { totalMinor: true, cogsMinor: true },
+        _sum: { totalMinor: true, cogsMinor: true, discountMinor: true },
         _count: true,
       }),
       this.prisma.client.externalTransaction.aggregate({
@@ -338,12 +685,27 @@ export class DashboardService {
         where: { ...tenant, businessDate },
         _sum: { amountMinor: true },
       }),
+      // Posted customer refunds — a business date is stamped only when the
+      // return posts, so the range filter excludes drafts and cancellations.
+      this.prisma.client.saleReturn.aggregate({
+        where: { ...tenant, postedAt: { not: null }, businessDate },
+        _sum: { totalRefundMinor: true },
+      }),
     ]);
 
     const salesRevenueMinor = safeNonnegativeInteger(
       sales._sum.totalMinor ?? 0n,
       "sales revenue",
     );
+    const discountsMinor = safeNonnegativeInteger(
+      sales._sum.discountMinor ?? 0n,
+      "sales discounts",
+    );
+    const returnsMinor = safeNonnegativeInteger(
+      returns._sum.totalRefundMinor ?? 0n,
+      "returns",
+    );
+    const netSalesMinor = salesRevenueMinor - returnsMinor;
     const cogsMinor = safeNonnegativeInteger(sales._sum.cogsMinor ?? 0n, "sales COGS");
     const grossProfitMinor = salesRevenueMinor - cogsMinor;
     const serviceProfitMinor = safeSignedInteger(
@@ -362,6 +724,9 @@ export class DashboardService {
       from,
       to,
       salesRevenueMinor,
+      discountsMinor,
+      returnsMinor,
+      netSalesMinor,
       cogsMinor,
       grossProfitMinor,
       serviceProfitMinor,
@@ -753,14 +1118,37 @@ export class DashboardService {
     };
   }
 
+  /**
+   * The six headline money tiles. The four financial tiles are taken verbatim
+   * from the same day {@link summary} that powers the Finance page and the
+   * Financial Summary section, so the dashboard, Finance and Reports can never
+   * disagree; cash comes from {@link CashService}; inventory from the shared
+   * valuation. `financial.summary === null` while `canView` is true means the
+   * finance read model failed to load — the tiles degrade, they never invent.
+   */
   private moneyKpis(
     context: DashboardActorContext,
     inventory: InventoryAggregate | null,
+    financial: {
+      readonly canView: boolean;
+      readonly summary: DailyFinancialSummary | null;
+      readonly cashPosition: DashboardMoneyValue;
+    },
   ) {
-    const financialReports = context.permissions.has(
-      PERMISSIONS.REPORTS_VIEW_FINANCIAL,
-    );
-    const inventoryValue = this.inventoryValue(context, inventory);
+    const financialValue = (
+      pick: (summary: DailyFinancialSummary) => number,
+      meta: string,
+    ): DashboardMoneyValue => {
+      if (!financial.canView) {
+        return redacted("Requires reports.view_financial.");
+      }
+      if (financial.summary === null) {
+        return temporarilyUnavailable(
+          "The financial summary is temporarily unavailable.",
+        );
+      }
+      return availableMoney(pick(financial.summary), meta);
+    };
 
     return [
       {
@@ -769,9 +1157,10 @@ export class DashboardService {
         href: "/finance",
         definition:
           "Net posted sales revenue for the current business date and branch.",
-        value: context.permissions.has(PERMISSIONS.SALES_VIEW)
-          ? unavailable("The Sales ledger is not built yet.")
-          : redacted("Sales revenue requires sales.view."),
+        value: financialValue(
+          (summary) => summary.salesRevenueMinor,
+          "Posted sales revenue today",
+        ),
       },
       {
         key: "gross_profit",
@@ -779,13 +1168,10 @@ export class DashboardService {
         href: "/finance",
         definition:
           "Net posted sales revenue less recorded cost of goods sold for the business date.",
-        value:
-          financialReports &&
-          context.permissions.has(PERMISSIONS.SALES_VIEW_PROFIT)
-            ? unavailable("Sales profit reporting is not built yet.")
-            : redacted(
-                "Gross profit requires reports.view_financial and sales.view_profit.",
-              ),
+        value: financialValue(
+          (summary) => summary.grossProfitMinor,
+          "Sales revenue less COGS",
+        ),
       },
       {
         key: "expenses",
@@ -793,25 +1179,21 @@ export class DashboardService {
         href: "/finance",
         definition:
           "Posted operating expenses for the current business date and branch.",
-        value:
-          financialReports && context.permissions.has(PERMISSIONS.EXPENSES_VIEW)
-            ? unavailable("The Expenses ledger is not built yet.")
-            : redacted(
-                "Expense totals require reports.view_financial and expenses.view.",
-              ),
+        value: financialValue(
+          (summary) => summary.expensesMinor,
+          "Operating expenses today",
+        ),
       },
       {
         key: "net_operating",
         label: "Net operating",
         href: "/finance",
         definition:
-          "Sales gross profit plus service profit and other income, less operating expenses and recorded losses.",
-        value:
-          financialReports && context.permissions.has(PERMISSIONS.LEDGER_VIEW)
-            ? unavailable("The Financial Ledger is not built yet.")
-            : redacted(
-                "Net operating profit requires reports.view_financial and ledger.view.",
-              ),
+          "Sales gross profit plus service profit, less operating expenses for the business date.",
+        value: financialValue(
+          (summary) => summary.estimatedNetProfitMinor,
+          "Gross + service profit less expenses",
+        ),
       },
       {
         key: "cash_position",
@@ -819,9 +1201,7 @@ export class DashboardService {
         href: "/closing",
         definition:
           "Expected physical cash for the active branch cash session at this snapshot time.",
-        value: context.permissions.has(PERMISSIONS.CASH_SESSIONS_VIEW)
-          ? unavailable("Cash Sessions and their ledger are not built yet.")
-          : redacted("Cash position requires cash_sessions.view."),
+        value: financial.cashPosition,
       },
       {
         key: "inventory_value",
@@ -829,7 +1209,7 @@ export class DashboardService {
         href: "/stock",
         definition:
           "Recorded landed cost of physically on-hand stock in the active branch and permitted locations.",
-        value: inventoryValue,
+        value: this.inventoryValue(context, inventory),
       },
     ] as const;
   }
@@ -847,7 +1227,9 @@ export class DashboardService {
       );
     }
     if (inventory === null) {
-      return unavailable("Inventory valuation is temporarily unavailable.");
+      return temporarilyUnavailable(
+        "Inventory valuation is temporarily unavailable.",
+      );
     }
 
     const coverage = {

@@ -45,6 +45,7 @@ const SEED_IDS = Object.freeze({
   serviceRevenueAccount: "10000000-0000-4000-8000-000000000016",
   serviceFloatAccount: "10000000-0000-4000-8000-000000000017",
   expenseAccount: "10000000-0000-4000-8000-000000000018",
+  serviceCostAccount: "10000000-0000-4000-8000-000000000019",
 });
 
 const DEFAULT_FINANCIAL_ACCOUNTS = [
@@ -140,6 +141,14 @@ const DEFAULT_FINANCIAL_ACCOUNTS = [
     id: SEED_IDS.expenseAccount,
     code: "EXPENSE",
     name: "Operating expenses",
+    accountType: "expense",
+    accountSubtype: "expense",
+    normalBalance: "debit",
+  },
+  {
+    id: SEED_IDS.serviceCostAccount,
+    code: "SERVICE-COST",
+    name: "Service provider cost",
     accountType: "expense",
     accountSubtype: "expense",
     normalBalance: "debit",

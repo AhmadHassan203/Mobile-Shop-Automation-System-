@@ -7,6 +7,7 @@ import {
   type CreateExternalTransactionInput,
   type ExternalCashDirection,
   type ExternalProvider,
+  type ExternalTransaction,
   type ExternalTransactionType,
   type PaymentMethod,
 } from "@mobileshop/shared";
@@ -182,4 +183,67 @@ export function buildExternalInput(
       ...(note === undefined ? {} : { note }),
     },
   };
+}
+
+/**
+ * Mint a fresh idempotency key for a brand-new logical transaction.
+ *
+ * A UUID is generated per logical transaction — never per submit attempt — so
+ * that retries can reuse it. Overridable in tests via {@link
+ * RecordExternalTransactionOptions.generateKey}.
+ */
+export function newIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
+export interface RecordExternalTransactionOptions {
+  /**
+   * The idempotency key already held for this logical transaction, or `null`
+   * when none has been minted yet (first submit, or after a success/reset).
+   */
+  readonly heldKey: string | null;
+  /**
+   * Persist the key for the logical transaction. Called with the freshly minted
+   * key so a later retry reuses it, and with `null` after a confirmed success so
+   * the next logical transaction starts clean.
+   */
+  readonly setHeldKey: (key: string | null) => void;
+  /**
+   * The idempotent create call. It receives the caller-owned key and must not
+   * mint its own, so every retry travels to the server under the same key.
+   */
+  readonly create: (
+    input: CreateExternalTransactionInput,
+    idempotencyKey: string,
+  ) => Promise<ExternalTransaction>;
+  /** Key factory, overridable so tests are deterministic. */
+  readonly generateKey?: () => string;
+}
+
+/**
+ * Record one submit attempt of a logical external transaction under a stable,
+ * retry-safe idempotency key.
+ *
+ * The key is minted lazily on the first attempt and **persisted before the
+ * request is sent**, so that a timeout, a network failure or any other uncertain
+ * (thrown) response leaves the same key in place for the next attempt — the
+ * server therefore records the transaction at most once no matter how many times
+ * the cashier retries. Only a confirmed success (a resolved 2xx record) retires
+ * the key, after which the next logical transaction mints a fresh one.
+ */
+export async function recordExternalTransaction(
+  input: CreateExternalTransactionInput,
+  options: RecordExternalTransactionOptions,
+): Promise<ExternalTransaction> {
+  const generateKey = options.generateKey ?? newIdempotencyKey;
+  // Reuse the key already held for this logical transaction; mint one only when
+  // none exists yet, and persist it up front so a thrown response below still
+  // leaves it available for an idempotent retry.
+  const idempotencyKey = options.heldKey ?? generateKey();
+  if (options.heldKey === null) options.setHeldKey(idempotencyKey);
+  const saved = await options.create(input, idempotencyKey);
+  // Reached only on a confirmed success — a thrown response skips this line and
+  // keeps the held key. Retire the key so the next transaction starts fresh.
+  options.setHeldKey(null);
+  return saved;
 }

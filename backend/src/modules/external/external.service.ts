@@ -280,7 +280,16 @@ export class ExternalService {
               organizationId: context.organizationId,
               branchId: context.branchId,
               isActive: true,
-              code: { in: ["CASH", "BANK", "DIGITAL", "SERVICE-REVENUE", "SERVICE-FLOAT"] },
+              code: {
+                in: [
+                  "CASH",
+                  "BANK",
+                  "DIGITAL",
+                  "SERVICE-REVENUE",
+                  "SERVICE-FLOAT",
+                  "SERVICE-COST",
+                ],
+              },
             },
             orderBy: [{ code: "asc" }, { id: "asc" }],
           });
@@ -302,6 +311,14 @@ export class ExternalService {
           const settlementAccount = accountFor(routing.code, routing.subtype);
           const serviceRevenue = accountFor("SERVICE-REVENUE", "service_revenue");
           const serviceFloat = accountFor("SERVICE-FLOAT", "service_float");
+          // The provider's own charge is a real operating cost, resolved by code
+          // exactly like the revenue/float accounts. It is only required — and
+          // only posted — when non-zero: a zero charge neither needs the account
+          // configured nor creates a ledger leg. When a provider charge exists
+          // but the account is missing, accountFor throws VALIDATION_FAILED so
+          // the cost is never silently dropped.
+          const serviceCost =
+            providerChargeMinor > 0 ? accountFor("SERVICE-COST", "expense") : undefined;
 
           const now = new Date();
           const businessDateValue = toBusinessDate(now);
@@ -364,10 +381,13 @@ export class ExternalService {
             },
           });
 
-          // Balanced ledger group. The principal is never revenue; only the
-          // service profit posts to service revenue. Every leg is >= 1 minor
-          // unit and a negative natural amount flips direction rather than
-          // violating the amount_minor >= 1 ledger check.
+          // Balanced ledger group. The principal is never revenue. Revenue is
+          // ALWAYS a credit of the full fee, and the provider's charge is a
+          // separate debit to the service-cost account — so a loss-making
+          // service still credits the full fee and never debits revenue. Every
+          // leg is >= 1 minor unit; a negative natural amount flips direction
+          // and a zero amount is skipped rather than violating the
+          // amount_minor >= 1 ledger check.
           const entryGroupId = row.id;
           const legs: Prisma.FinancialEntryCreateManyInput[] = [];
           const pushLeg = (
@@ -424,13 +444,27 @@ export class ExternalService {
               `External ${txnNumber} provider float`,
             );
           }
+          // Revenue is the FULL fee, always a credit — never netted against the
+          // provider charge and never a debit, even when service profit is
+          // negative. A zero fee simply skips this leg.
           pushLeg(
             serviceRevenue.id,
             "credit",
-            serviceProfitMinor,
+            feeChargedMinor,
             "revenue",
-            `External ${txnNumber} service profit`,
+            `External ${txnNumber} service fee`,
           );
+          // The provider's charge is a separate operating cost, always a debit.
+          // Skipped entirely when zero so no <= 0 ledger entry is ever created.
+          if (serviceCost !== undefined) {
+            pushLeg(
+              serviceCost.id,
+              "debit",
+              providerChargeMinor,
+              "cost",
+              `External ${txnNumber} provider cost`,
+            );
+          }
           const debit = legs
             .filter((leg) => leg.direction === "debit")
             .reduce((sum, leg) => sum + BigInt(leg.amountMinor), 0n);

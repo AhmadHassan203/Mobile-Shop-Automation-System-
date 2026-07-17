@@ -30,6 +30,7 @@ const ACCOUNTS = [
   { id: "acc-digital", code: "DIGITAL", accountSubtype: "provider_float" },
   { id: "acc-service-rev", code: "SERVICE-REVENUE", accountSubtype: "service_revenue" },
   { id: "acc-service-float", code: "SERVICE-FLOAT", accountSubtype: "service_float" },
+  { id: "acc-service-cost", code: "SERVICE-COST", accountSubtype: "expense" },
 ];
 
 function externalInput(
@@ -160,7 +161,7 @@ describe("ExternalService", () => {
     expect(response.feeOverridden).toBe(false);
   });
 
-  it("posts only service profit to service revenue and keeps the ledger balanced", async () => {
+  it("posts the full fee to service revenue and the provider charge to service cost", async () => {
     const tx = baseTransaction();
     const service = serviceFor(tx);
 
@@ -172,12 +173,17 @@ describe("ExternalService", () => {
       externalInput({ principalMinor: 100_000, providerChargeMinor: 300 }),
     );
 
+    // serviceProfit stays fee - providerCharge in the stored column.
     expect(response.serviceProfitMinor).toBe(700);
     expect(response.cashImpactMinor).toBe(101_000);
 
     const legs = ledgerData(tx);
+    // Revenue is credited the FULL fee (1,000), never the 700 net profit.
     const revenueLeg = legs.find((leg) => leg.financialAccountId === "acc-service-rev");
-    expect(revenueLeg).toMatchObject({ direction: "credit", amountMinor: 700n });
+    expect(revenueLeg).toMatchObject({ direction: "credit", amountMinor: 1_000n });
+    // The provider charge is a dedicated debit to the service-cost account.
+    const costLeg = legs.find((leg) => leg.financialAccountId === "acc-service-cost");
+    expect(costLeg).toMatchObject({ direction: "debit", amountMinor: 300n });
     // The principal is never revenue: no revenue leg carries the principal.
     expect(
       legs.some(
@@ -191,16 +197,17 @@ describe("ExternalService", () => {
     const credit = legs
       .filter((leg) => leg.direction === "credit")
       .reduce((sum, leg) => sum + BigInt(leg.amountMinor), 0n);
+    // DR settlement 101,000 + DR cost 300 == CR float 100,300 + CR revenue 1,000.
     expect(debit).toBe(credit);
-    expect(debit).toBe(101_000n);
+    expect(debit).toBe(101_300n);
   });
 
-  it("flips the service-revenue leg to a debit when the service runs at a loss", async () => {
+  it("credits the full fee and debits service cost at a loss, never debiting revenue", async () => {
     const tx = baseTransaction();
     const service = serviceFor(tx);
 
-    // Provider charge 1,500 exceeds the 1,000 fee -> service profit -500, which
-    // must post as a positive debit (the ledger check forbids <= 0 amounts).
+    // Provider charge 1,500 exceeds the 1,000 fee -> service profit -500. Revenue
+    // is still the FULL fee as a credit; the loss surfaces as the larger cost debit.
     const response = await service.record(
       CONTEXT,
       null,
@@ -208,9 +215,19 @@ describe("ExternalService", () => {
     );
 
     expect(response.serviceProfitMinor).toBe(-500);
+
     const legs = ledgerData(tx);
+    // Revenue is NEVER debited: the full fee is credited even at a loss.
     const revenueLeg = legs.find((leg) => leg.financialAccountId === "acc-service-rev");
-    expect(revenueLeg).toMatchObject({ direction: "debit", amountMinor: 500n });
+    expect(revenueLeg).toMatchObject({ direction: "credit", amountMinor: 1_000n });
+    expect(
+      legs.some(
+        (leg) => leg.financialAccountId === "acc-service-rev" && leg.direction === "debit",
+      ),
+    ).toBe(false);
+    // The provider charge posts to service cost as a debit for the full 1,500.
+    const costLeg = legs.find((leg) => leg.financialAccountId === "acc-service-cost");
+    expect(costLeg).toMatchObject({ direction: "debit", amountMinor: 1_500n });
     expect(legs.every((leg) => BigInt(leg.amountMinor) >= 1n)).toBe(true);
 
     const debit = legs
@@ -219,7 +236,41 @@ describe("ExternalService", () => {
     const credit = legs
       .filter((leg) => leg.direction === "credit")
       .reduce((sum, leg) => sum + BigInt(leg.amountMinor), 0n);
+    // DR settlement 101,000 + DR cost 1,500 == CR float 101,500 + CR revenue 1,000.
     expect(debit).toBe(credit);
+    expect(debit).toBe(102_500n);
+  });
+
+  it("skips the service-cost leg when the provider charge is zero and still balances", async () => {
+    const tx = baseTransaction();
+    const service = serviceFor(tx);
+
+    // No provider charge -> profit equals the full fee and no cost leg is created
+    // (the ledger check forbids a zero-amount entry).
+    const response = await service.record(
+      CONTEXT,
+      null,
+      externalInput({ principalMinor: 100_000, providerChargeMinor: 0 }),
+    );
+
+    expect(response.serviceProfitMinor).toBe(1_000);
+
+    const legs = ledgerData(tx);
+    const revenueLeg = legs.find((leg) => leg.financialAccountId === "acc-service-rev");
+    expect(revenueLeg).toMatchObject({ direction: "credit", amountMinor: 1_000n });
+    // No service-cost leg at all when the provider charge is zero.
+    expect(legs.some((leg) => leg.financialAccountId === "acc-service-cost")).toBe(false);
+    expect(legs.every((leg) => BigInt(leg.amountMinor) >= 1n)).toBe(true);
+
+    const debit = legs
+      .filter((leg) => leg.direction === "debit")
+      .reduce((sum, leg) => sum + BigInt(leg.amountMinor), 0n);
+    const credit = legs
+      .filter((leg) => leg.direction === "credit")
+      .reduce((sum, leg) => sum + BigInt(leg.amountMinor), 0n);
+    // DR settlement 101,000 == CR float 100,000 + CR revenue 1,000.
+    expect(debit).toBe(credit);
+    expect(debit).toBe(101_000n);
   });
 
   it("requires an open cash session for a cash transaction", async () => {

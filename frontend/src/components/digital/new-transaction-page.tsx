@@ -33,6 +33,7 @@ import {
   EXTERNAL_PROVIDER_LABELS,
   EXTERNAL_TYPE_LABELS,
   PAYMENT_METHOD_LABELS,
+  recordExternalTransaction,
   type ExternalFormValues,
 } from "./external-transaction-state";
 import {
@@ -292,6 +293,11 @@ export function DigitalNewTransactionPage(): JSX.Element {
   const [submissionError, setSubmissionError] = useState<ApiError | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [recorded, setRecorded] = useState<ExternalTransaction | null>(null);
+  // One idempotency key per logical transaction. It is minted lazily on the
+  // first submit, reused across every retry after an uncertain response, and
+  // retired only on a confirmed success or a deliberate reset (below), so a
+  // retry never records a duplicate.
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
 
   const capabilities = externalCapabilities(auth.data?.permissions);
   const currency = auth.data?.organization.currency ?? "PKR";
@@ -328,10 +334,13 @@ export function DigitalNewTransactionPage(): JSX.Element {
     }
     setSubmitting(true);
     try {
-      const saved = await createExternalTransaction(
-        result.input,
-        crypto.randomUUID(),
-      );
+      // The key held in state is reused on retry and minted only when absent;
+      // recordExternalTransaction retires it after this confirmed success.
+      const saved = await recordExternalTransaction(result.input, {
+        heldKey: idempotencyKey,
+        setHeldKey: setIdempotencyKey,
+        create: createExternalTransaction,
+      });
       setRecorded(saved);
       setValues(EMPTY_FORM);
       void queryClient.invalidateQueries({ queryKey: queryKeys.externalRoot });
@@ -355,7 +364,12 @@ export function DigitalNewTransactionPage(): JSX.Element {
           {recorded === null ? null : (
             <RecordedTransaction
               currency={currency}
-              onRecordAnother={() => setRecorded(null)}
+              onRecordAnother={() => {
+                // Deliberate "new transaction": drop the retired key so the
+                // next submit mints a fresh one for a distinct transaction.
+                setIdempotencyKey(null);
+                setRecorded(null);
+              }}
               transaction={recorded}
             />
           )}

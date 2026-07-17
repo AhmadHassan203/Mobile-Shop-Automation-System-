@@ -49,6 +49,14 @@ export interface DemandActorContext {
   readonly metadata: AuthRequestMetadata;
 }
 
+/** One product customers asked for but the shop could not sell. */
+export interface DemandTopUnmetItem {
+  /** Stable bucket key: the matched variant id, or normalized wording. */
+  readonly key: string;
+  readonly name: string;
+  readonly waitingQuantity: number;
+}
+
 const demandInclude = {
   customer: { select: { id: true, fullName: true, isActive: true } },
   salesperson: { select: { id: true, fullName: true } },
@@ -320,6 +328,71 @@ function auditSnapshot(record: DemandRecord): Prisma.InputJsonObject {
 @Injectable()
 export class DemandService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Products customers asked for but the shop could not sell, ranked by total
+   * waiting quantity. Uses the same qualified, de-duplicated open-demand
+   * definition as the buying-plan forecast ({@link qualified} +
+   * `dedupeGroupId === null`): unmet availability, a non-terminal status and
+   * not flagged invalid. Tenant- and branch-scoped. Unmatched requests bucket
+   * by their normalized wording so free-text asks still surface.
+   */
+  async topUnmet(
+    context: DemandActorContext,
+    limit: number,
+  ): Promise<readonly DemandTopUnmetItem[]> {
+    const rows = await this.prisma.client.demandRequest.findMany({
+      where: {
+        organizationId: context.organizationId,
+        branchId: context.branchId,
+        availabilityState: { in: ["unavailable", "not_in_catalog"] },
+        status: { notIn: [...TERMINAL_DEMAND_STATUSES] },
+        outcome: { not: "invalid_or_fraudulent" },
+        dedupeGroupId: null,
+      },
+      select: {
+        quantity: true,
+        items: {
+          orderBy: [{ lineNumber: "asc" }, { id: "asc" }],
+          take: 1,
+          select: {
+            matchedProductVariantId: true,
+            rawRequestText: true,
+            matchedProductVariant: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 1000,
+    });
+
+    const byProduct = new Map<
+      string,
+      { key: string; name: string; waitingQuantity: number }
+    >();
+    for (const row of rows) {
+      const item = row.items[0];
+      if (item === undefined) continue;
+      const key =
+        item.matchedProductVariantId !== null
+          ? `variant:${item.matchedProductVariantId}`
+          : `wording:${item.rawRequestText.trim().toLowerCase()}`;
+      const name = item.matchedProductVariant?.name ?? item.rawRequestText.trim();
+      if (name.length === 0) continue;
+      const entry = byProduct.get(key) ?? { key, name, waitingQuantity: 0 };
+      entry.waitingQuantity += row.quantity;
+      byProduct.set(key, entry);
+    }
+
+    return [...byProduct.values()]
+      .filter((entry) => entry.waitingQuantity > 0)
+      .sort(
+        (left, right) =>
+          right.waitingQuantity - left.waitingQuantity ||
+          left.name.localeCompare(right.name),
+      )
+      .slice(0, limit);
+  }
 
   async list(
     context: DemandActorContext,

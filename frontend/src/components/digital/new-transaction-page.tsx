@@ -1,50 +1,80 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { useState, type JSX, type ReactNode } from "react";
-import { CloseIcon, ShieldCheckIcon } from "@/components/ui/icons";
-import { currentAuthQueryOptions } from "@/lib/query/auth-query";
 import {
-  BALANCE_ACCOUNTS,
-  DIGITAL_DIRECTIONS,
-  DIGITAL_SERVICES,
-  DIGITAL_SERVICE_AVAILABILITY,
-  DIGITAL_STATUSES,
-  FEE_COLLECTION_METHODS,
-  digitalCapabilities,
-  serviceFieldKind,
-  transactionReviewBlockers,
-  type DigitalDirection,
-  type DigitalService,
-  type DigitalStatus,
-  type FeeCollectionMethod,
-} from "./digital-state";
+  EXTERNAL_PROVIDERS,
+  EXTERNAL_TRANSACTION_TYPES,
+  formatMoney,
+  PAYMENT_METHODS,
+  toMinor,
+  type ExternalProvider,
+  type ExternalTransaction,
+  type ExternalTransactionType,
+  type PaymentMethod,
+} from "@mobileshop/shared";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, type JSX, type ReactNode } from "react";
+import {
+  CatalogEmptyState,
+  CatalogErrorState,
+  CatalogForbiddenState,
+  CatalogTableSkeleton,
+} from "@/components/catalog/catalog-states";
+import { ShieldCheckIcon } from "@/components/ui/icons";
+import { toApiError, type ApiError } from "@/lib/api/client";
+import { createExternalTransaction } from "@/lib/api/external";
+import { currentAuthQueryOptions } from "@/lib/query/auth-query";
+import { externalTransactionsQueryOptions } from "@/lib/query/external-query";
+import { queryKeys } from "@/lib/query/keys";
+import {
+  buildExternalInput,
+  CASH_DIRECTION_LABELS,
+  externalCapabilities,
+  externalPreview,
+  EXTERNAL_PROVIDER_LABELS,
+  EXTERNAL_TYPE_LABELS,
+  PAYMENT_METHOD_LABELS,
+  recordExternalTransaction,
+  type ExternalFormValues,
+} from "./external-transaction-state";
 import {
   Card,
-  DigitalApiNotice,
   DigitalPageHeader,
-  DigitalPermissionGate,
   DigitalRouteSkeleton,
   fieldLabelClass,
   inputClass,
+  tableClass,
+  thClass,
 } from "./digital-ui";
 
-const billTypes = [
-  "Electricity",
-  "Gas",
-  "Water",
-  "Internet",
-  "Telephone",
-  "Other",
-] as const;
-const billCompanies = [
-  "LESCO",
-  "SNGPL",
-  "WASA",
-  "PTCL",
-  "StormFiber",
-  "Other",
-] as const;
+const EMPTY_FORM: ExternalFormValues = {
+  provider: EXTERNAL_PROVIDERS[0],
+  transactionType: EXTERNAL_TRANSACTION_TYPES[0],
+  principalMajor: "",
+  providerChargeMajor: "",
+  paymentMethod: PAYMENT_METHODS[0],
+  providerReference: "",
+  accountReference: "",
+  customerName: "",
+  customerPhone: "",
+  note: "",
+};
+
+function submissionMessage(error: ApiError): string {
+  if (error.code === "FORBIDDEN_PERMISSION" || error.status === 403) {
+    return "Your current permissions no longer allow recording external transactions. Nothing was recorded.";
+  }
+  if (error.code === "VALIDATION_FAILED") {
+    return "The API rejected the transaction. Review the amounts and try again.";
+  }
+  if (error.code === "NETWORK_ERROR") {
+    return "The external-service API could not be reached, so nothing was recorded. Check your connection and try again.";
+  }
+  if (error.code === "REQUEST_TIMEOUT") {
+    return "The external-service API did not respond in time, so nothing was recorded.";
+  }
+  if (error.code === "CLIENT_VALIDATION_FAILED") return error.message;
+  return "The transaction could not be recorded. Review the fields and try again.";
+}
 
 function Field({
   label,
@@ -56,7 +86,7 @@ function Field({
   readonly children: ReactNode;
 }): JSX.Element {
   return (
-    <label className="block min-w-0 flex-1">
+    <label className="block min-w-0">
       <span className={fieldLabelClass}>
         {label}{" "}
         {optional ? (
@@ -68,325 +98,185 @@ function Field({
   );
 }
 
-function LocalInput({
-  className = "",
-  ...props
-}: JSX.IntrinsicElements["input"]): JSX.Element {
-  return <input className={`${inputClass} ${className}`} {...props} />;
-}
-
-function ServiceFields({
-  direction,
-  feeMethod,
-  onFeeMethod,
-  service,
-}: {
-  readonly direction: DigitalDirection;
-  readonly feeMethod: FeeCollectionMethod;
-  readonly onFeeMethod: (value: FeeCollectionMethod) => void;
-  readonly service: DigitalService;
-}): JSX.Element {
-  const kind = serviceFieldKind(service);
-  return (
-    <div className="mt-4 space-y-3">
-      {kind === "wallet" ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Customer Mobile Number">
-            <LocalInput placeholder="03xx-xxxxxxx" />
-          </Field>
-          <Field label="Customer name" optional>
-            <LocalInput />
-          </Field>
-        </div>
-      ) : null}
-      {kind === "bank" ? (
-        <>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Bank Name">
-              <LocalInput />
-            </Field>
-            <Field label="Beneficiary Name">
-              <LocalInput />
-            </Field>
-          </div>
-          <Field label="Masked Account / IBAN Reference">
-            <LocalInput className="font-mono" placeholder="PK**1234" />
-          </Field>
-        </>
-      ) : null}
-      {kind === "bill" ? (
-        <>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Bill Type">
-              <select className={inputClass} defaultValue={billTypes[0]}>
-                {billTypes.map((type) => (
-                  <option key={type}>{type}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Company / Provider">
-              <select className={inputClass} defaultValue={billCompanies[0]}>
-                {billCompanies.map((company) => (
-                  <option key={company}>{company}</option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <Field label="Consumer / Reference Number">
-            <LocalInput className="font-mono" />
-          </Field>
-        </>
-      ) : null}
-      {kind === "load" ? (
-        <>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Customer Mobile Number">
-              <LocalInput placeholder="03xx-xxxxxxx" />
-            </Field>
-            <Field label="Network">
-              <select
-                className={inputClass}
-                defaultValue={service === "Jazz Load" ? "Jazz" : "Zong"}
-              >
-                <option>Jazz</option>
-                <option>Zong</option>
-                <option>Other</option>
-              </select>
-            </Field>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Load or Bundle">
-              <select className={inputClass} defaultValue="Load">
-                <option>Load</option>
-                <option>Bundle</option>
-              </select>
-            </Field>
-            <Field label="Package name" optional>
-              <LocalInput />
-            </Field>
-          </div>
-        </>
-      ) : null}
-      {kind === "other" ? (
-        <Field label="Service reference">
-          <LocalInput />
-        </Field>
-      ) : null}
-      {direction === "RECEIVED_INTO_SHOP" ? (
-        <Field label="Fee Collection Method">
-          <select
-            className={inputClass}
-            onChange={(event) =>
-              onFeeMethod(event.target.value as FeeCollectionMethod)
-            }
-            value={feeMethod}
-          >
-            {FEE_COLLECTION_METHODS.map((method) => (
-              <option key={method}>{method}</option>
-            ))}
-          </select>
-        </Field>
-      ) : null}
-    </div>
-  );
-}
-
 function PreviewRow({
   label,
-  value = "Unavailable",
+  value,
+  emphasis = false,
 }: {
   readonly label: string;
-  readonly value?: string;
-}) {
+  readonly value: string;
+  readonly emphasis?: boolean;
+}): JSX.Element {
   return (
-    <div className="flex justify-between gap-3 border-b border-line-subtle py-1.5 text-xs last:border-0">
+    <div className="flex justify-between gap-3 border-b border-line-subtle py-2 text-xs last:border-0">
       <span className="text-ink-muted">{label}</span>
-      <span className="text-right font-semibold text-ink">{value}</span>
+      <span
+        className={`text-right font-semibold ${emphasis ? "text-accent" : "text-ink"}`}
+      >
+        {value}
+      </span>
     </div>
   );
 }
 
-function FinancialPreview({
-  amount,
-  canViewFeeRules,
-  direction,
-  feeMethod,
-  status,
+function RecordedTransaction({
+  currency,
+  onRecordAnother,
+  transaction,
 }: {
-  readonly amount: string;
-  readonly canViewFeeRules: boolean;
-  readonly direction: DigitalDirection;
-  readonly feeMethod: FeeCollectionMethod;
-  readonly status: DigitalStatus;
-}) {
-  const principal =
-    amount.trim().length === 0 ? "—" : `PKR ${amount.trim()} (entered)`;
-  const sent = direction === "SENT_FROM_SHOP";
-  const rows = sent
-    ? [
-        "Principal Amount",
-        "Customer Service Fee",
-        "Customer Gives Cash",
-        "Provider Gross Commission",
-        "Commission Tax",
-        "Provider Net Commission",
-        "Other Direct Charges",
-        "Gross Service Earnings",
-        "Net Service Earnings",
-        "Physical Cash Increase",
-        "Provider Float Decrease",
-      ]
-    : [
-        "Principal Amount Received Digitally",
-        "Customer Service Fee",
-        "Fee Collection Method",
-        "Cash Given to Customer",
-        "Additional Cash Fee Received",
-        "Provider Gross Commission",
-        "Commission Tax",
-        "Provider Net Commission",
-        "Other Direct Charges",
-        "Gross Service Earnings",
-        "Net Service Earnings",
-        "Physical Cash Decrease",
-        "Provider Float Increase",
-      ];
+  readonly currency: string;
+  readonly onRecordAnother: () => void;
+  readonly transaction: ExternalTransaction;
+}): JSX.Element {
+  const money = (minor: number): string =>
+    formatMoney(toMinor(minor, "external amount"), currency);
   return (
-    <>
+    <Card hint="Recorded by the server" title="Transaction recorded">
       <div className="p-[1.125rem]">
-        {rows.map((label, index) => (
-          <PreviewRow
-            key={label}
-            label={label}
-            {...(index === 0
-              ? { value: principal }
-              : label === "Fee Collection Method"
-                ? { value: feeMethod }
-                : {})}
-          />
-        ))}
-        <div className="mt-3 rounded-control bg-warning-soft p-3 text-xs text-warning">
-          {canViewFeeRules
-            ? "Fee rules and financial calculations are waiting for the server API. No browser-side fee schedule is used."
-            : "Fee preview requires external_fee_rules.view. No fee, commission, float or earnings values were calculated."}
+        <div className="mb-3 flex items-start gap-2.5 rounded-control border border-positive/25 bg-positive-soft p-3 text-xs text-positive">
+          <ShieldCheckIcon className="mt-0.5 size-4 shrink-0" />
+          <span>
+            Transaction {transaction.txnNumber} was recorded for{" "}
+            {transaction.businessDate}. The figures below are the server&apos;s,
+            not this browser&apos;s.
+          </span>
         </div>
-        {status === "SUCCESSFUL" ? null : (
-          <div className="mt-3 rounded-control bg-warning-soft p-3 text-xs text-warning">
-            {status} transactions would be recorded without affecting settled
-            balances or earnings.
-          </div>
-        )}
+        <PreviewRow
+          label="Provider"
+          value={EXTERNAL_PROVIDER_LABELS[transaction.provider]}
+        />
+        <PreviewRow
+          label="Transaction type"
+          value={EXTERNAL_TYPE_LABELS[transaction.transactionType]}
+        />
+        <PreviewRow
+          label="Principal (customer money, not profit)"
+          value={money(transaction.principalMinor)}
+        />
+        <PreviewRow
+          emphasis
+          label="Fee charged (revenue)"
+          value={money(transaction.feeChargedMinor)}
+        />
+        <PreviewRow
+          label="Provider charge"
+          value={money(transaction.providerChargeMinor)}
+        />
+        <PreviewRow
+          emphasis
+          label="Service profit (fee − provider charge)"
+          value={money(transaction.serviceProfitMinor)}
+        />
+        <PreviewRow
+          label="Cash direction"
+          value={CASH_DIRECTION_LABELS[transaction.direction]}
+        />
+        <PreviewRow
+          label="Drawer cash impact"
+          value={money(transaction.cashImpactMinor)}
+        />
+        <button
+          className="mt-4 inline-flex min-h-10 items-center justify-center rounded-control bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-strong"
+          onClick={onRecordAnother}
+          type="button"
+        >
+          Record another transaction
+        </button>
       </div>
-    </>
+    </Card>
   );
 }
 
-function ReviewModal({
-  amount,
-  blockers,
-  cashier,
-  direction,
-  onClose,
-  providerReference,
-  service,
-  status,
+function RecentTransactions({
+  canView,
+  currency,
 }: {
-  readonly amount: string;
-  readonly blockers: readonly string[];
-  readonly cashier: string;
-  readonly direction: DigitalDirection;
-  readonly onClose: () => void;
-  readonly providerReference: string;
-  readonly service: DigitalService;
-  readonly status: DigitalStatus;
-}) {
+  readonly canView: boolean;
+  readonly currency: string;
+}): JSX.Element {
+  const query = useQuery(
+    externalTransactionsQueryOptions({ page: 1, pageSize: 10 }, canView),
+  );
+  const money = (minor: number): string =>
+    formatMoney(toMinor(minor, "external amount"), currency);
+
+  if (query.isPending) return <CatalogTableSkeleton rows={4} />;
+
+  if (query.data === undefined) {
+    const error = toApiError(query.error);
+    return (
+      <CatalogErrorState
+        description="The external-service API did not return a valid transaction page. No fallback or mock rows are shown."
+        onRetry={() => {
+          void query.refetch();
+        }}
+        title="Recent transactions could not be loaded"
+        {...(error.requestId === undefined ? {} : { requestId: error.requestId })}
+      />
+    );
+  }
+
+  if (query.data.items.length === 0) {
+    return (
+      <CatalogEmptyState
+        description="External transactions appear here after the API records them. No placeholder rows are shown."
+        title="No external transactions yet"
+      />
+    );
+  }
+
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <section
-        aria-labelledby="digital-review-title"
-        aria-modal="true"
-        className="flex max-h-[90vh] w-full max-w-[35rem] flex-col overflow-hidden rounded-card bg-surface shadow-overlay"
-        role="dialog"
-      >
-        <header className="flex items-center border-b border-line px-5 py-4">
-          <h2 className="text-base font-semibold" id="digital-review-title">
-            Review digital service transaction
-          </h2>
-          <button
-            aria-label="Close transaction review"
-            className="ml-auto grid size-8 place-items-center rounded-control text-ink-muted hover:bg-surface-subtle"
-            onClick={onClose}
-            type="button"
-          >
-            <CloseIcon className="size-4" />
-          </button>
-        </header>
-        <div className="flex-1 overflow-y-auto p-5">
-          <div className="rounded-control border border-accent/25 bg-accent-soft p-3 text-sm text-accent-ink">
-            <PreviewRow label="Service" value={service} />
-            <PreviewRow
-              label="Direction"
-              value={
-                direction === "SENT_FROM_SHOP"
-                  ? "Amount Sent from shop"
-                  : "Amount Received into shop"
-              }
-            />
-            <PreviewRow
-              label="Principal amount"
-              value={amount.length === 0 ? "—" : `PKR ${amount} (entered)`}
-            />
-            <PreviewRow label="Customer service fee" />
-            <PreviewRow label="Customer cash paid or received" />
-            <PreviewRow label="Provider float impact" />
-            <PreviewRow
-              label="Provider transaction ID"
-              value={
-                providerReference.trim().length === 0 ? "—" : providerReference
-              }
-            />
-            <PreviewRow label="Provider commission" />
-            <PreviewRow label="Net service earnings" />
-            <PreviewRow label="Status" value={status} />
-            <PreviewRow label="Cashier" value={cashier || "—"} />
-            <PreviewRow label="Timestamp" value="Not saved" />
-          </div>
-          <div className="mt-4 rounded-control border border-negative/25 bg-negative-soft p-4 text-xs text-negative">
-            <p className="font-semibold">Confirm and Save is blocked</p>
-            <ul className="mt-2 list-disc space-y-1 pl-5">
-              {blockers.map((blocker) => (
-                <li key={blocker}>{blocker}</li>
-              ))}
-            </ul>
-          </div>
-          <p className="mt-3 text-xs text-ink-muted">
-            Review uses only values entered on this page. No provider was
-            contacted and no transaction ID, fee, timestamp or balance impact
-            was generated.
-          </p>
-        </div>
-        <footer className="flex justify-end gap-2 border-t border-line px-5 py-3.5">
-          <button
-            className="min-h-9 rounded-control border border-line px-3.5 text-sm font-semibold text-ink-subtle"
-            onClick={onClose}
-            type="button"
-          >
-            Back to Edit
-          </button>
-          <button
-            className="min-h-9 rounded-control bg-accent px-3.5 text-sm font-semibold text-white opacity-45"
-            disabled
-            type="button"
-          >
-            Confirm and Save
-          </button>
-        </footer>
-      </section>
+    <div className="overflow-x-auto">
+      <table className={tableClass}>
+        <thead>
+          <tr>
+            {[
+              "Txn #",
+              "Date",
+              "Provider",
+              "Type",
+              "Principal",
+              "Fee",
+              "Service profit",
+              "Direction",
+            ].map((header) => (
+              <th className={thClass} key={header}>
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {query.data.items.map((txn) => (
+            <tr className="border-t border-line-subtle" key={txn.id}>
+              <td className="px-3.5 py-2.5 font-mono text-xs font-semibold text-ink">
+                {txn.txnNumber}
+              </td>
+              <td className="px-3.5 py-2.5 text-ink-muted">
+                {txn.businessDate}
+              </td>
+              <td className="px-3.5 py-2.5 text-ink">
+                {EXTERNAL_PROVIDER_LABELS[txn.provider]}
+              </td>
+              <td className="px-3.5 py-2.5 text-ink">
+                {EXTERNAL_TYPE_LABELS[txn.transactionType]}
+              </td>
+              <td className="px-3.5 py-2.5 text-right font-mono text-ink">
+                {money(txn.principalMinor)}
+              </td>
+              <td className="px-3.5 py-2.5 text-right font-mono text-ink">
+                {money(txn.feeChargedMinor)}
+              </td>
+              <td className="px-3.5 py-2.5 text-right font-mono font-semibold text-accent">
+                {money(txn.serviceProfitMinor)}
+              </td>
+              <td className="px-3.5 py-2.5 text-ink-muted">
+                {txn.direction === "cash_in" ? "Cash in" : "Cash out"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -397,260 +287,226 @@ export function DigitalNewTransactionRouteFallback(): JSX.Element {
 
 export function DigitalNewTransactionPage(): JSX.Element {
   const auth = useQuery(currentAuthQueryOptions);
-  const capabilities = digitalCapabilities(auth.data?.permissions);
-  const [service, setService] = useState<DigitalService>(DIGITAL_SERVICES[0]);
-  const [status, setStatus] = useState<DigitalStatus>(DIGITAL_STATUSES[0]);
-  const [direction, setDirection] = useState<DigitalDirection>(
-    DIGITAL_DIRECTIONS[0],
-  );
-  const [amountSent, setAmountSent] = useState("");
-  const [amountReceived, setAmountReceived] = useState("");
-  const [feeMethod, setFeeMethod] = useState<FeeCollectionMethod>(
-    FEE_COLLECTION_METHODS[0],
-  );
-  const [providerReference, setProviderReference] = useState("");
-  const [cashier, setCashier] = useState("");
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const amount = direction === "SENT_FROM_SHOP" ? amountSent : amountReceived;
-  const effectiveCashier = cashier || auth.data?.user.fullName || "";
-  const blockers = transactionReviewBlockers(
-    {
-      service,
-      status,
-      direction,
-      principalAmount: amount,
-      feeCollectionMethod: feeMethod,
-      providerTransactionId: providerReference,
-      cashierName: effectiveCashier,
-    },
-    capabilities,
-    DIGITAL_SERVICE_AVAILABILITY,
-  );
+  const queryClient = useQueryClient();
+  const [values, setValues] = useState<ExternalFormValues>(EMPTY_FORM);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submissionError, setSubmissionError] = useState<ApiError | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [recorded, setRecorded] = useState<ExternalTransaction | null>(null);
+  // One idempotency key per logical transaction. It is minted lazily on the
+  // first submit, reused across every retry after an uncertain response, and
+  // retired only on a confirmed success or a deliberate reset (below), so a
+  // retry never records a duplicate.
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
+
+  const capabilities = externalCapabilities(auth.data?.permissions);
+  const currency = auth.data?.organization.currency ?? "PKR";
 
   if (auth.data === undefined) return <DigitalRouteSkeleton />;
   if (!capabilities.canView) {
     return (
-      <DigitalPermissionGate
-        description="Viewing this workflow requires the server-provided permission."
-        permission="external_services.view"
-      />
-    );
-  }
-  if (!capabilities.canRecord) {
-    return (
-      <DigitalPermissionGate
-        description="Preparing a new manual provider record requires the server-provided permission."
-        permission="external_services.record"
+      <CatalogForbiddenState
+        description="Viewing external money-service transactions requires the server-provided external.view permission. No external-service request was sent."
+        title="External services access required"
       />
     );
   }
 
-  const chooseDirection = (next: DigitalDirection): void => {
-    setDirection(next);
-    if (next === "SENT_FROM_SHOP") setAmountReceived("");
-    else setAmountSent("");
+  const preview = externalPreview(values);
+  const money = (minor: number): string =>
+    formatMoney(toMinor(minor, "external amount"), currency);
+  const update = <TKey extends keyof ExternalFormValues>(
+    key: TKey,
+    value: ExternalFormValues[TKey],
+  ): void => {
+    setValues((previous) => ({ ...previous, [key]: value }));
+    setFormError(null);
+  };
+
+  const submit = async (): Promise<void> => {
+    if (submitting || !capabilities.canCreate) return;
+    setFormError(null);
+    setSubmissionError(null);
+    const result = buildExternalInput(values);
+    if (!result.ok) {
+      setFormError(result.error);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      // The key held in state is reused on retry and minted only when absent;
+      // recordExternalTransaction retires it after this confirmed success.
+      const saved = await recordExternalTransaction(result.input, {
+        heldKey: idempotencyKey,
+        setHeldKey: setIdempotencyKey,
+        create: createExternalTransaction,
+      });
+      setRecorded(saved);
+      setValues(EMPTY_FORM);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.externalRoot });
+    } catch (error) {
+      setSubmissionError(toApiError(error));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <>
       <DigitalPageHeader
-        actions={[
-          { href: "/digital/history", label: "History" },
-          { href: "/digital/balances", label: "Balances" },
-        ]}
-        subtitle="Record an external JazzCash, Easypaisa, bank, bill or load transaction after completing it in the official provider app."
-        title="Digital Services — New Transaction"
+        actions={[{ href: "/digital/history", label: "History" }]}
+        subtitle="Record an external JazzCash, Easypaisa, bank, utility or load transaction the cashier already completed in the provider app. The principal is the customer's money, never shop profit."
+        title="Digital Services — New External Transaction"
       />
-      <DigitalApiNotice>
-        This screen prepares a manual shop entry only. It does not connect to
-        JazzCash, Easypaisa, banks, utilities or telecom providers. The save API
-        and fee-rule API are not implemented, so final persistence is disabled.
-      </DigitalApiNotice>
 
       <div className="grid items-start gap-4 xl:grid-cols-3">
         <div className="space-y-4 xl:col-span-2">
-          <Card title="Service">
-            <div className="p-[1.125rem]">
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_13.75rem]">
-                <Field label="Service">
-                  <select
-                    className={inputClass}
-                    onChange={(event) =>
-                      setService(event.target.value as DigitalService)
-                    }
-                    value={service}
-                  >
-                    {DIGITAL_SERVICES.map((value) => (
-                      <option key={value}>{value}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Status">
-                  <select
-                    className={inputClass}
-                    onChange={(event) =>
-                      setStatus(event.target.value as DigitalStatus)
-                    }
-                    value={status}
-                  >
-                    {DIGITAL_STATUSES.map((value) => (
-                      <option key={value}>{value}</option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-              <ServiceFields
-                direction={direction}
-                feeMethod={feeMethod}
-                onFeeMethod={setFeeMethod}
-                service={service}
-              />
-            </div>
-          </Card>
+          {recorded === null ? null : (
+            <RecordedTransaction
+              currency={currency}
+              onRecordAnother={() => {
+                // Deliberate "new transaction": drop the retired key so the
+                // next submit mints a fresh one for a distinct transaction.
+                setIdempotencyKey(null);
+                setRecorded(null);
+              }}
+              transaction={recorded}
+            />
+          )}
 
-          <div className="grid gap-4 min-[821px]:grid-cols-2">
-            <section
-              className={`min-h-[11.125rem] rounded-card border-2 p-[1.125rem] text-left shadow-card ${
-                direction === "SENT_FROM_SHOP"
-                  ? "border-accent bg-accent-soft"
-                  : "border-line bg-surface opacity-65 hover:border-accent"
-              }`}
-            >
-              <button
-                className="block w-full text-left"
-                onClick={() => chooseDirection("SENT_FROM_SHOP")}
-                type="button"
-              >
-                <span className="block text-lg font-bold text-ink">
-                  AMOUNT SENT
-                </span>
-                <span className="mt-0.5 block text-xs text-ink-muted">
-                  Sent from shop wallet, account or provider float
-                </span>
-              </button>
-              <label className="mt-4 block">
-                <span className="block text-xs font-semibold text-ink-subtle">
-                  Amount
-                </span>
-                <LocalInput
-                  className="mt-1 min-h-[3.25rem] text-2xl font-bold"
-                  inputMode="decimal"
-                  min="0"
-                  onChange={(event) => {
-                    setAmountSent(event.target.value);
-                    chooseDirection("SENT_FROM_SHOP");
-                  }}
-                  onFocus={() => chooseDirection("SENT_FROM_SHOP")}
-                  placeholder="PKR"
-                  type="number"
-                  value={amountSent}
-                />
-              </label>
-            </section>
-            <section
-              className={`min-h-[11.125rem] rounded-card border-2 p-[1.125rem] text-left shadow-card ${
-                direction === "RECEIVED_INTO_SHOP"
-                  ? "border-accent bg-accent-soft"
-                  : "border-line bg-surface opacity-65 hover:border-accent"
-              }`}
-            >
-              <button
-                className="block w-full text-left"
-                onClick={() => chooseDirection("RECEIVED_INTO_SHOP")}
-                type="button"
-              >
-                <span className="block text-lg font-bold text-ink">
-                  AMOUNT RECEIVED
-                </span>
-                <span className="mt-0.5 block text-xs text-ink-muted">
-                  Received into shop wallet, account or provider float
-                </span>
-              </button>
-              <label className="mt-4 block">
-                <span className="block text-xs font-semibold text-ink-subtle">
-                  Amount
-                </span>
-                <LocalInput
-                  className="mt-1 min-h-[3.25rem] text-2xl font-bold"
-                  inputMode="decimal"
-                  min="0"
-                  onChange={(event) => {
-                    setAmountReceived(event.target.value);
-                    chooseDirection("RECEIVED_INTO_SHOP");
-                  }}
-                  onFocus={() => chooseDirection("RECEIVED_INTO_SHOP")}
-                  placeholder="PKR"
-                  type="number"
-                  value={amountReceived}
-                />
-              </label>
-            </section>
-          </div>
-
-          <Card title="Customer and provider details">
+          <Card title="Transaction details">
             <div className="space-y-3 p-[1.125rem]">
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Customer Name" optional>
-                  <LocalInput />
-                </Field>
-                <Field label="Customer Mobile Number">
-                  <LocalInput placeholder="03xx-xxxxxxx" />
-                </Field>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Customer / Account Reference">
-                  <LocalInput />
-                </Field>
-                <Field label="Provider Transaction ID">
-                  <LocalInput
-                    className="font-mono"
+                <Field label="Provider">
+                  <select
+                    className={inputClass}
                     onChange={(event) =>
-                      setProviderReference(event.target.value)
+                      update("provider", event.target.value as ExternalProvider)
                     }
-                    value={providerReference}
+                    value={values.provider}
+                  >
+                    {EXTERNAL_PROVIDERS.map((provider) => (
+                      <option key={provider} value={provider}>
+                        {EXTERNAL_PROVIDER_LABELS[provider]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Transaction type">
+                  <select
+                    className={inputClass}
+                    onChange={(event) =>
+                      update(
+                        "transactionType",
+                        event.target.value as ExternalTransactionType,
+                      )
+                    }
+                    value={values.transactionType}
+                  >
+                    {EXTERNAL_TRANSACTION_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {EXTERNAL_TYPE_LABELS[type]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Principal amount (PKR)">
+                  <input
+                    className={inputClass}
+                    inputMode="decimal"
+                    min="0"
+                    onChange={(event) =>
+                      update("principalMajor", event.target.value)
+                    }
+                    placeholder="e.g. 1000"
+                    step="0.01"
+                    type="number"
+                    value={values.principalMajor}
+                  />
+                </Field>
+                <Field label="Provider charge (PKR)" optional>
+                  <input
+                    className={inputClass}
+                    inputMode="decimal"
+                    min="0"
+                    onChange={(event) =>
+                      update("providerChargeMajor", event.target.value)
+                    }
+                    placeholder="0"
+                    step="0.01"
+                    type="number"
+                    value={values.providerChargeMajor}
+                  />
+                </Field>
+              </div>
+              <Field label="Payment method">
+                <select
+                  className={inputClass}
+                  onChange={(event) =>
+                    update(
+                      "paymentMethod",
+                      event.target.value as PaymentMethod,
+                    )
+                  }
+                  value={values.paymentMethod}
+                >
+                  {PAYMENT_METHODS.map((method) => (
+                    <option key={method} value={method}>
+                      {PAYMENT_METHOD_LABELS[method]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Provider reference" optional>
+                  <input
+                    className={`${inputClass} font-mono`}
+                    onChange={(event) =>
+                      update("providerReference", event.target.value)
+                    }
+                    value={values.providerReference}
+                  />
+                </Field>
+                <Field label="Account / bill reference" optional>
+                  <input
+                    className={`${inputClass} font-mono`}
+                    onChange={(event) =>
+                      update("accountReference", event.target.value)
+                    }
+                    value={values.accountReference}
                   />
                 </Field>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="External Transaction Date and Time">
-                  <LocalInput type="datetime-local" />
+                <Field label="Customer name" optional>
+                  <input
+                    className={inputClass}
+                    onChange={(event) =>
+                      update("customerName", event.target.value)
+                    }
+                    value={values.customerName}
+                  />
                 </Field>
-                <Field label="Cashier">
-                  <LocalInput
-                    onChange={(event) => setCashier(event.target.value)}
-                    placeholder={auth.data.user.fullName}
-                    value={cashier}
+                <Field label="Customer phone" optional>
+                  <input
+                    className={inputClass}
+                    onChange={(event) =>
+                      update("customerPhone", event.target.value)
+                    }
+                    placeholder="03xx-xxxxxxx"
+                    value={values.customerPhone}
                   />
                 </Field>
               </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                <Field label="Provider Gross Commission">
-                  <LocalInput
-                    min="0"
-                    placeholder="API calculated"
-                    type="number"
-                  />
-                </Field>
-                <Field label="Provider Commission Tax">
-                  <LocalInput
-                    min="0"
-                    placeholder="API calculated"
-                    type="number"
-                  />
-                </Field>
-                <Field label="Other Direct Charges">
-                  <LocalInput
-                    min="0"
-                    placeholder="API calculated"
-                    type="number"
-                  />
-                </Field>
-              </div>
-              <Field label="Notes">
+              <Field label="Note" optional>
                 <textarea
-                  className={`${inputClass} min-h-20 py-2.5`}
-                  placeholder="Never store PIN, OTP, MPIN, password or biometric information."
+                  className={`${inputClass} min-h-16 py-2.5`}
+                  onChange={(event) => update("note", event.target.value)}
+                  placeholder="Never store PIN, OTP or password information."
                   rows={2}
+                  value={values.note}
                 />
               </Field>
             </div>
@@ -659,54 +515,100 @@ export function DigitalNewTransactionPage(): JSX.Element {
 
         <aside className="space-y-4">
           <Card
-            hint={
-              capabilities.canViewFeeRules
-                ? "Fee rule API pending"
-                : "Fee permission required"
-            }
-            title="Live financial preview"
+            hint="Server recomputes on save"
+            title="Live fee &amp; profit preview"
           >
-            <FinancialPreview
-              amount={amount}
-              canViewFeeRules={capabilities.canViewFeeRules}
-              direction={direction}
-              feeMethod={feeMethod}
-              status={status}
-            />
-          </Card>
-          <button
-            className="inline-flex min-h-12 w-full items-center justify-center rounded-control bg-accent px-4 text-[0.9375rem] font-semibold text-white hover:bg-accent-strong"
-            onClick={() => setReviewOpen(true)}
-            type="button"
-          >
-            Review &amp; Save Transaction
-          </button>
-          <Card title="Current balances">
             <div className="p-[1.125rem]">
-              {BALANCE_ACCOUNTS.slice(0, 4).map((account) => (
-                <PreviewRow key={account} label={account} />
-              ))}
-              <div className="mt-3 flex gap-2 rounded-control bg-warning-soft p-3 text-xs text-warning">
-                <ShieldCheckIcon className="size-4 shrink-0" />
-                Balance API pending. No opening or current amount is inferred.
+              <PreviewRow
+                label="Principal (customer money)"
+                value={
+                  preview.principalValid && preview.principalMinor !== null
+                    ? money(preview.principalMinor)
+                    : "—"
+                }
+              />
+              <PreviewRow
+                label="Cash direction"
+                value={CASH_DIRECTION_LABELS[preview.direction]}
+              />
+              <PreviewRow
+                emphasis
+                label="Fee charged (revenue)"
+                value={preview.feeMinor === null ? "—" : money(preview.feeMinor)}
+              />
+              <PreviewRow
+                label="Provider charge"
+                value={money(preview.providerChargeMinor)}
+              />
+              <PreviewRow
+                emphasis
+                label="Service profit (fee − provider charge)"
+                value={
+                  preview.serviceProfitMinor === null
+                    ? "—"
+                    : money(preview.serviceProfitMinor)
+                }
+              />
+              <div className="mt-3 flex items-start gap-2 rounded-control bg-warning-soft p-3 text-xs text-warning">
+                <ShieldCheckIcon className="mt-0.5 size-4 shrink-0" />
+                The principal is the customer&apos;s money passing through — it is
+                not revenue or profit. Only the fee is revenue; service profit is
+                the fee less the provider charge. The server recomputes every
+                figure on save.
               </div>
             </div>
           </Card>
+
+          {formError === null ? null : (
+            <div
+              className="rounded-control border border-negative/25 bg-negative-soft p-3 text-sm text-negative"
+              role="alert"
+            >
+              {formError}
+            </div>
+          )}
+          {submissionError === null ? null : (
+            <div
+              className="rounded-control border border-negative/25 bg-negative-soft p-3 text-sm text-negative"
+              role="alert"
+            >
+              <p className="font-semibold">Transaction was not recorded</p>
+              <p className="mt-0.5">{submissionMessage(submissionError)}</p>
+              {submissionError.requestId === undefined ? null : (
+                <p className="mt-1 font-mono text-xs">
+                  Ref: {submissionError.requestId}
+                </p>
+              )}
+            </div>
+          )}
+
+          {capabilities.canCreate ? (
+            <button
+              className="inline-flex min-h-12 w-full items-center justify-center rounded-control bg-accent px-4 text-[0.9375rem] font-semibold text-white hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={submitting || !preview.principalValid}
+              onClick={() => {
+                void submit();
+              }}
+              type="button"
+            >
+              {submitting ? "Recording…" : "Record transaction"}
+            </button>
+          ) : (
+            <p className="rounded-control border border-warning/25 bg-warning-soft p-3 text-xs text-warning">
+              Recording requires the external.create permission. You can review
+              transactions but not record new ones.
+            </p>
+          )}
         </aside>
       </div>
 
-      {reviewOpen ? (
-        <ReviewModal
-          amount={amount}
-          blockers={blockers}
-          cashier={effectiveCashier}
-          direction={direction}
-          onClose={() => setReviewOpen(false)}
-          providerReference={providerReference}
-          service={service}
-          status={status}
-        />
-      ) : null}
+      <section className="mt-4">
+        <Card title="Recent external transactions">
+          <div className="p-[1.125rem]">
+            <RecentTransactions canView={capabilities.canView} currency={currency} />
+          </div>
+        </Card>
+      </section>
     </>
   );
 }

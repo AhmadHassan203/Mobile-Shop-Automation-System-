@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Buying Intelligence · MobileShop OS</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <style>
+    /* Page-scoped niceties for the expandable recommendation rows + budget panel */
+    tr.rec-row { cursor: pointer; }
+    tr.rec-row:hover { background: var(--surface-2); }
+    tr.rec-row.expanded { background: var(--accent-soft); }
+    tr.rec-row.expanded td { border-bottom-color: transparent; }
+    tr.rec-detail > td { padding: 0; background: var(--surface-2); border-bottom: 1px solid var(--line); }
+    tr.rec-detail .rec-detail-inner { padding: 16px 18px 18px; }
+    .rec-chev { display: inline-block; width: 12px; color: var(--ink-3); transition: transform .15s ease; font-size: 11px; }
+    tr.rec-row.expanded .rec-chev { transform: rotate(90deg); color: var(--accent); }
+    .detail-lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; color: var(--ink-3); margin-bottom: 9px; }
+    .reason-li, .risk-li { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; margin: 6px 0; color: var(--ink); }
+    .reason-li svg { width: 15px; height: 15px; color: var(--pos); flex-shrink: 0; margin-top: 1px; stroke-width: 2.6; }
+    .risk-li .risk-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); flex-shrink: 0; margin-top: 5px; }
+    .budget-fig .l { font-size: 12px; color: var(--ink-3); font-weight: 600; }
+    .budget-fig .v { font-size: 21px; font-weight: 720; margin-top: 3px; letter-spacing: -.01em; }
+    .budget-figs { display: flex; flex-wrap: wrap; gap: 14px 30px; }
+    .budget-figs .sep { width: 1px; align-self: stretch; background: var(--line); }
+    .stk { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .conf-cell { min-width: 128px; }
+  </style>
+</head>
+<body data-page="intelligence">
+  <div class="layout">
+    <aside id="sidebar"></aside>
+    <div class="main">
+      <header id="topbar"></header>
+      <main class="content">
+
+        <div class="page-head">
+          <div>
+            <h1>Buying Plan — Reorder Recommendations</h1>
+            <div class="subtitle">Deterministic engine · algorithm v1 · window last 90 days · generated today</div>
+          </div>
+          <div class="actions">
+            <button class="btn" id="btn-rerun"></button>
+            <button class="btn btn-primary" id="btn-draftall"></button>
+          </div>
+        </div>
+
+        <div class="callout info" style="margin-bottom:18px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+          <span><strong>The engine never places orders automatically.</strong> It ranks by sales velocity, qualified unmet demand, margin, stockout severity and confidence — and shows its reasons. You approve every quantity.</span>
+        </div>
+
+        <!-- ===================== BUDGET PANEL ===================== -->
+        <div class="card" style="margin-bottom:18px">
+          <div class="card-head">
+            <h3>Buying budget</h3>
+            <span class="hint">Updates live as you accept, adjust or drop recommendations</span>
+          </div>
+          <div class="card-pad">
+            <div class="budget-figs">
+              <div class="budget-fig"><div class="l">Purchase budget</div><div class="v" id="b-total"></div></div>
+              <div class="sep"></div>
+              <div class="budget-fig"><div class="l">Liquidity buffer (reserved)</div><div class="v" id="b-buffer" style="color:var(--ink-2)"></div></div>
+              <div class="sep"></div>
+              <div class="budget-fig"><div class="l">Selected investment</div><div class="v" id="b-selected"></div></div>
+              <div class="sep"></div>
+              <div class="budget-fig"><div class="l">Expected gross return</div><div class="v pos-text" id="b-return"></div></div>
+              <div class="sep"></div>
+              <div class="budget-fig"><div class="l">Cash remaining</div><div class="v" id="b-cash"></div></div>
+            </div>
+
+            <div style="margin-top:18px;position:relative">
+              <div class="meter" id="b-meterwrap" style="height:9px">
+                <span id="b-meter" style="width:0"></span>
+              </div>
+              <div style="position:absolute;top:-3px;left:88%;width:2px;height:15px;background:var(--ink-3)" title="Investable ceiling"></div>
+            </div>
+            <div class="spread small muted" style="margin-top:7px">
+              <span id="b-legend"></span>
+              <span>Investable ceiling <span style="color:var(--ink-2)">↑</span> (buffer kept in reserve)</span>
+            </div>
+            <div class="callout warn" id="b-overwarn" style="margin-top:12px;display:none">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+              <span>Selected spend is past the investable ceiling — the <strong id="b-overamt"></strong> liquidity buffer is being consumed. Drop or reduce a recommendation to protect cash.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===================== RECOMMENDATIONS ===================== -->
+        <div class="card">
+          <div class="card-head">
+            <h3>Recommendations</h3>
+            <span class="hint" id="recSummary"></span>
+          </div>
+          <div class="table-wrap">
+            <table class="data">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Avail · Inb · Resv</th>
+                  <th class="num">30d</th>
+                  <th class="num">Unmet</th>
+                  <th class="num">Cover</th>
+                  <th class="num">Lead</th>
+                  <th class="num">Rec qty</th>
+                  <th class="num">Est. cost</th>
+                  <th class="num">Exp. profit</th>
+                  <th class="num">ROI</th>
+                  <th>Confidence</th>
+                  <th class="num">Score</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="recBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <script src="assets/data.js"></script>
+  <script src="assets/shell.js"></script>
+  <script>
+    // ---- Header action buttons ------------------------------------------
+    document.getElementById("btn-rerun").innerHTML = Shell.svg("returns") + " Re-run engine";
+    document.getElementById("btn-draftall").innerHTML = Shell.svg("purchases") + " Create draft POs from accepted";
+
+    var B = DB.budget;
+    var INVESTABLE = B.total - B.liquidityBuffer;      // cash kept outside the buffer
+    var supByName = {}; DB.suppliers.forEach(function (s) { supByName[s.name] = s; });
+
+    // ---- Working state ---------------------------------------------------
+    // Engine's proposed plan = the HIGH-confidence recommendations (they fit budget:
+    // their cost sums to DB.budget.selected). Medium/Low are surfaced but out-of-plan
+    // until the owner consciously opts in — low confidence needs human judgement.
+    var recs = DB.recommendations.map(function (r) {
+      return {
+        id: r.id, variantId: r.variantId,
+        qty: r.qty, baseQty: r.qty,
+        unitCost: Math.round(r.cost / r.qty),
+        unitProfit: Math.round(r.expProfit / r.qty),
+        cost: r.cost, expProfit: r.expProfit,
+        roi: r.roi, score: r.score,
+        confidence: r.confidence, confPct: r.confPct,
+        supplier: r.supplier, daysCover: r.daysCover,
+        reasons: r.reasons, risks: r.risks,
+        state: r.confidence === "High" ? "in-plan" : "out"
+      };
+    }).sort(function (a, b) { return b.score - a.score; });
+
+    var expanded = {}; expanded["R-01"] = true;   // open the top pick by default
+
+    // ---- Small render helpers -------------------------------------------
+    function counts(r) { return r.state === "in-plan" || r.state === "accepted"; }
+
+    function statusBadge(state) {
+      if (state === "accepted") return '<span class="badge pos">' + Shell.svg("check") + 'Accepted</span>';
+      if (state === "in-plan")  return '<span class="badge accent">In plan</span>';
+      if (state === "deferred") return '<span class="badge warn">Deferred</span>';
+      if (state === "rejected") return '<span class="badge neg">Rejected</span>';
+      return '<span class="badge plain">Not in plan</span>';
+    }
+
+    function confClass(c) { return c === "High" ? "pos" : c === "Medium" ? "warn" : "neg"; }
+
+    function rowHTML(r) {
+      var v = fmt.variant(r.variantId);
+      var st = DB.stock[r.variantId] || { available: 0, inbound: 0, reserved: 0, sold30: 0, unmet: 0 };
+      var sup = supByName[r.supplier];
+      var lead = sup ? sup.leadTime + "d" : "—";
+      var name = fmt.variantName(r.variantId);
+      var isOpen = !!expanded[r.id];
+
+      // cover
+      var coverHTML = r.daysCover === 0
+        ? '<span class="neg-text">0d · out</span>'
+        : (r.daysCover <= 5 ? '<span style="color:var(--warn);font-weight:650">' + r.daysCover + 'd</span>' : r.daysCover + 'd');
+
+      // unmet
+      var unmetHTML = st.unmet > 0 ? '<span style="color:var(--warn);font-weight:650">' + st.unmet + '</span>' : '0';
+
+      // qty (with "was" note if adjusted)
+      var qtyHTML = '<span class="strong">' + r.qty + '</span>'
+        + (r.qty !== r.baseQty ? ' <span class="tiny muted">was ' + r.baseQty + '</span>' : '');
+
+      // confidence
+      var confHTML = '<div class="conf-cell"><div class="confbar"><div class="meter ' + confClass(r.confidence) + '" style="min-width:52px">'
+        + '<span style="width:' + r.confPct + '%"></span></div>'
+        + '<span class="small nowrap">' + r.confidence + ' ' + r.confPct + '%</span></div>'
+        + (r.confidence === "Low" ? '<div class="tiny" style="color:var(--neg);margin-top:2px">use a test quantity</div>' : '') + '</div>';
+
+      // score
+      var scoreHTML = '<div style="min-width:58px;margin-left:auto">'
+        + '<div class="strong" style="text-align:right">' + r.score + '</div>'
+        + '<div class="meter" style="height:5px;margin-top:3px"><span style="width:' + r.score + '%"></span></div></div>';
+
+      var main = '<tr class="rec-row' + (isOpen ? ' expanded' : '') + '" onclick="toggleRow(\'' + r.id + '\')">'
+        + '<td><div class="row" style="gap:8px"><span class="rec-chev">▶</span>'
+        +   '<div><div class="strong" style="font-size:13px">' + name + '</div>'
+        +   '<div class="mono tiny muted">' + (v ? v.sku : r.variantId) + '</div></div></div></td>'
+        + '<td class="stk">' + st.available + ' <span class="tiny muted">av</span> · ' + st.inbound + ' <span class="tiny muted">in</span> · ' + st.reserved + ' <span class="tiny muted">rs</span></td>'
+        + '<td class="num">' + st.sold30 + '</td>'
+        + '<td class="num">' + unmetHTML + '</td>'
+        + '<td class="num">' + coverHTML + '</td>'
+        + '<td class="num">' + lead + '</td>'
+        + '<td class="num">' + qtyHTML + '</td>'
+        + '<td class="num" data-cost="' + r.id + '">' + fmt.pkr(r.cost) + '</td>'
+        + '<td class="num pos-text" data-profit="' + r.id + '">' + fmt.pkr(r.expProfit) + '</td>'
+        + '<td class="num">' + r.roi + '%</td>'
+        + '<td>' + confHTML + '</td>'
+        + '<td class="num">' + scoreHTML + '</td>'
+        + '<td>' + statusBadge(r.state) + '</td>'
+        + '</tr>';
+
+      // ---- detail row ----
+      var reasonsHTML = r.reasons.map(function (t) {
+        return '<div class="reason-li">' + Shell.svg("check") + '<span>' + t + '</span></div>';
+      }).join("");
+
+      var risksHTML = (r.risks && r.risks.length)
+        ? r.risks.map(function (t) { return '<div class="risk-li"><span class="risk-dot"></span><span>' + t + '</span></div>'; }).join("")
+        : '<div class="risk-li" style="color:var(--pos)">' + Shell.svg("check") + '<span>No significant risks flagged.</span></div>';
+
+      var supBlock = sup
+        ? '<div class="kv"><span class="k">Supplier</span><span class="v"><a href="suppliers.html">' + sup.name + '</a></span></div>'
+          + '<div class="kv"><span class="k">Lead time</span><span class="v">' + sup.leadTime + ' days</span></div>'
+          + '<div class="kv"><span class="k">Terms</span><span class="v">' + sup.terms + '</span></div>'
+          + '<div class="kv"><span class="k">On-time delivery</span><span class="v">' + sup.onTime + '% · rating ' + sup.rating + '</span></div>'
+        : '<div class="muted small">' + r.supplier + '</div>';
+
+      var lowConf = r.confidence === "Low"
+        ? '<div class="callout warn" style="margin:12px 0 0">'
+          + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>'
+          + '<span><strong>Low confidence — use a test quantity.</strong> Sparse sales history for this line; buy a small batch, watch sell-through, then scale.</span></div>'
+        : '';
+
+      var detail = '<tr class="rec-detail" data-detail="' + r.id + '"' + (isOpen ? '' : ' style="display:none"') + '>'
+        + '<td colspan="13"><div class="rec-detail-inner">'
+        +   '<div class="grid cols-2" style="gap:22px;align-items:start">'
+        +     '<div><div class="detail-lbl">Why the engine recommends this</div>' + reasonsHTML + '</div>'
+        +     '<div><div class="detail-lbl">Risks &amp; cautions</div>' + risksHTML
+        +       '<div class="divider"></div><div class="detail-lbl">Suggested supplier</div>' + supBlock + '</div>'
+        +   '</div>'
+        +   lowConf
+        +   '<div class="divider"></div>'
+        +   '<div class="spread" style="align-items:flex-end;flex-wrap:wrap;gap:12px">'
+        +     '<div class="row wrap" style="gap:8px" onclick="event.stopPropagation()">'
+        +       '<button class="btn btn-pos btn-sm" onclick="accept(\'' + r.id + '\')">' + Shell.svg("check") + ' Accept</button>'
+        +       '<button class="btn btn-sm" onclick="reduceQty(\'' + r.id + '\')">− Reduce qty</button>'
+        +       '<button class="btn btn-sm" onclick="increaseQty(\'' + r.id + '\')">＋ Increase</button>'
+        +       '<button class="btn btn-sm" onclick="deferRec(\'' + r.id + '\')">Defer</button>'
+        +       '<button class="btn btn-danger btn-sm" onclick="rejectRec(\'' + r.id + '\')">Reject</button>'
+        +       '<button class="btn btn-sm" onclick="draftPO(\'' + r.id + '\')">' + Shell.svg("purchases") + ' Create draft PO</button>'
+        +     '</div>'
+        +     '<a class="small" href="inventory.html">View ' + name + ' in inventory →</a>'
+        +   '</div>'
+        + '</div></td></tr>';
+
+      return main + detail;
+    }
+
+    // ---- Full render + budget recompute ---------------------------------
+    function render() {
+      document.getElementById("recBody").innerHTML = recs.map(rowHTML).join("");
+      recompute();
+    }
+
+    function recompute() {
+      var selected = 0, ret = 0, inPlan = 0, accepted = 0, reviewed = 0;
+      recs.forEach(function (r) {
+        if (counts(r)) { selected += r.cost; ret += r.expProfit; inPlan++; }
+        if (r.state === "accepted") accepted++;
+        if (r.state === "accepted" || r.state === "deferred" || r.state === "rejected") reviewed++;
+      });
+      var cash = B.total - selected;
+
+      document.getElementById("b-total").textContent = fmt.pkr(B.total);
+      document.getElementById("b-buffer").textContent = fmt.pkr(B.liquidityBuffer);
+      document.getElementById("b-selected").textContent = fmt.pkr(selected);
+      document.getElementById("b-return").textContent = fmt.pkr(ret);
+      var cashEl = document.getElementById("b-cash");
+      cashEl.textContent = fmt.pkr(cash);
+      cashEl.className = "v " + (cash < 0 ? "neg-text" : "");
+
+      // meter: selected / total, colour shifts as it eats into the buffer / overruns
+      var pctFill = Math.max(0, Math.min(100, selected / B.total * 100));
+      var meterWrap = document.getElementById("b-meterwrap");
+      meterWrap.className = "meter" + (selected > B.total ? " neg" : (selected > INVESTABLE ? " warn" : ""));
+      document.getElementById("b-meter").style.width = pctFill.toFixed(1) + "%";
+
+      document.getElementById("b-legend").textContent =
+        "Rs 0  ·  " + fmt.pkr(selected) + " selected of " + fmt.pkr(B.total);
+
+      var over = selected - INVESTABLE;
+      var warn = document.getElementById("b-overwarn");
+      if (over > 0) {
+        warn.style.display = "";
+        document.getElementById("b-overamt").textContent = fmt.pkr(B.liquidityBuffer);
+      } else { warn.style.display = "none"; }
+
+      // summary in the card head
+      document.getElementById("recSummary").textContent =
+        recs.length + " recommendations · " + inPlan + " in plan · " + accepted + " accepted · "
+        + reviewed + " of " + recs.length + " reviewed · click a row for reasons";
+    }
+
+    // ---- Owner actions ---------------------------------------------------
+    function toggleRow(id) {
+      if (expanded[id]) delete expanded[id]; else expanded[id] = true;
+      var det = document.querySelector('[data-detail="' + id + '"]');
+      var row = det ? det.previousElementSibling : null;
+      if (det) det.style.display = expanded[id] ? "" : "none";
+      if (row) row.classList.toggle("expanded", !!expanded[id]);
+    }
+
+    function find(id) { return recs.find(function (r) { return r.id === id; }); }
+    function applyQty(r) { r.cost = r.unitCost * r.qty; r.expProfit = r.unitProfit * r.qty; }
+
+    function accept(id) {
+      var r = find(id); if (!r) return;
+      var wasCounted = counts(r);
+      r.state = "accepted";
+      render();
+      Shell.toast(wasCounted
+        ? "Accepted — draft PO ready for " + r.qty + "× " + fmt.variantName(r.variantId)
+        : "Accepted — added " + fmt.pkr(r.cost) + " to plan · draft PO ready", true);
+    }
+
+    function reduceQty(id) {
+      var r = find(id); if (!r) return;
+      var step = r.baseQty >= 20 ? 5 : 1;
+      if (r.qty <= 1) { Shell.toast("Quantity is already at the minimum of 1.", false); return; }
+      r.qty = Math.max(1, r.qty - step);
+      applyQty(r); render();
+      Shell.toast("Reduced to " + r.qty + " units · cost now " + fmt.pkr(r.cost), true);
+    }
+
+    function increaseQty(id) {
+      var r = find(id); if (!r) return;
+      var step = r.baseQty >= 20 ? 5 : 1;
+      r.qty = r.qty + step;
+      applyQty(r); render();
+      Shell.toast("Increased to " + r.qty + " units · reason logged: strong unmet demand", true);
+    }
+
+    function deferRec(id) {
+      var r = find(id); if (!r) return;
+      r.state = "deferred"; render();
+      Shell.toast("Deferred to the next buying cycle · removed from selected total", true);
+    }
+
+    function rejectRec(id) {
+      var r = find(id); if (!r) return;
+      r.state = "rejected"; render();
+      Shell.toast("Rejected — reason logged · removed from selected total", true);
+    }
+
+    function draftPO(id) {
+      var r = find(id); if (!r) return;
+      Shell.toast("Draft PO created — " + r.qty + "× " + fmt.variantName(r.variantId) + " · " + r.supplier, true);
+    }
+
+    // header buttons
+    document.getElementById("btn-rerun").onclick = function () {
+      Shell.toast("Engine re-ran · algorithm v1 · 90-day window · recommendations refreshed", true);
+    };
+    document.getElementById("btn-draftall").onclick = function () {
+      var n = recs.filter(function (r) { return r.state === "accepted"; }).length;
+      if (n === 0) { Shell.toast("No accepted recommendations yet — accept a row first.", false); return; }
+      Shell.toast(n + " draft PO" + (n > 1 ? "s" : "") + " created from accepted recommendations", true);
+    };
+
+    render();
+  </script>
+</body>
+</html>

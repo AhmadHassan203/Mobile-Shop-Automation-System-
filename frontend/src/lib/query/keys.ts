@@ -61,4 +61,32 @@ export const queryKeys = Object.freeze({
     ["purchasing", "receipts", parameters] as const,
   purchasingReceipt: (id: string) =>
     ["purchasing", "receipts", "detail", id] as const,
+  returnsRoot: ["returns"] as const,
+  returns: (parameters: object) => ["returns", parameters] as const,
+  return: (id: string) => ["returns", "detail", id] as const,
+  returnEligibility: (query: object) =>
+    ["returns", "eligibility", query] as const,
+  externalRoot: ["external"] as const,
+  external: (parameters: object) => ["external", parameters] as const,
+  externalTransaction: (id: string) => ["external", "detail", id] as const,
+  externalBalances: ["external", "balances"] as const,
+  externalCommission: (period: string) =>
+    ["external", "commission", period] as const,
+  cashSessionsRoot: ["cash-sessions"] as const,
+  cashSessions: (parameters: object) => ["cash-sessions", parameters] as const,
+  currentCashSession: ["cash-sessions", "current"] as const,
+  expensesRoot: ["expenses"] as const,
+  expenses: (parameters: object) => ["expenses", parameters] as const,
+  dashboardSummaryRoot: ["reports", "dashboard-summary"] as const,
+  dashboardSummary: (query: object) =>
+    ["reports", "dashboard-summary", query] as const,
+  reportsSalesTrendRoot: ["reports", "sales-trend"] as const,
+  reportsSalesTrend: (query: object) =>
+    ["reports", "sales-trend", query] as const,
+  reportsTopProductsRoot: ["reports", "top-products"] as const,
+  reportsTopProducts: (query: object) =>
+    ["reports", "top-products", query] as const,
+  reorderSuggestionsRoot: ["reports", "reorder-suggestions"] as const,
+  reorderSuggestions: (query: object) =>
+    ["reports", "reorder-suggestions", query] as const,
 });

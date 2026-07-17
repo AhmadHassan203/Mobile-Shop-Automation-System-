@@ -4,7 +4,10 @@ import { hash as hashArgon2, argon2id } from "argon2";
 import { parse } from "dotenv";
 import {
   ALL_PERMISSIONS,
+  DEFAULT_EXTERNAL_FEE_PER_BLOCK_MINOR,
   DEFAULT_ROLE_PERMISSIONS,
+  EXTERNAL_FEE_CONFIG,
+  EXTERNAL_FEE_CONFIG_KEYS,
   LIMITS,
   LoginInputSchema,
   ROLES,
@@ -39,6 +42,10 @@ const SEED_IDS = Object.freeze({
   salesDiscountAccount: "10000000-0000-4000-8000-000000000013",
   cogsAccount: "10000000-0000-4000-8000-000000000014",
   taxPayableAccount: "10000000-0000-4000-8000-000000000015",
+  serviceRevenueAccount: "10000000-0000-4000-8000-000000000016",
+  serviceFloatAccount: "10000000-0000-4000-8000-000000000017",
+  expenseAccount: "10000000-0000-4000-8000-000000000018",
+  serviceCostAccount: "10000000-0000-4000-8000-000000000019",
 });
 
 const DEFAULT_FINANCIAL_ACCOUNTS = [
@@ -113,6 +120,63 @@ const DEFAULT_FINANCIAL_ACCOUNTS = [
     accountType: "liability",
     accountSubtype: "tax_payable",
     normalBalance: "credit",
+  },
+  {
+    id: SEED_IDS.serviceRevenueAccount,
+    code: "SERVICE-REVENUE",
+    name: "Service revenue",
+    accountType: "revenue",
+    accountSubtype: "service_revenue",
+    normalBalance: "credit",
+  },
+  {
+    id: SEED_IDS.serviceFloatAccount,
+    code: "SERVICE-FLOAT",
+    name: "Service provider float",
+    accountType: "asset",
+    accountSubtype: "service_float",
+    normalBalance: "debit",
+  },
+  {
+    id: SEED_IDS.expenseAccount,
+    code: "EXPENSE",
+    name: "Operating expenses",
+    accountType: "expense",
+    accountSubtype: "expense",
+    normalBalance: "debit",
+  },
+  {
+    id: SEED_IDS.serviceCostAccount,
+    code: "SERVICE-COST",
+    name: "Service provider cost",
+    accountType: "expense",
+    accountSubtype: "expense",
+    normalBalance: "debit",
+  },
+] as const;
+
+// Owner-editable fee configuration, seeded so the external-services default fee
+// is named and versioned rather than a hidden constant (05_RULES.md §9, 13_ §13).
+// Branch-scoped so the compound unique (org, branch, key) is fully non-null and
+// the upsert stays idempotent; an empty update preserves owner-edited rates.
+const DEFAULT_APPLICATION_SETTINGS = [
+  {
+    key: EXTERNAL_FEE_CONFIG_KEYS.amountBlockMinor,
+    value: EXTERNAL_FEE_CONFIG.amountBlockMinor,
+    description:
+      "External fee block size, in minor units. A partial block is billed as a full block.",
+  },
+  {
+    key: EXTERNAL_FEE_CONFIG_KEYS.money_send,
+    value: DEFAULT_EXTERNAL_FEE_PER_BLOCK_MINOR.money_send,
+    description:
+      "External money-send fee, in minor units per started PKR 1,000 block.",
+  },
+  {
+    key: EXTERNAL_FEE_CONFIG_KEYS.money_withdrawal,
+    value: DEFAULT_EXTERNAL_FEE_PER_BLOCK_MINOR.money_withdrawal,
+    description:
+      "External money-withdrawal fee, in minor units per started PKR 1,000 block.",
   },
 ] as const;
 
@@ -265,6 +329,29 @@ async function seed(): Promise<void> {
               accountType: account.accountType,
               accountSubtype: account.accountSubtype,
               normalBalance: account.normalBalance,
+            },
+            update: {},
+          });
+        }
+
+        // Named, owner-editable defaults for the external-services fee model.
+        // Empty updates preserve any rate an owner has already changed.
+        for (const setting of DEFAULT_APPLICATION_SETTINGS) {
+          await tx.applicationSetting.upsert({
+            where: {
+              organizationId_branchId_key: {
+                organizationId: organization.id,
+                branchId: branch.id,
+                key: setting.key,
+              },
+            },
+            create: {
+              organizationId: organization.id,
+              branchId: branch.id,
+              key: setting.key,
+              value: setting.value,
+              valueType: "integer",
+              description: setting.description,
             },
             update: {},
           });

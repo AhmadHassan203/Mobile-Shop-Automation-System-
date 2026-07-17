@@ -95,7 +95,7 @@ export const SEQUENCE_KEYS = Object.freeze({
   PURCHASE_ORDER: "purchase_order",
   GOODS_RECEIPT: "goods_receipt",
   RETURN: "return",
-  EXTERNAL_TRANSACTION: "external_transaction",
+  EXTERNAL: "external",
   EXPENSE: "expense",
   CASH_SESSION: "cash_session",
   STOCK_ADJUSTMENT: "stock_adjustment",

@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Customer Demand · MobileShop OS</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="demand">
+  <div class="layout">
+    <aside id="sidebar"></aside>
+    <div class="main">
+      <header id="topbar"></header>
+      <main class="content">
+
+        <div class="page-head">
+          <div>
+            <h1>Customer Demand &amp; Missed Sales</h1>
+            <div class="subtitle">Every request you couldn't fill today — captured so it drives what you buy next.</div>
+          </div>
+          <div class="actions">
+            <a class="btn btn-ghost" href="intelligence.html">View buying plan →</a>
+            <button class="btn btn-primary" id="btn-record" onclick="openCapture()"></button>
+          </div>
+        </div>
+
+        <!-- KPI row -->
+        <div class="grid cols-4" id="kpiRow" style="margin-bottom:18px"></div>
+
+        <!-- Feeds the reorder engine -->
+        <div class="callout warn" id="demandCallout" style="margin-bottom:18px">
+          <div>Unavailable requests are counted as <b>qualified demand</b> in the buying plan — that's how the reorder engine knows what to restock. <a href="intelligence.html">Open the buying plan →</a></div>
+        </div>
+
+        <!-- Out-of-stock capture success panel (revealed after saving) -->
+        <div id="captureResult" style="display:none;margin-bottom:18px"></div>
+
+        <!-- Requests table -->
+        <div class="card">
+          <div class="card-head">
+            <h3>Requests</h3>
+            <span class="hint" id="rowCount"></span>
+          </div>
+          <div class="card-pad" style="padding:12px 18px;border-bottom:1px solid var(--line-2);overflow-x:auto">
+            <div class="seg" id="filterSeg"></div>
+          </div>
+          <div class="table-wrap" id="tableWrap">
+            <table class="data" id="demandTable">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Logged</th>
+                  <th>Customer</th>
+                  <th>Request</th>
+                  <th class="num">Qty</th>
+                  <th>Urgency</th>
+                  <th>Outcome</th>
+                  <th>Follow-up</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="empty" id="emptyState" style="display:none">
+            <div class="icn" style="font-size:34px">📭</div>
+            <h4>No requests in this view</h4>
+            <p class="small">Try another filter, or record a new customer request.</p>
+            <button class="btn btn-primary btn-sm" onclick="openCapture()" style="margin-top:8px">Record demand</button>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- ============ Quick-capture drawer ============ -->
+  <div class="overlay" id="captureDrawer">
+    <div class="drawer">
+      <div class="drawer-head">
+        <h3>Record customer demand</h3>
+        <div class="x-close" onclick="Shell.close('captureDrawer')">✕</div>
+      </div>
+      <div class="drawer-body">
+        <div class="field">
+          <label>Product — match from catalog</label>
+          <select class="input" id="capProduct" onchange="capAvail()"></select>
+          <div class="help">Match to a catalog item so this demand feeds the reorder engine.</div>
+        </div>
+        <div class="field">
+          <label>…or type what the customer asked for</label>
+          <input class="input" id="capText" placeholder="e.g. iPhone 16 Pro 256 (any colour)">
+        </div>
+
+        <div class="field">
+          <label>Availability right now</label>
+          <div id="capAvail"></div>
+        </div>
+
+        <div class="field-row">
+          <div class="field"><label>Variant / condition</label><input class="input" id="capVariant" placeholder="256 GB · Green · New"></div>
+          <div class="field" style="max-width:110px"><label>Quantity</label><input class="input" id="capQty" type="number" value="1" min="1"></div>
+        </div>
+
+        <div class="field"><label>Customer budget</label><input class="input" id="capBudget" placeholder="e.g. 40k–46k"></div>
+
+        <div class="field">
+          <label>PTA preference</label>
+          <div class="seg" id="capPta">
+            <button class="active" type="button" onclick="segPick(this)">PTA only</button>
+            <button type="button" onclick="segPick(this)">Non-PTA ok</button>
+            <button type="button" onclick="segPick(this)">No preference</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Urgency</label>
+          <div class="seg" id="capUrgency">
+            <button type="button" onclick="segPick(this)">Low</button>
+            <button class="active" type="button" onclick="segPick(this)">Medium</button>
+            <button type="button" onclick="segPick(this)">High</button>
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field"><label>Customer phone (optional)</label><input class="input" id="capPhone" placeholder="03xx-xxxxxxx"></div>
+          <div class="field"><label>Follow-up date</label><input class="input" id="capFollow" type="date"></div>
+        </div>
+
+        <div class="field"><label>Note</label><textarea class="input" id="capNote" rows="2" placeholder="Colour preference, timing, price objection…"></textarea></div>
+
+        <label class="row" style="gap:8px;cursor:pointer;font-size:13px;color:var(--ink-2)">
+          <input type="checkbox" id="capConsent" checked>
+          Customer consents to be contacted when stock arrives
+        </label>
+      </div>
+      <div class="drawer-foot">
+        <button class="btn btn-ghost" onclick="Shell.close('captureDrawer')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveDemand()">Record demand</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Detail drawer ============ -->
+  <div class="overlay" id="detailDrawer">
+    <div class="drawer">
+      <div class="drawer-head">
+        <h3 id="detailTitle">Demand</h3>
+        <div class="x-close" onclick="Shell.close('detailDrawer')">✕</div>
+      </div>
+      <div class="drawer-body" id="detailBody"></div>
+    </div>
+  </div>
+
+  <script src="assets/data.js"></script>
+  <script src="assets/shell.js"></script>
+  <script>
+    // ---- State -----------------------------------------------------------
+    var state = { rows: DB.demand.map(function (d) { return Object.assign({}, d); }), filter: "all" };
+    var seq = 5013; // next DM- id (seed goes to DM-5012)
+
+    var FILTERS = [
+      { key: "all",         label: "All" },
+      { key: "unavailable", label: "Unavailable" },
+      { key: "reserved",    label: "Reserved" },
+      { key: "quotation",   label: "Quotation sent" },
+      { key: "price",       label: "Price too high" }
+    ];
+
+    // ---- Helpers ---------------------------------------------------------
+    function outcomeMeta(o) {
+      var s = (o || "").toLowerCase();
+      if (s.indexOf("unavailable") === 0) return { cat: "unavailable", cls: "neg" };
+      if (s.indexOf("reserved") === 0)    return { cat: "reserved", cls: "pos" };
+      if (s.indexOf("sold") === 0)        return { cat: "reserved", cls: "pos" };
+      if (s.indexOf("quotation") === 0)   return { cat: "quotation", cls: "info" };
+      if (s.indexOf("price") === 0)       return { cat: "price", cls: "warn" };
+      return { cat: "other", cls: "info" };
+    }
+    function urgencyCls(u) { return u === "High" ? "neg" : u === "Medium" ? "warn" : "plain"; }
+    function phoneOf(customer) { var m = (customer || "").match(/03\d\d-?\d{7}/); return m ? m[0] : ""; }
+    function reqName(d) { return d.variantId ? fmt.variantName(d.variantId) : d.request; }
+    function stockAvail(variantId) { var st = variantId ? DB.stock[variantId] : null; return st ? st.available : null; }
+
+    function alternatives(d) {
+      var v = d.variantId ? fmt.variant(d.variantId) : null;
+      return DB.variants.filter(function (x) {
+        var st = DB.stock[x.id];
+        if (!st || st.available <= 0) return false;
+        if (v && x.id === v.id) return false;
+        if (!v) return x.band !== "Accessory";            // free-text: suggest any in-stock phone
+        return x.band === v.band || x.brand === v.brand;   // same price band or brand
+      }).sort(function (a, b) { return DB.stock[b.id].available - DB.stock[a.id].available; }).slice(0, 4);
+    }
+    function similarCount(d) {
+      if (d.variantId) return state.rows.filter(function (x) { return x.variantId === d.variantId; }).length;
+      var key = reqName(d).toLowerCase();
+      return state.rows.filter(function (x) { return reqName(x).toLowerCase() === key; }).length;
+    }
+    function ordinal(n) { var s = ["th", "st", "nd", "rd"], v = n % 100; return (s[(v - 20) % 10] || s[v] || s[0]); }
+    function fmtDate(iso) { try { var d = new Date(iso + "T00:00"); return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); } catch (e) { return iso; } }
+    function segPick(btn) { var p = btn.parentNode; p.querySelectorAll("button").forEach(function (b) { b.classList.remove("active"); }); btn.classList.add("active"); }
+    function activeSeg(id) { var b = document.querySelector("#" + id + " button.active"); return b ? b.textContent.trim() : ""; }
+
+    // ---- KPI tiles -------------------------------------------------------
+    var kpiDefs = [
+      { label: "Total requests", meta: "logged · click to see all", accent: true, act: "setFilter('all')",
+        get: function (r) { return r.length; } },
+      { label: "Unavailable · missed", meta: "qualified demand ▸", valcls: "neg-text", act: "setFilter('unavailable')",
+        get: function (r) { return r.filter(function (d) { return !d.available; }).length; } },
+      { label: "Reserved / quotation", meta: "converting ▸", valcls: "pos-text", act: "setFilter('reserved')",
+        get: function (r) { return r.filter(function (d) { var c = outcomeMeta(d.outcome).cat; return c === "reserved" || c === "quotation"; }).length; } },
+      { label: "Follow-ups due", meta: "tracked in Tasks →", href: "tasks.html",
+        get: function (r) { return r.filter(function (d) { return d.followUp && d.followUp !== "—"; }).length; } }
+    ];
+    function renderKpis() {
+      document.getElementById("kpiRow").innerHTML = kpiDefs.map(function (t) {
+        var inner = '<div class="label">' + t.label + '</div>'
+          + '<div class="value' + (t.valcls ? " " + t.valcls : "") + '">' + t.get(state.rows) + '</div>'
+          + '<div class="meta">' + t.meta + '</div>';
+        if (t.href) return '<a class="kpi' + (t.accent ? " accent" : "") + '" href="' + t.href + '" style="text-decoration:none">' + inner + '</a>';
+        return '<div class="kpi' + (t.accent ? " accent" : "") + '" onclick="' + t.act + '">' + inner + '</div>';
+      }).join("");
+    }
+
+    // ---- Filter chips ----------------------------------------------------
+    function renderFilters() {
+      document.getElementById("filterSeg").innerHTML = FILTERS.map(function (f) {
+        var n = f.key === "all" ? state.rows.length : state.rows.filter(function (d) { return outcomeMeta(d.outcome).cat === f.key; }).length;
+        return '<button type="button" class="' + (state.filter === f.key ? "active" : "") + '" onclick="setFilter(\'' + f.key + '\')">' + f.label + ' (' + n + ')</button>';
+      }).join("");
+    }
+    function setFilter(k) { state.filter = k; renderFilters(); renderTable(); }
+
+    // ---- Table -----------------------------------------------------------
+    function renderTable() {
+      var rows = state.rows.filter(function (d) {
+        return state.filter === "all" ? true : outcomeMeta(d.outcome).cat === state.filter;
+      });
+      var tb = document.querySelector("#demandTable tbody");
+      var empty = document.getElementById("emptyState");
+      var wrap = document.getElementById("tableWrap");
+      document.getElementById("rowCount").textContent = rows.length + " of " + state.rows.length + " requests";
+      if (rows.length === 0) { tb.innerHTML = ""; wrap.style.display = "none"; empty.style.display = "block"; return; }
+      empty.style.display = "none"; wrap.style.display = "";
+      tb.innerHTML = rows.map(function (d) {
+        var om = outcomeMeta(d.outcome);
+        var reqCell = reqName(d) + (d.variantId ? "" : ' <span class="badge plain">free text</span>');
+        var follow = (d.followUp && d.followUp !== "—")
+          ? '<span class="badge warn">' + d.followUp + '</span>'
+          : '<span class="muted">—</span>';
+        return '<tr class="row-link" onclick="openDetail(\'' + d.id + '\')">'
+          + '<td class="mono">' + d.id + '</td>'
+          + '<td class="muted nowrap">' + d.date + '</td>'
+          + '<td>' + d.customer + '</td>'
+          + '<td>' + reqCell + '</td>'
+          + '<td class="num">' + d.qty + '</td>'
+          + '<td><span class="badge ' + urgencyCls(d.urgency) + '">' + d.urgency + '</span></td>'
+          + '<td><span class="badge ' + om.cls + '">' + d.outcome + '</span></td>'
+          + '<td class="nowrap">' + follow + '</td>'
+          + '</tr>';
+      }).join("");
+    }
+
+    // ---- Detail drawer ---------------------------------------------------
+    function openDetail(id) {
+      var d = state.rows.find(function (x) { return x.id === id; });
+      if (!d) return;
+      var om = outcomeMeta(d.outcome);
+      var phone = phoneOf(d.customer);
+      var consent = (d.consentCaptured === false)
+        ? "No — do not contact"
+        : (phone ? "Yes — may contact when stock arrives" : "Not captured (anonymous walk-in)");
+      var v = d.variantId ? fmt.variant(d.variantId) : null;
+
+      var html = ""
+        + '<div class="row wrap" style="margin-bottom:14px">'
+        +   '<span class="badge ' + urgencyCls(d.urgency) + '">' + d.urgency + ' urgency</span>'
+        +   '<span class="badge ' + om.cls + '">' + d.outcome + '</span>'
+        +   (d.channel ? '<span class="badge plain">' + d.channel + '</span>' : "")
+        + '</div>'
+        + '<div class="card" style="margin-bottom:14px"><div class="card-pad">'
+        +   '<div class="small muted">Requested product</div>'
+        +   '<div style="font-weight:650;font-size:15px;margin:2px 0 6px">' + reqName(d) + '</div>'
+        +   (v ? '<div class="mono small muted">' + v.sku + '</div>'
+               : '<div class="small muted">Not matched to catalog — source on demand</div>')
+        + '</div></div>'
+        + '<div class="kv"><span class="k">Request ID</span><span class="v mono">' + d.id + '</span></div>'
+        + '<div class="kv"><span class="k">Logged</span><span class="v">' + d.date + '</span></div>'
+        + '<div class="kv"><span class="k">Customer</span><span class="v">' + d.customer + '</span></div>'
+        + '<div class="kv"><span class="k">Quantity</span><span class="v">' + d.qty + '</span></div>'
+        + '<div class="kv"><span class="k">Budget</span><span class="v">' + (d.budget || "—") + '</span></div>'
+        + '<div class="kv"><span class="k">PTA preference</span><span class="v">' + (d.pta || "—") + '</span></div>'
+        + '<div class="kv"><span class="k">Channel</span><span class="v">' + (d.channel || "—") + '</span></div>'
+        + '<div class="kv"><span class="k">Follow-up</span><span class="v">' + (d.followUp || "—") + '</span></div>'
+        + '<div class="kv"><span class="k">Consent to contact</span><span class="v">' + consent + '</span></div>'
+        + (d.note ? '<div class="kv"><span class="k">Note</span><span class="v" style="max-width:60%">' + d.note + '</span></div>' : "");
+
+      if (!d.available) {
+        var alts = alternatives(d);
+        var sim = similarCount(d);
+        var unmet = (d.variantId && DB.stock[d.variantId]) ? DB.stock[d.variantId].unmet : null;
+        html += '<div class="divider"></div>'
+          + '<div class="callout warn" style="margin-bottom:12px">' + Shell.svg("demand")
+          +   '<div>Counted as <b>qualified demand</b>. <b>' + sim + '</b> open request' + (sim === 1 ? "" : "s") + ' for this exact item'
+          +   (unmet != null ? ' · <b>' + unmet + '</b> qualified unmet in the last 30 days' : "") + '.</div></div>'
+          + '<div class="small muted" style="font-weight:600;margin-bottom:8px">Matching alternatives in stock</div>';
+        if (alts.length) {
+          html += '<div class="stack g6" style="margin-bottom:14px">' + alts.map(function (x) {
+            var st = DB.stock[x.id];
+            return '<a class="spread" href="inventory.html" style="text-decoration:none;color:inherit;border:1px solid var(--line);border-radius:8px;padding:9px 11px">'
+              + '<span><span class="small strong">' + fmt.variantName(x.id) + '</span><br><span class="tiny muted mono">' + x.sku + '</span></span>'
+              + '<span class="right"><span class="small strong">' + fmt.pkr(x.price) + '</span><br><span class="badge pos">' + st.available + ' in stock</span></span>'
+              + '</a>';
+          }).join("") + '</div>';
+        } else {
+          html += '<div class="empty" style="padding:18px"><div class="small">No close alternatives in stock right now.</div></div>';
+        }
+        html += '<div class="row" style="gap:8px">'
+          + '<button class="btn btn-primary" onclick="Shell.toast(\'Reservation created — customer will be notified when stock arrives\',true)">' + Shell.svg("check") + ' Create reservation</button>'
+          + '<button class="btn" onclick="Shell.toast(\'Quotation sent to ' + (phone || "the customer") + '\',true)">Send quotation</button>'
+          + '</div>';
+      } else {
+        html += '<div class="divider"></div>'
+          + '<div class="row" style="gap:8px">'
+          + '<a class="btn btn-primary" href="pos.html">' + Shell.svg("sell") + ' Sell now</a>'
+          + '<button class="btn" onclick="Shell.toast(\'Follow-up reminder set\',true)">Set follow-up</button>'
+          + '</div>';
+      }
+
+      document.getElementById("detailTitle").textContent = d.id + " · " + reqName(d);
+      document.getElementById("detailBody").innerHTML = html;
+      Shell.open("detailDrawer");
+    }
+
+    // ---- Quick capture ---------------------------------------------------
+    function openCapture() { capAvail(); Shell.open("captureDrawer"); }
+
+    function capAvail() {
+      var id = document.getElementById("capProduct").value;
+      var el = document.getElementById("capAvail");
+      if (!id) { el.innerHTML = '<span class="badge plain">Pick a catalog item to check stock</span>'; return; }
+      if (id === "__other") { el.innerHTML = '<span class="badge warn">Not in catalog — logged as sourced-on-demand</span>'; return; }
+      var st = DB.stock[id];
+      var n = st ? st.available : 0;
+      if (n > 0) el.innerHTML = '<span class="badge pos">' + Shell.svg("check") + ' In stock — ' + n + ' available</span>';
+      else el.innerHTML = '<span class="badge neg">OUT OF STOCK — will be captured as qualified demand</span>';
+    }
+
+    function saveDemand() {
+      var id = document.getElementById("capProduct").value;
+      var text = document.getElementById("capText").value.trim();
+      var variantId = (id && id !== "__other") ? id : null;
+      if (!variantId && !text) { Shell.toast("Add a product or type the request first", false); return; }
+
+      var name = variantId ? fmt.variantName(variantId) : text;
+      var qty = parseInt(document.getElementById("capQty").value, 10) || 1;
+      var budget = document.getElementById("capBudget").value.trim() || "—";
+      var pta = activeSeg("capPta") || "No preference";
+      var urgency = activeSeg("capUrgency") || "Medium";
+      var phone = document.getElementById("capPhone").value.trim();
+      var follow = document.getElementById("capFollow").value;
+      var note = document.getElementById("capNote").value.trim();
+      var consent = document.getElementById("capConsent").checked;
+
+      var st = variantId ? DB.stock[variantId] : null;
+      var avail = st ? st.available > 0 : false;
+      var outcome = avail ? "Open — in stock" : (variantId ? "Unavailable — out of stock" : "Unavailable — not in catalog");
+
+      var rec = {
+        id: "DM-" + (seq++),
+        date: "Today · just now",
+        customer: phone ? ("Customer (" + phone + ")") : "Walk-in (anonymous)",
+        request: name,
+        variantId: variantId,
+        budget: budget,
+        pta: pta,
+        qty: qty,
+        urgency: urgency,
+        outcome: outcome,
+        available: avail,
+        followUp: follow ? fmtDate(follow) : "—",
+        channel: "Walk-in",
+        note: note,
+        consentCaptured: consent
+      };
+
+      state.rows.unshift(rec);
+      // make sure the new row is visible under the current filter
+      var cat = outcomeMeta(outcome).cat;
+      if (state.filter !== "all" && state.filter !== cat) state.filter = "all";
+      renderKpis(); renderFilters(); renderTable();
+
+      Shell.close("captureDrawer");
+      Shell.toast("Demand recorded — " + rec.id + " added", true);
+      if (!avail) showCaptureResult(rec);
+      resetCaptureForm();
+    }
+
+    function altCard(x) {
+      var st = DB.stock[x.id];
+      return '<a class="card" href="inventory.html" style="text-decoration:none;color:inherit;display:block">'
+        + '<div class="card-pad">'
+        +   '<div class="small strong">' + fmt.variantName(x.id) + '</div>'
+        +   '<div class="tiny muted mono" style="margin:2px 0 8px">' + x.sku + '</div>'
+        +   '<div class="spread"><span class="strong">' + fmt.pkr(x.price) + '</span><span class="badge pos">' + st.available + ' in stock</span></div>'
+        + '</div></a>';
+    }
+
+    function showCaptureResult(rec) {
+      var alts = alternatives(rec);
+      var sim = similarCount(rec);
+      var unmet = (rec.variantId && DB.stock[rec.variantId]) ? DB.stock[rec.variantId].unmet : null;
+      var html = '<div class="card"><div class="card-head">'
+        + '<h3>' + Shell.svg("check") + ' Demand captured for an out-of-stock item</h3>'
+        + '<div class="x-close" onclick="hideCaptureResult()">✕</div></div>'
+        + '<div class="card-pad">'
+        + '<div class="callout warn" style="margin-bottom:14px">' + Shell.svg("demand")
+        +   '<div>This is the <b>' + sim + ordinal(sim) + '</b> request for <b>' + rec.request + '</b> while out of stock'
+        +   (unmet != null ? ' · <b>' + unmet + '</b> qualified unmet in the last 30 days' : "")
+        +   '. It now feeds the <a href="intelligence.html">buying plan</a>.</div></div>'
+        + '<div class="small muted" style="font-weight:600;margin-bottom:8px">Offer the customer a matching alternative in stock</div>'
+        + (alts.length
+            ? '<div class="grid cols-3">' + alts.map(altCard).join("") + '</div>'
+            : '<div class="empty" style="padding:18px"><div class="small">No close alternatives in stock right now.</div></div>')
+        + '<div class="row" style="gap:8px;margin-top:14px">'
+        +   '<a class="btn btn-primary" href="intelligence.html">Review buying plan →</a>'
+        +   '<button class="btn" onclick="Shell.toast(\'Added to follow-ups\',true)">Add follow-up</button>'
+        + '</div>'
+        + '</div></div>';
+      var box = document.getElementById("captureResult");
+      box.innerHTML = html;
+      box.style.display = "block";
+      box.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    function hideCaptureResult() { document.getElementById("captureResult").style.display = "none"; }
+
+    function resetCaptureForm() {
+      document.getElementById("capProduct").value = "";
+      document.getElementById("capText").value = "";
+      document.getElementById("capVariant").value = "";
+      document.getElementById("capQty").value = "1";
+      document.getElementById("capBudget").value = "";
+      document.getElementById("capPhone").value = "";
+      document.getElementById("capFollow").value = "";
+      document.getElementById("capNote").value = "";
+      document.getElementById("capConsent").checked = true;
+      capAvail();
+    }
+
+    // ---- Boot ------------------------------------------------------------
+    document.getElementById("btn-record").innerHTML = Shell.svg("demand") + " Record demand";
+    document.getElementById("demandCallout").insertAdjacentHTML("afterbegin", Shell.svg("demand"));
+
+    (function () {
+      var opts = '<option value="">— Select a catalog item —</option>';
+      DB.variants.forEach(function (v) {
+        var st = DB.stock[v.id];
+        var tag = (st && st.available > 0) ? "" : "  · out of stock";
+        opts += '<option value="' + v.id + '">' + fmt.variantName(v.id) + tag + '</option>';
+      });
+      opts += '<option value="__other">Other / not in catalog</option>';
+      document.getElementById("capProduct").innerHTML = opts;
+    })();
+
+    renderKpis();
+    renderFilters();
+    renderTable();
+    capAvail();
+  </script>
+</body>
+</html>

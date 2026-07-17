@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Digital Service Balances · MobileShop OS</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="digital-balances">
+  <div class="layout"><aside id="sidebar"></aside><div class="main"><header id="topbar"></header><main class="content">
+    <div class="page-head">
+      <div><h1>Digital Services — Service Balances</h1><div class="subtitle">Opening balances, settled movements, current float and pending exposure by service.</div></div>
+      <div class="actions"><a class="btn btn-primary" href="digital-services.html">New transaction</a><a class="btn" href="digital-reconciliation.html">Reconcile</a></div>
+    </div>
+    <div class="grid cols-4" id="cards" style="margin-bottom:18px"></div>
+    <div class="card">
+      <div class="card-head"><h3>Balance movement</h3><span class="hint">Pending transactions are shown separately, not in current balance.</span></div>
+      <div class="table-wrap"><table class="data"><thead><tr><th>Service</th><th class="num">Opening Balance</th><th class="num">Amount Sent Today</th><th class="num">Amount Received Today</th><th class="num">Current Balance</th><th class="num">Pending Amount</th><th>Last Transaction</th></tr></thead><tbody id="rows"></tbody></table></div>
+    </div>
+  </main></div></div>
+  <script src="assets/data.js"></script><script src="assets/digital.js"></script><script src="assets/shell.js"></script>
+  <script>
+    var rows=Digital.balanceSummary();
+    document.getElementById("cards").innerHTML=rows.map(function(b){
+      return '<div class="kpi '+(b.low?'accent':'')+'"><div class="label">'+b.service+'</div><div class="value '+(b.low?'neg-text':'')+'">'+Digital.pkr(b.current)+'</div><div class="meta">'+(b.low?'Low balance warning':'opening '+Digital.pkr(b.opening))+'</div></div>';
+    }).join("");
+    document.getElementById("rows").innerHTML=rows.map(function(b){
+      return '<tr><td class="strong">'+b.service+(b.low?' <span class="badge neg">Low</span>':'')+'</td><td class="num">'+Digital.pkr(b.opening)+'</td><td class="num">'+Digital.pkr(b.sent)+'</td><td class="num">'+Digital.pkr(b.received)+'</td><td class="num strong">'+Digital.pkr(b.current)+'</td><td class="num warn-text">'+Digital.pkr(b.pending)+'</td><td class="muted">'+Digital.dateText(b.last)+'</td></tr>';
+    }).join("");
+  </script>
+</body>
+</html>

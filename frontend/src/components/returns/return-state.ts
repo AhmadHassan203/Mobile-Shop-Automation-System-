@@ -1,7 +1,12 @@
 import {
   PERMISSIONS,
+  type CreateReturnDraftInput,
+  type ReturnDraftLineInput,
+  type ReturnEligibility,
+  type ReturnEligibilityLine,
+  type ReturnItemCondition,
   type ReturnOutcome,
-  type SaleDetail,
+  type ReturnStatus,
   type SaleLine,
   type SaleSummary,
 } from "@mobileshop/shared";
@@ -24,17 +29,27 @@ export const RETURN_REASONS = [
   "Other",
 ] as const;
 
-export const RETURN_CONDITIONS = [
-  "Like new",
-  "New",
-  "Used",
-  "Faulty",
-  "Damaged",
-] as const;
+/** UI condition choices mapped to the contract's RETURN_ITEM_CONDITIONS. */
+export const RETURN_CONDITION_OPTIONS = [
+  { value: "like_new", label: "Like new" },
+  { value: "new", label: "New" },
+  { value: "used", label: "Used" },
+  { value: "faulty", label: "Faulty" },
+  { value: "damaged", label: "Damaged" },
+] as const satisfies readonly {
+  readonly value: ReturnItemCondition;
+  readonly label: string;
+}[];
 
+/**
+ * Physical outcomes a returned unit can take (01_PRD §5.8). `repair` is included
+ * so every server-decided ReturnLine.outcome renders, not just the four the
+ * prototype once listed.
+ */
 export const RETURN_OUTCOME_OPTIONS = [
   { id: "restock", label: "Restock after inspection", tone: "accent" },
   { id: "quarantine", label: "Quarantine", tone: "warning" },
+  { id: "repair", label: "Repair", tone: "warning" },
   { id: "supplier_warranty", label: "Supplier warranty", tone: "accent" },
   { id: "write_off", label: "Write-off", tone: "negative" },
 ] as const satisfies readonly {
@@ -43,10 +58,7 @@ export const RETURN_OUTCOME_OPTIONS = [
   readonly tone: "accent" | "warning" | "negative";
 }[];
 
-export type PrototypeReturnOutcome =
-  (typeof RETURN_OUTCOME_OPTIONS)[number]["id"];
 export type ReturnReason = (typeof RETURN_REASONS)[number];
-export type ReturnCondition = (typeof RETURN_CONDITIONS)[number];
 
 export interface ReturnCapabilities {
   readonly canView: boolean;
@@ -56,17 +68,29 @@ export interface ReturnCapabilities {
   readonly canViewReports: boolean;
 }
 
-export interface ReturnDraft {
-  readonly invoiceNumber: string;
-  readonly saleLineId: string;
-  readonly reason: ReturnReason;
-  readonly condition: ReturnCondition;
-  readonly evidence: string;
+/** Per-line intake state, keyed by the original sale line the unit came from. */
+export interface ReturnIntakeLineSelection {
+  readonly condition: ReturnItemCondition;
+  readonly quantity: number;
 }
 
-export type ReturnDraftErrors = Readonly<
-  Partial<Record<keyof ReturnDraft, string>>
->;
+export interface ReturnIntakeDraft {
+  readonly reason: ReturnReason;
+  readonly evidenceNote: string;
+  readonly selections: Readonly<Record<string, ReturnIntakeLineSelection>>;
+}
+
+export const EMPTY_RETURN_INTAKE: ReturnIntakeDraft = {
+  reason: RETURN_REASONS[0],
+  evidenceNote: "",
+  selections: {},
+};
+
+export type ReturnIntakeErrors = Readonly<{
+  form?: string;
+  lines?: string;
+  evidenceNote?: string;
+}>;
 
 export interface ReturnBackendGap {
   readonly id: string;
@@ -77,41 +101,18 @@ export interface ReturnBackendGap {
 }
 
 /**
- * User-visible registry of the exact server dependencies blocking this module.
- * It prevents a polished empty screen from being mistaken for a live queue.
+ * The dependencies that are still not transactional. Queue, eligibility, intake
+ * and posting are now wired to real endpoints, so only exchange settlement,
+ * the deferred Warranty module and the returns report remain listed.
  */
 export const RETURN_BACKEND_GAPS: readonly ReturnBackendGap[] = [
-  {
-    id: "queue",
-    surface: "Queue, detail & KPIs",
-    endpoint: "GET /returns · GET /returns/:id",
-    status: "not_implemented",
-    consequence:
-      "No cases, queue counts, inspection counts, IMEIs or return-rate values can be loaded.",
-  },
-  {
-    id: "eligibility",
-    surface: "Eligibility & intake",
-    endpoint: "GET /returns/eligibility · POST /returns",
-    status: "not_implemented",
-    consequence:
-      "A real posted sale can be found, but policy, prior-return quantity and inspection intake cannot be confirmed or saved.",
-  },
-  {
-    id: "outcome",
-    surface: "Inspection outcome",
-    endpoint: "POST /returns/:id/post",
-    status: "not_implemented",
-    consequence:
-      "Restock, quarantine, supplier-warranty and write-off actions remain disabled; inventory and ledger state is untouched.",
-  },
   {
     id: "exchange",
     surface: "Refund & exchange",
     endpoint: "POST /returns/:id/exchange",
-    status: "not_implemented",
+    status: "deferred",
     consequence:
-      "No refund, receivable reversal, replacement sale or customer credit is calculated in the browser.",
+      "Atomic exchange posting is unavailable, so the exchange action stays disabled; a plain refund or credit is settled at posting instead.",
   },
   {
     id: "warranty",
@@ -173,9 +174,8 @@ export function exactInvoiceSale(
 ): SaleSummary | null {
   const normalized = normalizeReturnInvoice(invoiceNumber);
   return (
-    sales.find(
-      (sale) => sale.invoiceNumber?.toUpperCase() === normalized,
-    ) ?? null
+    sales.find((sale) => sale.invoiceNumber?.toUpperCase() === normalized) ??
+    null
   );
 }
 
@@ -190,40 +190,149 @@ export function returnLineIdentifier(line: SaleLine): string | null {
 
 export function returnLineLabel(line: SaleLine): string {
   const identifier = returnLineIdentifier(line);
-  const quantity = line.trackingType === "quantity" ? ` · Qty ${line.quantity}` : "";
+  const quantity =
+    line.trackingType === "quantity" ? ` · Qty ${line.quantity}` : "";
   return `${line.product.name} · ${line.product.sku}${quantity}${identifier === null ? "" : ` · IMEI ${identifier}`}`;
 }
 
-export function validateReturnDraft(
-  draft: ReturnDraft,
-  verifiedSale: SaleDetail | null,
-): ReturnDraftErrors {
-  const errors: Partial<Record<keyof ReturnDraft, string>> = {};
-  const invoice = normalizeReturnInvoice(draft.invoiceNumber);
-  if (invoice.length === 0) {
-    errors.invoiceNumber = "Look up the original sale first.";
-  } else if (
-    verifiedSale === null ||
-    verifiedSale.invoiceNumber?.toUpperCase() !== invoice
-  ) {
-    errors.invoiceNumber = "The entered invoice has not been verified.";
+/** The normalized IMEI/serial the return draft must echo for a serialized line. */
+export function eligibilityLineIdentifier(
+  line: Extract<ReturnEligibilityLine, { trackingType: "serialized" }>,
+): string {
+  const identifiers = line.serializedUnit.identifiers;
+  const preferred =
+    identifiers.find((identifier) =>
+      identifier.type.toLowerCase().startsWith("imei"),
+    ) ?? identifiers[0];
+  return preferred?.value ?? "";
+}
+
+export function eligibilityLineLabel(line: ReturnEligibilityLine): string {
+  if (line.trackingType === "serialized") {
+    return `${line.product.name} · ${line.product.sku} · IMEI ${eligibilityLineIdentifier(line)}`;
   }
-  if (
-    verifiedSale === null ||
-    !verifiedSale.lines.some((line) => line.id === draft.saleLineId)
-  ) {
-    errors.saleLineId = "Select a line from the verified original sale.";
+  return `${line.product.name} · ${line.product.sku} · Qty ${line.remainingQuantity} of ${line.soldQuantity}`;
+}
+
+/** True when a line still has returnable units left on the original sale. */
+export function isEligibilityLineReturnable(
+  line: ReturnEligibilityLine,
+): boolean {
+  return line.remainingQuantity > 0;
+}
+
+/**
+ * Validate the intake against real eligibility. Evidence is never inferred, and
+ * a fully-returned or non-returnable sale is blocked with a specific reason.
+ */
+export function validateReturnIntake(
+  eligibility: ReturnEligibility | null,
+  draft: ReturnIntakeDraft,
+): ReturnIntakeErrors {
+  const errors: {
+    form?: string;
+    lines?: string;
+    evidenceNote?: string;
+  } = {};
+
+  if (eligibility === null) {
+    errors.form = "Check eligibility for a posted invoice first.";
+    return errors;
   }
-  if (draft.evidence.trim().length < 5) {
-    errors.evidence = "Record the observed evidence; it is never generated automatically.";
-  } else if (draft.evidence.trim().length > 1_000) {
-    errors.evidence = "Evidence must be 1,000 characters or less.";
+  if (eligibility.state === "fully_returned") {
+    errors.form = "Every eligible line on this sale has already been returned.";
+  } else if (eligibility.state === "sale_not_returnable") {
+    errors.form = "This sale is not returnable.";
   }
+
+  const selectedIds = Object.keys(draft.selections);
+  if (selectedIds.length === 0) {
+    errors.lines = "Select at least one returnable line.";
+  } else {
+    for (const line of eligibility.lines) {
+      const selection = draft.selections[line.saleLineId];
+      if (selection === undefined) continue;
+      if (!isEligibilityLineReturnable(line)) {
+        errors.lines = "One selected line has nothing left to return.";
+        break;
+      }
+      if (line.trackingType === "quantity") {
+        const quantity = selection.quantity;
+        if (
+          !Number.isInteger(quantity) ||
+          quantity < 1 ||
+          quantity > line.remainingQuantity
+        ) {
+          errors.lines = "Enter a return quantity within what remains.";
+          break;
+        }
+      }
+    }
+  }
+
+  const evidence = draft.evidenceNote.trim();
+  if (evidence.length < 5) {
+    errors.evidenceNote =
+      "Record the observed evidence; it is never generated automatically.";
+  } else if (evidence.length > 1_000) {
+    errors.evidenceNote = "Evidence must be 1,000 characters or less.";
+  }
+
   return errors;
 }
 
+/** A draft can be saved only when eligibility permits it and nothing is invalid. */
+export function canSubmitReturnIntake(
+  eligibility: ReturnEligibility | null,
+  draft: ReturnIntakeDraft,
+): boolean {
+  if (eligibility === null) return false;
+  if (
+    eligibility.state === "fully_returned" ||
+    eligibility.state === "sale_not_returnable"
+  ) {
+    return false;
+  }
+  return Object.keys(validateReturnIntake(eligibility, draft)).length === 0;
+}
+
+/** Translate the selected eligibility lines into the multi-line create input. */
+export function buildCreateReturnInput(
+  eligibility: ReturnEligibility,
+  draft: ReturnIntakeDraft,
+): CreateReturnDraftInput {
+  const lines: ReturnDraftLineInput[] = [];
+  for (const line of eligibility.lines) {
+    const selection = draft.selections[line.saleLineId];
+    if (selection === undefined) continue;
+    if (line.trackingType === "serialized") {
+      lines.push({
+        trackingType: "serialized",
+        saleLineId: line.saleLineId,
+        serializedUnitId: line.serializedUnit.id,
+        identifier: eligibilityLineIdentifier(line),
+        quantity: 1,
+        condition: selection.condition,
+      });
+    } else {
+      lines.push({
+        trackingType: "quantity",
+        saleLineId: line.saleLineId,
+        quantity: selection.quantity,
+        condition: selection.condition,
+      });
+    }
+  }
+  return {
+    saleId: eligibility.sale.id,
+    reason: draft.reason,
+    evidenceNote: draft.evidenceNote,
+    lines,
+  };
+}
+
 export function returnOutcomeImpact(
-  outcome: PrototypeReturnOutcome,
+  outcome: ReturnOutcome,
 ): readonly string[] {
   switch (outcome) {
     case "restock":
@@ -238,6 +347,12 @@ export function returnOutcomeImpact(
         "It is not counted as Available and needs a later evidence-backed decision.",
         "The server must record inventory movement and audit evidence atomically.",
       ];
+    case "repair":
+      return [
+        "The unit is routed to repair and stays out of saleable stock.",
+        "It can only re-enter Available through a later inspected transition.",
+        "Any parts or labour cost is recorded by the repair workflow, not inferred here.",
+      ];
     case "supplier_warranty":
       return [
         "A supplier claim must reference the verified product and purchasing history.",
@@ -251,4 +366,23 @@ export function returnOutcomeImpact(
         "Inventory value, financial loss and audit evidence must post atomically.",
       ];
   }
+}
+
+/** Display label for any server-decided return line outcome. */
+export function returnOutcomeLabel(outcome: ReturnOutcome): string {
+  return (
+    RETURN_OUTCOME_OPTIONS.find((option) => option.id === outcome)?.label ??
+    outcome
+  );
+}
+
+export function returnConditionLabel(condition: ReturnItemCondition): string {
+  return (
+    RETURN_CONDITION_OPTIONS.find((option) => option.value === condition)
+      ?.label ?? condition
+  );
+}
+
+export function returnStatusLabel(status: ReturnStatus): string {
+  return `${status.charAt(0).toUpperCase()}${status.slice(1)}`;
 }

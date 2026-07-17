@@ -40,6 +40,10 @@ function requestWithScopes(scopes: CurrentAuth["scopes"]): Request {
   };
   return {
     auth: { sessionId: "session-id", current },
+    ip: "203.0.113.5",
+    requestId: "req-dashboard-1",
+    get: (header: string) =>
+      header.toLowerCase() === "user-agent" ? "vitest" : undefined,
   } as unknown as Request;
 }
 
@@ -67,6 +71,16 @@ describe("DashboardController", () => {
 
     expect(context.allowedLocationIds).toBeNull();
     expect(context.branchId).toBe(BRANCH_ID);
+    // The enriched context carries what the reused domain services need.
+    expect(context.organizationName).toBe("Test Shop");
+    expect(context.branchName).toBe("Main Branch");
+    expect(context.actorUserId).toBe("10000000-0000-4000-8000-000000000001");
+    expect(context.actorFullName).toBe("Dashboard User");
+    expect(context.metadata).toEqual({
+      ipAddress: "203.0.113.5",
+      userAgent: "vitest",
+      requestId: "req-dashboard-1",
+    });
     expect(context.permissions).toEqual(
       new Set([
         PERMISSIONS.REPORTS_VIEW,

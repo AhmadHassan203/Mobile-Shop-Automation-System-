@@ -102,6 +102,9 @@ async function bootstrap(): Promise<void> {
         if (branch === null) {
           throw new Error("No branch found for the organization.");
         }
+        // Capture the narrowed id so the nested upsertUser closure reads a plain
+        // string rather than re-narrowing `branch` across the function boundary.
+        const branchId = branch.id;
 
         // Ensure a permission row exists for every key (idempotent).
         const permissionByKey = new Map<string, string>();
@@ -214,7 +217,7 @@ async function bootstrap(): Promise<void> {
             where: {
               organizationId,
               userId: user.id,
-              branchId: branch.id,
+              branchId,
               locationId: null,
             },
             select: { id: true },
@@ -224,7 +227,7 @@ async function bootstrap(): Promise<void> {
               data: {
                 organizationId,
                 userId: user.id,
-                branchId: branch.id,
+                branchId,
                 locationId: null,
               },
             });

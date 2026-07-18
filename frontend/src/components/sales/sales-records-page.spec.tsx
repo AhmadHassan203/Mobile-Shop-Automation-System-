@@ -233,9 +233,7 @@ describe("Sale detail", () => {
   });
 
   it("shows a friendly not-found state without substituting a sale", () => {
-    const html = renderToStaticMarkup(
-      <SaleNotFoundState id={IDS.sale} />,
-    );
+    const html = renderToStaticMarkup(<SaleNotFoundState id={IDS.sale} />);
     expect(html).toContain("This sale was not found");
     expect(html).toContain(IDS.sale);
     expect(html).toContain("/sales");

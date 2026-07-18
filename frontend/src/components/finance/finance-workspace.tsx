@@ -131,7 +131,9 @@ function KpiCard({
       href={href}
     >
       <p className="text-xs font-semibold text-ink-muted">{label}</p>
-      <p className={`mt-2 font-mono text-xl font-bold ${accent ? "text-accent" : "text-ink"}`}>
+      <p
+        className={`mt-2 font-mono text-xl font-bold ${accent ? "text-accent" : "text-ink"}`}
+      >
         {children}
       </p>
       <p className="mt-1 text-[0.6875rem] text-ink-muted">{sub}</p>
@@ -170,7 +172,11 @@ function MoneyRow({
     <div
       className={`flex items-start justify-between gap-4 py-3 ${total ? "font-bold" : ""}`}
     >
-      <dt className={kind === "less" || kind === "add" ? "text-ink-muted" : "text-ink"}>
+      <dt
+        className={
+          kind === "less" || kind === "add" ? "text-ink-muted" : "text-ink"
+        }
+      >
         {label}
         {note ? (
           <span className="mt-1 block max-w-md text-[0.6875rem] font-normal text-ink-muted">
@@ -180,7 +186,11 @@ function MoneyRow({
       </dt>
       <dd
         className={`font-mono ${
-          total ? "text-ink" : kind === "less" || kind === "add" ? "text-ink-muted" : "text-ink"
+          total
+            ? "text-ink"
+            : kind === "less" || kind === "add"
+              ? "text-ink-muted"
+              : "text-ink"
         }`}
       >
         {kind === "less" ? "(" : ""}
@@ -231,7 +241,9 @@ function FinancialSection({
             void summary.refetch();
           }}
           title="Financial summary unavailable"
-          {...(error.requestId === undefined ? {} : { requestId: error.requestId })}
+          {...(error.requestId === undefined
+            ? {}
+            : { requestId: error.requestId })}
         />
       </section>
     );
@@ -239,10 +251,31 @@ function FinancialSection({
 
   const data: DailyFinancialSummary = summary.data;
   const kpis = [
-    { label: "Sales revenue", minor: data.salesRevenueMinor, sub: "Posted sales today", accent: true, href: "/reports" },
-    { label: "Gross profit", minor: data.grossProfitMinor, sub: "Revenue less COGS", href: "/reports" },
-    { label: "Operating expenses", minor: data.expensesMinor, sub: "Recorded today", href: "#expenses" },
-    { label: "Estimated net operating", minor: data.estimatedNetProfitMinor, sub: "Gross + service − expenses", href: "/reports" },
+    {
+      label: "Sales revenue",
+      minor: data.salesRevenueMinor,
+      sub: "Posted sales today",
+      accent: true,
+      href: "/reports",
+    },
+    {
+      label: "Gross profit",
+      minor: data.grossProfitMinor,
+      sub: "Revenue less COGS",
+      href: "/reports",
+    },
+    {
+      label: "Operating expenses",
+      minor: data.expensesMinor,
+      sub: "Recorded today",
+      href: "#expenses",
+    },
+    {
+      label: "Estimated net operating",
+      minor: data.estimatedNetProfitMinor,
+      sub: "Gross + service − expenses",
+      href: "/reports",
+    },
   ] as const;
 
   return (
@@ -268,12 +301,18 @@ function FinancialSection({
         <div className="flex items-center gap-3 border-b border-line px-5 py-4">
           <h2 className="font-bold text-ink">Profit &amp; loss—today</h2>
           <span className="ml-auto text-xs text-ink-muted">
-            {data.salesCount.toLocaleString("en-PK")} sales · business date {data.from}
+            {data.salesCount.toLocaleString("en-PK")} sales · business date{" "}
+            {data.from}
           </span>
         </div>
         <div className="grid gap-0 md:grid-cols-2 md:gap-8 md:px-5">
           <dl className="divide-y divide-line-subtle px-5 md:px-0">
-            <MoneyRow currency={currency} kind="line" label="Sales revenue" minor={data.salesRevenueMinor} />
+            <MoneyRow
+              currency={currency}
+              kind="line"
+              label="Sales revenue"
+              minor={data.salesRevenueMinor}
+            />
             <MoneyRow
               currency={currency}
               kind="less"
@@ -281,24 +320,59 @@ function FinancialSection({
               minor={data.cogsMinor}
               note="Booked only when items sell—not when stock is bought."
             />
-            <MoneyRow currency={currency} kind="total" label="Gross profit" minor={data.grossProfitMinor} />
-            <MoneyRow currency={currency} kind="add" label="Add: Digital service profit" minor={data.serviceProfitMinor} />
-            <MoneyRow currency={currency} kind="less" label="Less: Operating expenses" minor={data.expensesMinor} />
-            <MoneyRow currency={currency} kind="total" label="Estimated net operating profit" minor={data.estimatedNetProfitMinor} />
+            <MoneyRow
+              currency={currency}
+              kind="total"
+              label="Gross profit"
+              minor={data.grossProfitMinor}
+            />
+            <MoneyRow
+              currency={currency}
+              kind="add"
+              label="Add: Digital service profit"
+              minor={data.serviceProfitMinor}
+            />
+            <MoneyRow
+              currency={currency}
+              kind="less"
+              label="Less: Operating expenses"
+              minor={data.expensesMinor}
+            />
+            <MoneyRow
+              currency={currency}
+              kind="total"
+              label="Estimated net operating profit"
+              minor={data.estimatedNetProfitMinor}
+            />
           </dl>
           <div className="border-t border-line-subtle px-5 py-4 md:border-l md:border-t-0 md:pl-8">
             <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
               Sales adjustments (memo)
             </p>
             <dl className="mt-2 divide-y divide-line-subtle">
-              <MoneyRow currency={currency} kind="line" label="Discounts given today" minor={data.discountsMinor} />
-              <MoneyRow currency={currency} kind="line" label="Returns &amp; refunds today" minor={data.returnsMinor} />
-              <MoneyRow currency={currency} kind="total" label="Net sales after returns" minor={data.netSalesMinor} />
+              <MoneyRow
+                currency={currency}
+                kind="line"
+                label="Discounts given today"
+                minor={data.discountsMinor}
+              />
+              <MoneyRow
+                currency={currency}
+                kind="line"
+                label="Returns &amp; refunds today"
+                minor={data.returnsMinor}
+              />
+              <MoneyRow
+                currency={currency}
+                kind="total"
+                label="Net sales after returns"
+                minor={data.netSalesMinor}
+              />
             </dl>
             <p className="mt-3 text-[0.6875rem] leading-5 text-ink-muted">
-              Discounts are already reflected in sales revenue. Returns reverse a
-              prior sale&apos;s cash and stock and are tracked separately from the
-              day&apos;s sales profit.
+              Discounts are already reflected in sales revenue. Returns reverse
+              a prior sale&apos;s cash and stock and are tracked separately from
+              the day&apos;s sales profit.
             </p>
           </div>
         </div>
@@ -312,7 +386,11 @@ function FinancialSection({
  * shared dashboard snapshot so they equal the Dashboard exactly. Provider
  * charges are the shop's cost; net earnings are customer fees less those charges.
  */
-function DigitalAndCashSection({ currency }: { readonly currency: string }): JSX.Element {
+function DigitalAndCashSection({
+  currency,
+}: {
+  readonly currency: string;
+}): JSX.Element {
   const auth = useQuery(currentAuthQueryOptions);
   const dashboard = useQuery({
     ...dashboardQueryOptions,
@@ -332,7 +410,9 @@ function DigitalAndCashSection({ currency }: { readonly currency: string }): JSX
             void dashboard.refetch();
           }}
           title="Digital & cash figures unavailable"
-          {...(error.requestId === undefined ? {} : { requestId: error.requestId })}
+          {...(error.requestId === undefined
+            ? {}
+            : { requestId: error.requestId })}
         />
       </section>
     );
@@ -350,8 +430,12 @@ function DigitalAndCashSection({ currency }: { readonly currency: string }): JSX
       | "netEarnings",
   ): DashboardMoneyValue => (hasDigital ? digital.data[key] : digital);
   const cash =
-    dashboard.data.moneyKpis.find((kpi) => kpi.key === "cash_position")?.value ??
-    ({ availability: "redacted", message: "Cash position unavailable." } as const);
+    dashboard.data.moneyKpis.find((kpi) => kpi.key === "cash_position")
+      ?.value ??
+    ({
+      availability: "redacted",
+      message: "Cash position unavailable.",
+    } as const);
 
   const kpis: readonly {
     label: string;
@@ -361,10 +445,32 @@ function DigitalAndCashSection({ currency }: { readonly currency: string }): JSX
     accent?: boolean;
     tone?: "ink" | "accent" | "earnings";
   }[] = [
-    { label: "Digital sent", value: dv("sentToday"), sub: "Principal sent today", href: "/digital/history" },
-    { label: "Digital received", value: dv("receivedToday"), sub: "Principal received today", href: "/digital/history" },
-    { label: "Net digital earnings", value: dv("netEarnings"), sub: "Fees less provider charges", href: "/digital/commission", tone: "earnings" },
-    { label: "Cash position", value: cash, sub: "Expected drawer now", href: "/closing", accent: true },
+    {
+      label: "Digital sent",
+      value: dv("sentToday"),
+      sub: "Principal sent today",
+      href: "/digital/history",
+    },
+    {
+      label: "Digital received",
+      value: dv("receivedToday"),
+      sub: "Principal received today",
+      href: "/digital/history",
+    },
+    {
+      label: "Net digital earnings",
+      value: dv("netEarnings"),
+      sub: "Fees less provider charges",
+      href: "/digital/commission",
+      tone: "earnings",
+    },
+    {
+      label: "Cash position",
+      value: cash,
+      sub: "Expected drawer now",
+      href: "/closing",
+      accent: true,
+    },
   ];
 
   return (
@@ -392,7 +498,9 @@ function DigitalAndCashSection({ currency }: { readonly currency: string }): JSX
 
       <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
         <div className="border-b border-line px-5 py-4">
-          <h2 className="font-bold text-ink">Digital services earnings—today</h2>
+          <h2 className="font-bold text-ink">
+            Digital services earnings—today
+          </h2>
         </div>
         <dl className="divide-y divide-line-subtle px-5">
           {[
@@ -401,7 +509,10 @@ function DigitalAndCashSection({ currency }: { readonly currency: string }): JSX
             { label: "Customer service fees", value: dv("customerFeesToday") },
             { label: "Provider charges", value: dv("providerNetCommission") },
           ].map((row) => (
-            <div className="flex items-center justify-between gap-4 py-3" key={row.label}>
+            <div
+              className="flex items-center justify-between gap-4 py-3"
+              key={row.label}
+            >
               <dt className="text-ink">{row.label}</dt>
               <dd className="font-mono">
                 <DashMoney currency={currency} value={row.value} />
@@ -411,7 +522,11 @@ function DigitalAndCashSection({ currency }: { readonly currency: string }): JSX
           <div className="flex items-center justify-between gap-4 py-3 font-bold">
             <dt className="text-ink">Net digital-service earnings</dt>
             <dd className="font-mono">
-              <DashMoney currency={currency} tone="earnings" value={dv("netEarnings")} />
+              <DashMoney
+                currency={currency}
+                tone="earnings"
+                value={dv("netEarnings")}
+              />
             </dd>
           </div>
         </dl>
@@ -569,7 +684,8 @@ function ExpenseDrawer({
             value={note}
           />
           <span className="mt-1 block text-xs font-normal text-ink-muted">
-            A short description is required so the entry is auditable at closing.
+            A short description is required so the entry is auditable at
+            closing.
           </span>
         </label>
       </div>
@@ -678,8 +794,7 @@ function ExpensesSection({
     );
   }
 
-  const total =
-    query.data === undefined ? null : `${query.data.total} entries`;
+  const total = query.data === undefined ? null : `${query.data.total} entries`;
 
   return (
     <section
@@ -798,9 +913,9 @@ export function FinanceWorkspace(): JSX.Element {
       <div className="flex items-start gap-2.5 rounded-card border border-info/25 bg-info-soft px-4 py-3 text-sm text-info">
         <ShieldCheckIcon className="mt-0.5 size-4 shrink-0" />
         <p>
-          <strong>Profit is not cash.</strong> Buying stock reduces cash now, but
-          becomes COGS only when the item sells. Every figure here is live from
-          the same reconciled read model the Dashboard and Reports use.
+          <strong>Profit is not cash.</strong> Buying stock reduces cash now,
+          but becomes COGS only when the item sells. Every figure here is live
+          from the same reconciled read model the Dashboard and Reports use.
         </p>
       </div>
 

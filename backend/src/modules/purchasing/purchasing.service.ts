@@ -1469,7 +1469,10 @@ export class PurchasingService {
     tx: Prisma.TransactionClient,
     context: PurchasingActorContext,
     idempotencyKey: string,
-  ): Promise<{ readonly id: string; readonly requestHash: string | null } | null> {
+  ): Promise<{
+    readonly id: string;
+    readonly requestHash: string | null;
+  } | null> {
     await this.lockGoodsReceiptIdempotency(tx, context, idempotencyKey);
     return tx.goodsReceipt.findFirst({
       where: {

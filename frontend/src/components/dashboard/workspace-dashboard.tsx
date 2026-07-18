@@ -390,7 +390,9 @@ function KpiTile({
   return (
     <Link
       className={`min-h-32 rounded-card border border-line bg-surface p-4 no-underline shadow-card transition hover:-translate-y-0.5 hover:border-accent hover:shadow-overlay ${
-        item.key === "sales_today" ? "border-t-[3px] border-t-accent pt-[0.875rem]" : ""
+        item.key === "sales_today"
+          ? "border-t-[3px] border-t-accent pt-[0.875rem]"
+          : ""
       }`}
       href={item.href}
       title={item.definition}
@@ -468,7 +470,11 @@ function severityClasses(severity: DashboardAttentionItem["severity"]): {
   }
 }
 
-function AttentionSection({ section }: { readonly section: DashboardAttention }) {
+function AttentionSection({
+  section,
+}: {
+  readonly section: DashboardAttention;
+}) {
   if (
     section.availability === "unavailable" ||
     section.availability === "redacted"
@@ -494,7 +500,7 @@ function AttentionSection({ section }: { readonly section: DashboardAttention })
           const styles = severityClasses(item.severity);
           return (
             <Link
-                className={`flex items-start gap-3 rounded-control border px-[0.9375rem] py-[0.8125rem] no-underline transition hover:border-accent hover:shadow-card ${styles.card}`}
+              className={`flex items-start gap-3 rounded-control border px-[0.9375rem] py-[0.8125rem] no-underline transition hover:border-accent hover:shadow-card ${styles.card}`}
               href={item.href}
               key={item.id}
             >
@@ -579,13 +585,19 @@ function RecentSalesSection({
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td className="px-5 py-10 text-center text-xs text-ink-muted" colSpan={6}>
+                <td
+                  className="px-5 py-10 text-center text-xs text-ink-muted"
+                  colSpan={6}
+                >
                   No sales have been posted in this dashboard period.
                 </td>
               </tr>
             ) : (
               items.map((sale) => (
-                <tr className="transition hover:bg-surface-subtle" key={sale.id}>
+                <tr
+                  className="transition hover:bg-surface-subtle"
+                  key={sale.id}
+                >
                   <td className="px-4 py-3 font-mono font-bold">
                     <Link
                       aria-label={`Open sale ${sale.invoiceNumber}`}
@@ -899,8 +911,12 @@ function TasksSection({ section }: { readonly section: DashboardTodaysTasks }) {
               href={task.href}
               key={task.id}
             >
-              <span className="max-w-[76%] text-xs leading-5">{task.title}</span>
-              <span className={`rounded-full px-2 py-1 text-[0.6875rem] font-bold ${badge}`}>
+              <span className="max-w-[76%] text-xs leading-5">
+                {task.title}
+              </span>
+              <span
+                className={`rounded-full px-2 py-1 text-[0.6875rem] font-bold ${badge}`}
+              >
                 {task.dueLabel}
               </span>
             </Link>
@@ -913,7 +929,11 @@ function TasksSection({ section }: { readonly section: DashboardTodaysTasks }) {
 
 function DashboardSkeleton() {
   return (
-    <div aria-label="Loading dashboard analytics" className="space-y-5" role="status">
+    <div
+      aria-label="Loading dashboard analytics"
+      className="space-y-5"
+      role="status"
+    >
       <span className="sr-only">Loading dashboard analytics</span>
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {Array.from({ length: 6 }, (_, index) => (
@@ -958,7 +978,9 @@ function DashboardError({
           <AlertTriangleIcon className="size-5" />
         </span>
         <div>
-          <h2 className="font-bold text-ink">Dashboard analytics unavailable</h2>
+          <h2 className="font-bold text-ink">
+            Dashboard analytics unavailable
+          </h2>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-muted">
             {dashboardErrorMessage(apiError)}
           </p>
@@ -973,7 +995,9 @@ function DashboardError({
             onClick={onRetry}
             type="button"
           >
-            <RefreshIcon className={`size-4 ${retrying ? "animate-spin" : ""}`} />
+            <RefreshIcon
+              className={`size-4 ${retrying ? "animate-spin" : ""}`}
+            />
             {retrying ? "Retrying..." : "Retry dashboard"}
           </button>
         </div>
@@ -1069,7 +1093,11 @@ function FinancialSummarySection({
   } else {
     const data = summary.data;
     const tiles = [
-      { label: "Sales revenue", minor: data.salesRevenueMinor, earnings: false },
+      {
+        label: "Sales revenue",
+        minor: data.salesRevenueMinor,
+        earnings: false,
+      },
       { label: "COGS", minor: data.cogsMinor, earnings: false },
       { label: "Gross profit", minor: data.grossProfitMinor, earnings: true },
       {
@@ -1223,7 +1251,8 @@ export function WorkspaceDashboard() {
         <FinancialSummarySection currency={auth.data.organization.currency} />
       )}
 
-      {auth.isPending || (dashboard.isPending && dashboard.data === undefined) ? (
+      {auth.isPending ||
+      (dashboard.isPending && dashboard.data === undefined) ? (
         <DashboardSkeleton />
       ) : auth.isError ? (
         <DashboardError

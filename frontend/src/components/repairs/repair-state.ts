@@ -6,7 +6,8 @@ export const REPAIR_STAGES = [
     label: "Received",
     currentLabel: "Just booked in",
     emptyTitle: "New intake list unavailable",
-    emptyDescription: "GET /repairs is deferred; the screen cannot claim there are no new intakes.",
+    emptyDescription:
+      "GET /repairs is deferred; the screen cannot claim there are no new intakes.",
   },
   {
     id: "awaiting_parts",
@@ -20,21 +21,24 @@ export const REPAIR_STAGES = [
     label: "In repair",
     currentLabel: "On the bench now",
     emptyTitle: "Bench queue unavailable",
-    emptyDescription: "Assigned technician work cannot be loaded without scoped repair detail.",
+    emptyDescription:
+      "Assigned technician work cannot be loaded without scoped repair detail.",
   },
   {
     id: "ready",
     label: "Ready",
     currentLabel: "Ready — awaiting pickup",
     emptyTitle: "Pickup queue unavailable",
-    emptyDescription: "No job is presented as QC-passed or ready without server evidence.",
+    emptyDescription:
+      "No job is presented as QC-passed or ready without server evidence.",
   },
   {
     id: "delivered",
     label: "Delivered",
     currentLabel: "Delivered",
     emptyTitle: "Delivery history unavailable",
-    emptyDescription: "Completed jobs require server history, collected-charge and handover evidence.",
+    emptyDescription:
+      "Completed jobs require server history, collected-charge and handover evidence.",
   },
 ] as const;
 
@@ -112,7 +116,9 @@ export function repairRouteQuery(
   return next.toString();
 }
 
-export function repairStageFrom(searchParams: URLSearchParams): RepairStage | null {
+export function repairStageFrom(
+  searchParams: URLSearchParams,
+): RepairStage | null {
   const value = searchParams.get("stage");
   return REPAIR_STAGES.some((stage) => stage.id === value)
     ? (value as RepairStage)
@@ -126,7 +132,9 @@ export function normalizeRepairSearch(value: string): string {
 function validDateInput(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
   const date = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  return (
+    !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+  );
 }
 
 function validCharge(value: string): boolean {
@@ -139,18 +147,21 @@ export function validateRepairDraft(draft: RepairDraft): RepairDraftErrors {
   const errors: Partial<Record<keyof RepairDraft, string>> = {};
   const device = draft.device.trim();
   if (device.length < 2) errors.device = "Enter the device being booked in.";
-  if (device.length > 200) errors.device = "Device must be 200 characters or less.";
+  if (device.length > 200)
+    errors.device = "Device must be 200 characters or less.";
   const imei = validateImei(draft.imei);
   if (!imei.valid) errors.imei = imei.message ?? "Enter a valid 15-digit IMEI.";
   if (draft.issue === "") errors.issue = "Select the reported issue.";
   if (draft.technicianId.length === 0) {
-    errors.technicianId = "A verified technician is required; the staff directory is unavailable.";
+    errors.technicianId =
+      "A verified technician is required; the staff directory is unavailable.";
   }
   if (!validDateInput(draft.promisedDate)) {
     errors.promisedDate = "Select a valid promised date.";
   }
   if (!validCharge(draft.estimatedCharge)) {
-    errors.estimatedCharge = "Enter a non-negative estimate with at most two decimal places.";
+    errors.estimatedCharge =
+      "Enter a non-negative estimate with at most two decimal places.";
   }
   return errors;
 }

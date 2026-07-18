@@ -37,13 +37,13 @@ test.describe("Used intake workspace", () => {
     await expect(
       page.getByRole("heading", { name: "Used Device Intake & Trade-in" }),
     ).toBeVisible();
-    await expect(page.getByText("A used device cannot be marked saleable")).toBeVisible();
+    await expect(
+      page.getByText("A used device cannot be marked saleable"),
+    ).toBeVisible();
     await expect(page.getByText("Backend gap registry")).toBeVisible();
     await expect(page.getByText("Quarantine to saleable")).toBeVisible();
 
-    await page
-      .getByRole("button", { name: "New intake", exact: true })
-      .click();
+    await page.getByRole("button", { name: "New intake", exact: true }).click();
     await expect(
       page.getByRole("dialog", { name: "New used-device intake" }),
     ).toBeVisible();
@@ -52,7 +52,9 @@ test.describe("Used intake workspace", () => {
     await expect(
       page.getByRole("button", { name: "Save → send to Quarantine" }),
     ).toBeDisabled();
-    await expect(page.getByText("PTA Approved", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("PTA Approved", { exact: false })).toHaveCount(
+      0,
+    );
 
     const horizontalOverflow = await page.evaluate(
       "document.documentElement.scrollWidth > document.documentElement.clientWidth",

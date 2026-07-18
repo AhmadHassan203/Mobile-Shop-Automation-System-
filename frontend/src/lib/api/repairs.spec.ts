@@ -25,8 +25,7 @@ describe("repairs unavailable API boundary", () => {
   it("does not expose a fake success or available status", () => {
     expect(
       REPAIR_API_GAPS.every(
-        (gap) =>
-          gap.status === "deferred" || gap.status === "not_implemented",
+        (gap) => gap.status === "deferred" || gap.status === "not_implemented",
       ),
     ).toBe(true);
     expect(JSON.stringify(REPAIR_API_GAPS)).not.toContain('"available"');

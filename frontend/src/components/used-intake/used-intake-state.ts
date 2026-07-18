@@ -20,27 +20,33 @@ export const USED_INTAKE_GATES = [
 export const USED_INTAKE_BACKEND_GAPS = [
   {
     capability: "Intake records and KPIs",
-    requirement: "UsedIntake persistence, scoped list/detail APIs and numbering",
+    requirement:
+      "UsedIntake persistence, scoped list/detail APIs and numbering",
   },
   {
     capability: "Restricted seller identity",
-    requirement: "Dedicated permission, encryption, retention and redacted audit",
+    requirement:
+      "Dedicated permission, encryption, retention and redacted audit",
   },
   {
     capability: "IMEI / PTA result",
-    requirement: "Evidence-backed DIRBS adapter; a local format check is insufficient",
+    requirement:
+      "Evidence-backed DIRBS adapter; a local format check is insufficient",
   },
   {
     capability: "Police e-Gadget result",
-    requirement: "Verified provider response and trace reference, not typed prose",
+    requirement:
+      "Verified provider response and trace reference, not typed prose",
   },
   {
     capability: "Inspection evidence",
-    requirement: "Append-only gate decisions, technician attribution and documents",
+    requirement:
+      "Append-only gate decisions, technician attribution and documents",
   },
   {
     capability: "Valuation approval",
-    requirement: "Quote, approver separation, payment and immutable price evidence",
+    requirement:
+      "Quote, approver separation, payment and immutable price evidence",
   },
   {
     capability: "Quarantine to saleable",
@@ -110,10 +116,12 @@ export function validateUsedIntakeDraft(
     errors.sellerName = "Enter the seller name shown on the identity document.";
   }
   if (cnicLastFour(draft.cnic) === null) {
-    errors.cnic = "Enter a 13-digit CNIC; only a protected token and last four may be retained.";
+    errors.cnic =
+      "Enter a 13-digit CNIC; only a protected token and last four may be retained.";
   }
   if (!draft.consent) {
-    errors.consent = "Seller consent and lawful-ownership declaration are required.";
+    errors.consent =
+      "Seller consent and lawful-ownership declaration are required.";
   }
   if (
     draft.productVariantId.length === 0 ||
@@ -127,16 +135,19 @@ export function validateUsedIntakeDraft(
     errors.imei = imei.message ?? "Enter a valid 15-digit IMEI.";
   }
   if (normalizedText(draft.egadgetReference).length === 0) {
-    errors.egadgetReference = "Capture the Police e-Gadget reference for later verification.";
+    errors.egadgetReference =
+      "Capture the Police e-Gadget reference for later verification.";
   }
   const battery = Number(draft.batteryHealth);
   if (!Number.isInteger(battery) || battery < 0 || battery > 100) {
-    errors.batteryHealth = "Battery health must be a whole percentage from 0 to 100.";
+    errors.batteryHealth =
+      "Battery health must be a whole percentage from 0 to 100.";
   }
   if (draft.quotedBuyPrice.length > 0) {
     const price = Number(draft.quotedBuyPrice);
     if (!Number.isSafeInteger(price) || price < 0) {
-      errors.quotedBuyPrice = "Quoted buy price must be a non-negative whole rupee amount.";
+      errors.quotedBuyPrice =
+        "Quoted buy price must be a non-negative whole rupee amount.";
     }
   }
   return errors;
@@ -163,7 +174,8 @@ export function usedIntakeGatePreview(
         draft.consent
           ? "locally_ready"
           : "pending_input",
-      explanation: "Input is locally complete; secure identity persistence is still unavailable.",
+      explanation:
+        "Input is locally complete; secure identity persistence is still unavailable.",
     },
     {
       name: USED_INTAKE_GATES[1],
@@ -178,7 +190,8 @@ export function usedIntakeGatePreview(
         normalizedText(draft.egadgetReference).length > 0
           ? "pending_external"
           : "pending_input",
-      explanation: "Entering a reference never proves that the Police e-Gadget check passed.",
+      explanation:
+        "Entering a reference never proves that the Police e-Gadget check passed.",
     },
     {
       name: USED_INTAKE_GATES[3],

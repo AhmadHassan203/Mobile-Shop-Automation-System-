@@ -4,10 +4,7 @@ import { LIMITS, PAGINATION } from "./constants";
 import { CustomerSummarySchema } from "./customers";
 import { PAYMENT_METHODS, SALE_STATUSES } from "./enums";
 import { DeviceIdentifierSchema } from "./inventory";
-import {
-  EFFECTIVE_PRICE_SOURCES,
-  PosStockLocationSchema,
-} from "./pricing";
+import { EFFECTIVE_PRICE_SOURCES, PosStockLocationSchema } from "./pricing";
 
 /**
  * Sales contracts for the immutable counter workflow.
@@ -34,7 +31,10 @@ export const SALE_CLOSED_STATUSES = ["cancelled", "returned"] as const;
 export type SaleClosedStatus = (typeof SALE_CLOSED_STATUSES)[number];
 
 export const SALE_STATUS_TRANSITIONS: Readonly<
-  Record<(typeof SALE_STATUSES)[number], readonly (typeof SALE_STATUSES)[number][]>
+  Record<
+    (typeof SALE_STATUSES)[number],
+    readonly (typeof SALE_STATUSES)[number][]
+  >
 > = Object.freeze({
   draft: ["posted", "cancelled"],
   posted: ["partially_returned", "returned"],
@@ -81,7 +81,8 @@ export const SaleNonnegativeMoneyInputSchema = z
   .int("Amount must be an integer number of minor units.")
   .safe("Amount is outside the safe integer range.")
   .nonnegative();
-export const SalePositiveMoneyInputSchema = SaleNonnegativeMoneyInputSchema.positive();
+export const SalePositiveMoneyInputSchema =
+  SaleNonnegativeMoneyInputSchema.positive();
 
 const versionInputSchema = z
   .number()
@@ -236,12 +237,8 @@ export const ReplaceSaleDraftInputSchema = z
   .object({ ...saleDraftShape, version: versionInputSchema })
   .strict()
   .superRefine(refineDraftLines);
-export type ReplaceSaleDraftInput = z.input<
-  typeof ReplaceSaleDraftInputSchema
->;
-export type ReplaceSaleDraftData = z.output<
-  typeof ReplaceSaleDraftInputSchema
->;
+export type ReplaceSaleDraftInput = z.input<typeof ReplaceSaleDraftInputSchema>;
+export type ReplaceSaleDraftData = z.output<typeof ReplaceSaleDraftInputSchema>;
 
 export const SaleVersionInputSchema = z
   .object({ version: versionInputSchema })
@@ -285,11 +282,9 @@ export const SalePaymentLegInputSchema = z
   })
   .strict()
   .superRefine((payment, context) => {
-    const needsReference = [
-      "bank_transfer",
-      "card",
-      "digital_wallet",
-    ].includes(payment.method);
+    const needsReference = ["bank_transfer", "card", "digital_wallet"].includes(
+      payment.method,
+    );
     if (needsReference && payment.reference === null) {
       context.addIssue({
         code: "custom",
@@ -305,12 +300,8 @@ export const SalePaymentLegInputSchema = z
       });
     }
   });
-export type SalePaymentLegInput = z.input<
-  typeof SalePaymentLegInputSchema
->;
-export type SalePaymentLegData = z.output<
-  typeof SalePaymentLegInputSchema
->;
+export type SalePaymentLegInput = z.input<typeof SalePaymentLegInputSchema>;
+export type SalePaymentLegData = z.output<typeof SalePaymentLegInputSchema>;
 
 /**
  * The sum is bounded for exact arithmetic, but is deliberately not compared to
@@ -338,8 +329,7 @@ export const PostSaleInputSchema = z
       });
     }
     if (
-      input.payments.filter((payment) => payment.method === "credit").length >
-      1
+      input.payments.filter((payment) => payment.method === "credit").length > 1
     ) {
       context.addIssue({
         code: "custom",
@@ -390,9 +380,7 @@ export const SaleProductSnapshotSchema = z
     name: z.string().min(1).max(SALE_CONTRACT_LIMITS.NAME_LENGTH),
   })
   .strict();
-export type SaleProductSnapshot = z.infer<
-  typeof SaleProductSnapshotSchema
->;
+export type SaleProductSnapshot = z.infer<typeof SaleProductSnapshotSchema>;
 
 const saleLineAmountShape = {
   id: z.uuid(),
@@ -462,8 +450,7 @@ function refineSaleLineAmounts(
   }
   if (
     line.profit.availability === "available" &&
-    line.profit.grossProfitMinor !==
-      line.lineTotalMinor - line.profit.cogsMinor
+    line.profit.grossProfitMinor !== line.lineTotalMinor - line.profit.cogsMinor
   ) {
     context.addIssue({
       code: "custom",
@@ -537,9 +524,7 @@ export const SaleCustomerReferenceSchema = CustomerSummarySchema.pick({
   name: true,
   phone: true,
 }).strict();
-export type SaleCustomerReference = z.infer<
-  typeof SaleCustomerReferenceSchema
->;
+export type SaleCustomerReference = z.infer<typeof SaleCustomerReferenceSchema>;
 
 export const SaleUserReferenceSchema = z
   .object({
@@ -563,11 +548,9 @@ export const SalePaymentSchema = z
   })
   .strict()
   .superRefine((payment, context) => {
-    const needsReference = [
-      "bank_transfer",
-      "card",
-      "digital_wallet",
-    ].includes(payment.method);
+    const needsReference = ["bank_transfer", "card", "digital_wallet"].includes(
+      payment.method,
+    );
     if (needsReference !== (payment.reference !== null)) {
       context.addIssue({
         code: "custom",
@@ -582,7 +565,9 @@ export type SalePayment = z.infer<typeof SalePaymentSchema>;
 
 export const SaleSettlementSchema = z
   .object({
-    payments: z.array(SalePaymentSchema).max(SALE_CONTRACT_LIMITS.MAX_PAYMENT_LEGS),
+    payments: z
+      .array(SalePaymentSchema)
+      .max(SALE_CONTRACT_LIMITS.MAX_PAYMENT_LEGS),
     paidMinor: nonnegativeResponseMoneySchema,
     receivableMinor: nonnegativeResponseMoneySchema,
   })
@@ -713,8 +698,7 @@ export const SALE_REVIEW_WARNING_CODES = [
   "credit_requires_customer",
   "credit_requires_authorization",
 ] as const;
-export type SaleReviewWarningCode =
-  (typeof SALE_REVIEW_WARNING_CODES)[number];
+export type SaleReviewWarningCode = (typeof SALE_REVIEW_WARNING_CODES)[number];
 
 export const SaleReviewWarningSchema = z
   .object({
@@ -755,7 +739,8 @@ export const SaleReviewSchema = z
     if (review.canPost === hasBlocking) {
       context.addIssue({
         code: "custom",
-        message: "canPost must be false exactly when a blocking warning exists.",
+        message:
+          "canPost must be false exactly when a blocking warning exists.",
         path: ["canPost"],
       });
     }
@@ -766,11 +751,7 @@ export const SaleHoldSchema = z
   .object({
     heldAt: responseTimestampSchema,
     heldBy: SaleUserReferenceSchema,
-    note: z
-      .string()
-      .min(1)
-      .max(SALE_CONTRACT_LIMITS.NOTE_LENGTH)
-      .nullable(),
+    note: z.string().min(1).max(SALE_CONTRACT_LIMITS.NOTE_LENGTH).nullable(),
   })
   .strict();
 export type SaleHold = z.infer<typeof SaleHoldSchema>;
@@ -963,10 +944,7 @@ export type SaleReceiptLine = z.infer<typeof SaleReceiptLineSchema>;
 export const SaleReceiptSchema = z
   .object({
     saleId: z.uuid(),
-    invoiceNumber: z
-      .string()
-      .min(1)
-      .max(SALE_CONTRACT_LIMITS.INVOICE_LENGTH),
+    invoiceNumber: z.string().min(1).max(SALE_CONTRACT_LIMITS.INVOICE_LENGTH),
     currency: z.string().regex(/^[A-Z]{3}$/),
     issuedAt: responseTimestampSchema,
     shop: z
@@ -1199,10 +1177,7 @@ export type SaleSummary = z.infer<typeof SaleSummarySchema>;
 export const SaleRecentSummarySchema = z
   .object({
     id: z.uuid(),
-    invoiceNumber: z
-      .string()
-      .min(1)
-      .max(SALE_CONTRACT_LIMITS.INVOICE_LENGTH),
+    invoiceNumber: z.string().min(1).max(SALE_CONTRACT_LIMITS.INVOICE_LENGTH),
     postedAt: responseTimestampSchema,
     customerName: z.string().min(1).max(200),
     itemSummary: z.string().min(1).max(300),
@@ -1235,9 +1210,7 @@ export const SaleRecentListQuerySchema = z
 export type SaleRecentListQueryInput = z.input<
   typeof SaleRecentListQuerySchema
 >;
-export type SaleRecentListQuery = z.output<
-  typeof SaleRecentListQuerySchema
->;
+export type SaleRecentListQuery = z.output<typeof SaleRecentListQuerySchema>;
 
 export const SalePageSchema = createPageEnvelopeSchema(SaleSummarySchema);
 export type SalePage = z.infer<typeof SalePageSchema>;

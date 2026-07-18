@@ -17,7 +17,10 @@ function clientFor(payload: unknown) {
       headers: { "content-type": "application/json" },
     }),
   );
-  return { client: new ApiClient("https://api.test/api/v1", { fetcher }), fetcher };
+  return {
+    client: new ApiClient("https://api.test/api/v1", { fetcher }),
+    fetcher,
+  };
 }
 
 const REORDER = {

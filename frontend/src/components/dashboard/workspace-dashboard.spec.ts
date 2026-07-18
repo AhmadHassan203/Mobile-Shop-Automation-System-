@@ -282,9 +282,7 @@ describe("dashboard helpers", () => {
 
   it("keeps API failure copy honest and specific", () => {
     expect(
-      dashboardErrorMessage(
-        new ApiError("offline", { code: "NETWORK_ERROR" }),
-      ),
+      dashboardErrorMessage(new ApiError("offline", { code: "NETWORK_ERROR" })),
     ).toContain("No dashboard figures have been inferred");
     expect(
       dashboardErrorMessage(

@@ -377,7 +377,8 @@ export class DemandService {
         item.matchedProductVariantId !== null
           ? `variant:${item.matchedProductVariantId}`
           : `wording:${item.rawRequestText.trim().toLowerCase()}`;
-      const name = item.matchedProductVariant?.name ?? item.rawRequestText.trim();
+      const name =
+        item.matchedProductVariant?.name ?? item.rawRequestText.trim();
       if (name.length === 0) continue;
       const entry = byProduct.get(key) ?? { key, name, waitingQuantity: 0 };
       entry.waitingQuantity += row.quantity;
@@ -583,9 +584,7 @@ export class DemandService {
       }
       const requestedProductVariantId =
         input.item.match === "matched" ? input.item.productVariantId : null;
-      if (
-        requestedProductVariantId !== currentItem.matchedProductVariantId
-      ) {
+      if (requestedProductVariantId !== currentItem.matchedProductVariantId) {
         throw conflict(
           "The catalog match captured for a demand request cannot be changed. Update only its preference details.",
         );
@@ -842,10 +841,7 @@ export class DemandService {
           "This sale contains stock outside your assigned location scope.",
         );
       }
-      if (
-        before.customerId !== null &&
-        before.customerId !== sale.customerId
-      ) {
+      if (before.customerId !== null && before.customerId !== sale.customerId) {
         throw validation(
           "saleId",
           "The sale belongs to a different registered customer.",

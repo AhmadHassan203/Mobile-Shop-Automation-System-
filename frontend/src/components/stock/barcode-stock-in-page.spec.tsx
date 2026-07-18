@@ -19,7 +19,12 @@ const LOCATION_ID = "33333333-3333-4333-8333-333333333333";
 
 /** A minimal POS item — matchScannedItem only reads trackingType, sku, name. */
 function posItem(
-  overrides: Partial<{ productVariantId: string; sku: string; name: string; trackingType: "quantity" | "serialized" }>,
+  overrides: Partial<{
+    productVariantId: string;
+    sku: string;
+    name: string;
+    trackingType: "quantity" | "serialized";
+  }>,
 ): PosSellableItem {
   return {
     productVariantId: VARIANT_ID,
@@ -164,7 +169,10 @@ describe("buildBarcodeBatch", () => {
 
   it("errors with no lines, no location, or no supplier", () => {
     expect(buildBarcodeBatch([], batch()).ok).toBe(false);
-    const noLoc = buildBarcodeBatch([readyExisting()], batch({ stockLocationId: "" }));
+    const noLoc = buildBarcodeBatch(
+      [readyExisting()],
+      batch({ stockLocationId: "" }),
+    );
     expect(noLoc.ok).toBe(false);
     if (!noLoc.ok) expect(noLoc.formError).toMatch(/location/i);
     const noSupplier = buildBarcodeBatch(
@@ -177,7 +185,10 @@ describe("buildBarcodeBatch", () => {
 
   it("reports per-line errors keyed by index for an incomplete new line", () => {
     const result = buildBarcodeBatch(
-      [readyExisting(), { ...newLine("n", "7777"), unitCost: "1", sellingPrice: "2" }],
+      [
+        readyExisting(),
+        { ...newLine("n", "7777"), unitCost: "1", sellingPrice: "2" },
+      ],
       batch(),
     );
     expect(result.ok).toBe(false);

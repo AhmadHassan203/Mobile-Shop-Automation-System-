@@ -128,7 +128,9 @@ function DetailDrawer({
               <DetailRow label="Direction">
                 {directionLabel(txn.direction)}
               </DetailRow>
-              <DetailRow label="Principal">{money(txn.principalMinor)}</DetailRow>
+              <DetailRow label="Principal">
+                {money(txn.principalMinor)}
+              </DetailRow>
               <DetailRow label="Customer service fee">
                 {money(txn.feeChargedMinor)}
               </DetailRow>
@@ -168,8 +170,8 @@ function DetailDrawer({
         <footer className="border-t border-line px-5 py-3.5">
           <p className="text-xs text-ink-muted">
             Recorded external transactions are immutable. The backend has no
-            status-change, reversal or dispute workflow, so those actions are not
-            available here.
+            status-change, reversal or dispute workflow, so those actions are
+            not available here.
           </p>
         </footer>
       </aside>
@@ -233,7 +235,9 @@ export function DigitalHistoryPage(): JSX.Element {
           void query.refetch();
         }}
         title="Transactions could not be loaded"
-        {...(error.requestId === undefined ? {} : { requestId: error.requestId })}
+        {...(error.requestId === undefined
+          ? {}
+          : { requestId: error.requestId })}
       />
     );
   } else if (query.data.items.length === 0) {
@@ -299,7 +303,9 @@ export function DigitalHistoryPage(): JSX.Element {
                   </td>
                   <td
                     className={`px-3.5 py-2.5 text-right font-mono font-semibold ${
-                      txn.serviceProfitMinor < 0 ? "text-negative" : "text-accent"
+                      txn.serviceProfitMinor < 0
+                        ? "text-negative"
+                        : "text-accent"
                     }`}
                   >
                     {money(txn.serviceProfitMinor)}

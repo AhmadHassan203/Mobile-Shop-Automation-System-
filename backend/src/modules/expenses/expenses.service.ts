@@ -34,21 +34,30 @@ const SETTLEMENT_ACCOUNT_BY_METHOD = Object.freeze({
 
 type ExpenseRow = Prisma.ExpenseGetPayload<Record<string, never>>;
 
-function safeInteger(value: bigint | number, label: string, minimum?: number): number {
+function safeInteger(
+  value: bigint | number,
+  label: string,
+  minimum?: number,
+): number {
   const result = Number(value);
-  if (!Number.isSafeInteger(result) || (minimum !== undefined && result < minimum)) {
+  if (
+    !Number.isSafeInteger(result) ||
+    (minimum !== undefined && result < minimum)
+  ) {
     throw new Error(`${label} is outside the safe-integer range.`);
   }
   return result;
 }
 
 function iso(value: Date): string {
-  if (!Number.isFinite(value.getTime())) throw new Error("Invalid database timestamp.");
+  if (!Number.isFinite(value.getTime()))
+    throw new Error("Invalid database timestamp.");
   return value.toISOString();
 }
 
 function businessDateText(value: Date): string {
-  if (!Number.isFinite(value.getTime())) throw new Error("Invalid business date.");
+  if (!Number.isFinite(value.getTime()))
+    throw new Error("Invalid business date.");
   return value.toISOString().slice(0, 10);
 }
 
@@ -76,7 +85,10 @@ function expenseResponse(row: ExpenseRow): Expense {
 export class ExpensesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(context: ExpensesActorContext, query: ExpenseListQuery): Promise<ExpensePage> {
+  async list(
+    context: ExpensesActorContext,
+    query: ExpenseListQuery,
+  ): Promise<ExpensePage> {
     const additionalFilters: Prisma.ExpenseWhereInput[] = [];
     if (query.q !== undefined) {
       additionalFilters.push({
@@ -122,7 +134,10 @@ export class ExpensesService {
     });
   }
 
-  async record(context: ExpensesActorContext, input: CreateExpenseData): Promise<Expense> {
+  async record(
+    context: ExpensesActorContext,
+    input: CreateExpenseData,
+  ): Promise<Expense> {
     const row = await this.prisma.client.$transaction(async (tx) => {
       const routing =
         input.paymentMethod === "credit"
@@ -148,7 +163,8 @@ export class ExpensesService {
         subtype: (typeof accounts)[number]["accountSubtype"],
       ) => {
         const account = accounts.find(
-          (candidate) => candidate.code === code && candidate.accountSubtype === subtype,
+          (candidate) =>
+            candidate.code === code && candidate.accountSubtype === subtype,
         );
         if (account === undefined) {
           throw validation(
@@ -164,11 +180,14 @@ export class ExpensesService {
       const now = new Date();
       const businessDateValue = toBusinessDate(now);
       const businessDate = new Date(`${businessDateValue}T00:00:00.000Z`);
-      const spentAt = input.spentAt === undefined ? now : new Date(input.spentAt);
+      const spentAt =
+        input.spentAt === undefined ? now : new Date(input.spentAt);
 
       let cashSessionId: string | null = null;
       if (input.paymentMethod === "cash") {
-        const lockedSessions = await tx.$queryRaw<readonly { readonly id: string }[]>`
+        const lockedSessions = await tx.$queryRaw<
+          readonly { readonly id: string }[]
+        >`
           SELECT id
             FROM cash_sessions
            WHERE organization_id = ${context.organizationId}::uuid

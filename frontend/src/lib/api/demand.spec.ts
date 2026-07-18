@@ -428,7 +428,12 @@ describe("Demand API", () => {
     });
     await transitionDemandRequestStatus(
       DEMAND_ID,
-      { status: "sourcing", outcome: "unknown", lostSaleReason: null, version: 2 },
+      {
+        status: "sourcing",
+        outcome: "unknown",
+        lostSaleReason: null,
+        version: 2,
+      },
       statusClient.client,
     );
     expect(requestBody(statusClient.fetcher)).toMatchObject({ version: 2 });

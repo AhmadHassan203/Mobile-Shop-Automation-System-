@@ -65,9 +65,7 @@ test.describe("finance + daily closing workspaces", () => {
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     // Either an open-session control or the close control is present (real state).
     await expect(
-      page
-        .getByRole("button", { name: /open cash|close/iu })
-        .first(),
+      page.getByRole("button", { name: /open cash|close/iu }).first(),
     ).toBeVisible();
     await signOut(page);
   });

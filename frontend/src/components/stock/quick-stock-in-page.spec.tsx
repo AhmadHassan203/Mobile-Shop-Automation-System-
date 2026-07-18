@@ -351,7 +351,9 @@ describe("quick stock in error copy and invalidation", () => {
       quickStockInErrorMessage(new ApiError("No.", { status: 403 })),
     ).toContain("do not allow receiving stock");
     expect(
-      quickStockInErrorMessage(new ApiError("Down.", { code: "NETWORK_ERROR" })),
+      quickStockInErrorMessage(
+        new ApiError("Down.", { code: "NETWORK_ERROR" }),
+      ),
     ).toContain("could not be reached");
   });
 

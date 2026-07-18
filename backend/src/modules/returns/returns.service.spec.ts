@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import { ERROR_CODES, RETURN_EXCHANGE_UNAVAILABLE_REASON } from "@mobileshop/shared";
+import {
+  ERROR_CODES,
+  RETURN_EXCHANGE_UNAVAILABLE_REASON,
+} from "@mobileshop/shared";
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../../database/prisma.service";
 import { ReturnsService, type ReturnsActorContext } from "./returns.service";
@@ -97,7 +100,9 @@ function returnRecord(overrides: Record<string, unknown> = {}) {
     receivableCreditMinor: 0n,
     refundedMinor: 0n,
     returnWindowDaysSnapshot: 30,
-    returnDeadline: new Date(RECENT_POSTED_AT.getTime() + 30 * 24 * 60 * 60 * 1000),
+    returnDeadline: new Date(
+      RECENT_POSTED_AT.getTime() + 30 * 24 * 60 * 60 * 1000,
+    ),
     policyCheckedAt: NOW,
     policyExpired: false,
     policyOverridden: false,
@@ -167,7 +172,10 @@ function baseTransaction() {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       create: vi.fn(),
     },
-    sale: { findFirst: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    sale: {
+      findFirst: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
     returnLine: {
       findMany: vi.fn().mockResolvedValue([]),
       update: vi.fn().mockResolvedValue({}),
@@ -177,7 +185,10 @@ function baseTransaction() {
       findFirst: vi.fn().mockResolvedValue(null),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
-    serializedUnit: { findFirst: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    serializedUnit: {
+      findFirst: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
     stockBatch: {
       findFirst: vi.fn().mockResolvedValue({ id: IDS.batch, version: 3 }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -193,7 +204,13 @@ function baseTransaction() {
       const sql = strings.join(" ");
       if (sql.includes("number_sequences")) {
         return Promise.resolve([
-          { id: IDS.sequence, prefix: "RTN-", nextValue: 1, padding: 6, periodKey: "2026" },
+          {
+            id: IDS.sequence,
+            prefix: "RTN-",
+            nextValue: 1,
+            padding: 6,
+            periodKey: "2026",
+          },
         ]);
       }
       if (sql.includes("cash_sessions")) {
@@ -216,7 +233,9 @@ function serviceFor(tx: ReturnType<typeof baseTransaction>) {
 
 describe("ReturnsService", () => {
   it("treats a cross-tenant return as not found", async () => {
-    const client = { saleReturn: { findFirst: vi.fn().mockResolvedValue(null) } };
+    const client = {
+      saleReturn: { findFirst: vi.fn().mockResolvedValue(null) },
+    };
     const service = new ReturnsService({ client } as unknown as PrismaService);
 
     await expect(service.detail(CONTEXT, IDS.return)).rejects.toMatchObject({
@@ -235,7 +254,12 @@ describe("ReturnsService", () => {
         reason: "Faulty",
         evidenceNote: "Observed at counter",
         lines: [
-          { trackingType: "quantity", saleLineId: IDS.saleLine, quantity: 1, condition: "used" },
+          {
+            trackingType: "quantity",
+            saleLineId: IDS.saleLine,
+            quantity: 1,
+            condition: "used",
+          },
         ],
       }),
     ).rejects.toMatchObject({ code: ERROR_CODES.NOT_FOUND });
@@ -278,7 +302,11 @@ describe("ReturnsService", () => {
     const service = serviceFor(tx);
 
     await expect(
-      service.post(CONTEXT, IDS.return, IDS.idempotency, { version: 2, refund: null, policyOverrideReason: null }),
+      service.post(CONTEXT, IDS.return, IDS.idempotency, {
+        version: 2,
+        refund: null,
+        policyOverrideReason: null,
+      }),
     ).rejects.toMatchObject({ code: ERROR_CODES.OPTIMISTIC_LOCK_FAILED });
     expect(tx.financialEntry.createMany).not.toHaveBeenCalled();
     expect(tx.stockBatch.updateMany).not.toHaveBeenCalled();
@@ -322,7 +350,9 @@ describe("ReturnsService", () => {
         reference: null,
         refundedAt: RECENT_POSTED_AT,
       },
-      lines: [quantityReturnLine({ refundMinor: 1_000n, cogsReversalMinor: 600n })],
+      lines: [
+        quantityReturnLine({ refundMinor: 1_000n, cogsReversalMinor: 600n }),
+      ],
     });
     const tx = baseTransaction();
     tx.saleReturn.findFirst
@@ -330,7 +360,12 @@ describe("ReturnsService", () => {
       .mockResolvedValueOnce(posted);
     const service = serviceFor(tx);
 
-    const response = await service.post(CONTEXT, IDS.return, IDS.idempotency, input);
+    const response = await service.post(
+      CONTEXT,
+      IDS.return,
+      IDS.idempotency,
+      input,
+    );
 
     expect(response.idempotencyReplay).toBe(true);
     expect(response.return.status).toBe("posted");
@@ -343,7 +378,9 @@ describe("ReturnsService", () => {
     tx.saleReturn.findFirst
       .mockResolvedValueOnce({ id: IDS.return, postRequestHash: null })
       .mockResolvedValueOnce(returnRecord());
-    tx.sale.findFirst.mockResolvedValue(saleForPost({ postedAt: EXPIRED_POSTED_AT, returnWindowDays: 7 }));
+    tx.sale.findFirst.mockResolvedValue(
+      saleForPost({ postedAt: EXPIRED_POSTED_AT, returnWindowDays: 7 }),
+    );
     const service = serviceFor(tx);
 
     await expect(
@@ -360,7 +397,9 @@ describe("ReturnsService", () => {
     const tx = baseTransaction();
     tx.saleReturn.findFirst
       .mockResolvedValueOnce({ id: IDS.return, postRequestHash: null })
-      .mockResolvedValueOnce(returnRecord({ lines: [quantityReturnLine({ quantity: 2 })] }));
+      .mockResolvedValueOnce(
+        returnRecord({ lines: [quantityReturnLine({ quantity: 2 })] }),
+      );
     tx.sale.findFirst.mockResolvedValue(
       saleForPost({ lines: [{ ...saleForPost().lines[0], quantity: 1 }] }),
     );
@@ -384,7 +423,9 @@ describe("ReturnsService", () => {
       quantity: 1,
       serializedUnit: {
         id: IDS.unit,
-        identifiers: [{ identifierType: "imei", normalizedValue: "356938035643809" }],
+        identifiers: [
+          { identifierType: "imei", normalizedValue: "356938035643809" },
+        ],
       },
     });
     const tx = baseTransaction();
@@ -459,7 +500,9 @@ describe("ReturnsService", () => {
         reference: null,
         refundedAt: RECENT_POSTED_AT,
       },
-      lines: [quantityReturnLine({ refundMinor: 1_000n, cogsReversalMinor: 600n })],
+      lines: [
+        quantityReturnLine({ refundMinor: 1_000n, cogsReversalMinor: 600n }),
+      ],
     });
     const tx = baseTransaction();
     tx.saleReturn.findFirst
@@ -478,7 +521,12 @@ describe("ReturnsService", () => {
       });
     const service = serviceFor(tx);
 
-    const response = await service.post(CONTEXT, IDS.return, IDS.idempotency, input);
+    const response = await service.post(
+      CONTEXT,
+      IDS.return,
+      IDS.idempotency,
+      input,
+    );
 
     // Settlement reconciles: refund = receivable credit + external refund.
     const freeze = tx.saleReturn.updateMany.mock.calls[0]?.[0]?.data as {
@@ -508,7 +556,10 @@ describe("ReturnsService", () => {
     // Only the external remainder becomes a refund; the credit reduces the debt.
     expect(tx.refund.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ paymentMethod: "cash", amountMinor: 600n }),
+        data: expect.objectContaining({
+          paymentMethod: "cash",
+          amountMinor: 600n,
+        }),
       }),
     );
     expect(tx.receivable.updateMany).toHaveBeenCalledWith(
@@ -519,7 +570,10 @@ describe("ReturnsService", () => {
     // Restock is append-only and the fully returned sale advances to "returned".
     expect(tx.inventoryMovement.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ movementType: "sale_return", quantity: 2 }),
+        data: expect.objectContaining({
+          movementType: "sale_return",
+          quantity: 2,
+        }),
       }),
     );
     expect(tx.sale.updateMany).toHaveBeenCalledWith(

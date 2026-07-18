@@ -116,7 +116,8 @@ export function existingLine(
     barcode: item.barcode,
     quantity: "1",
     unitCost: "",
-    sellingPrice: item.unitPriceMinor > 0 ? minorToInput(item.unitPriceMinor) : "",
+    sellingPrice:
+      item.unitPriceMinor > 0 ? minorToInput(item.unitPriceMinor) : "",
   };
 }
 
@@ -146,7 +147,9 @@ export function matchScannedItem(
   items: readonly PosSellableItem[],
   code: string,
 ): PosSellableItem | undefined {
-  const quantityItems = items.filter((item) => item.trackingType === "quantity");
+  const quantityItems = items.filter(
+    (item) => item.trackingType === "quantity",
+  );
   const exact = quantityItems.find(
     (item) => item.sku.toLowerCase() === code.toLowerCase(),
   );
@@ -207,7 +210,11 @@ export function buildBarcodeBatch(
   batch: BulkBatchState,
 ): BulkBuildResult {
   if (lines.length === 0) {
-    return { ok: false, rowErrors: [], formError: "Scan or add at least one item." };
+    return {
+      ok: false,
+      rowErrors: [],
+      formError: "Scan or add at least one item.",
+    };
   }
   if (batch.stockLocationId.trim() === "") {
     return {
@@ -247,7 +254,11 @@ export function buildBarcodeBatch(
 
 export function BarcodeStockInRouteFallback(): JSX.Element {
   return (
-    <div aria-label="Loading Barcode Stock In" className="space-y-4" role="status">
+    <div
+      aria-label="Loading Barcode Stock In"
+      className="space-y-4"
+      role="status"
+    >
       <span className="sr-only">Loading Barcode Stock In</span>
       <div className="h-32 animate-pulse rounded-card bg-line-subtle" />
       <div className="h-56 animate-pulse rounded-card bg-line-subtle" />
@@ -407,7 +418,9 @@ function BarcodeStockInWorkspace(): JSX.Element {
   const categories = useQuery(
     catalogCategoriesQueryOptions(REFERENCE_PARAMETERS, true),
   );
-  const brands = useQuery(catalogBrandsQueryOptions(REFERENCE_PARAMETERS, true));
+  const brands = useQuery(
+    catalogBrandsQueryOptions(REFERENCE_PARAMETERS, true),
+  );
   const locations = useQuery(
     stockLocationsQueryOptions(REFERENCE_PARAMETERS, true),
   );
@@ -426,7 +439,9 @@ function BarcodeStockInWorkspace(): JSX.Element {
     scanInputRef.current?.focus();
   };
 
-  const incrementQuantity = (predicate: (line: BarcodeLine) => boolean): boolean => {
+  const incrementQuantity = (
+    predicate: (line: BarcodeLine) => boolean,
+  ): boolean => {
     let found = false;
     setLines((previous) =>
       previous.map((line) => {
@@ -450,9 +465,7 @@ function BarcodeStockInWorkspace(): JSX.Element {
     // A code we already have as a new-product line just bumps its quantity —
     // never a second line, so a duplicate barcode is merged, not duplicated.
     if (
-      incrementQuantity(
-        (line) => line.mode === "new" && line.barcode === code,
-      )
+      incrementQuantity((line) => line.mode === "new" && line.barcode === code)
     ) {
       setScanNotice(`+1 · ${code}`);
       focusScan();
@@ -521,7 +534,9 @@ function BarcodeStockInWorkspace(): JSX.Element {
   ): void => {
     dirtied();
     setLines((previous) =>
-      previous.map((line, i) => (i === index ? { ...line, [key]: value } : line)),
+      previous.map((line, i) =>
+        i === index ? { ...line, [key]: value } : line,
+      ),
     );
   };
 
@@ -654,7 +669,9 @@ function BarcodeStockInWorkspace(): JSX.Element {
             Stock location
             <select
               className={controlClass}
-              onChange={(event) => updateBatch("stockLocationId", event.target.value)}
+              onChange={(event) =>
+                updateBatch("stockLocationId", event.target.value)
+              }
               value={batch.stockLocationId}
             >
               <option value="">Select location…</option>
@@ -669,7 +686,9 @@ function BarcodeStockInWorkspace(): JSX.Element {
             Supplier name
             <input
               className={controlClass}
-              onChange={(event) => updateBatch("supplierName", event.target.value)}
+              onChange={(event) =>
+                updateBatch("supplierName", event.target.value)
+              }
               placeholder="e.g. Ali Traders"
               value={batch.supplierName}
             />
@@ -679,14 +698,20 @@ function BarcodeStockInWorkspace(): JSX.Element {
             <input
               className={controlClass}
               inputMode="tel"
-              onChange={(event) => updateBatch("supplierPhone", event.target.value)}
+              onChange={(event) =>
+                updateBatch("supplierPhone", event.target.value)
+              }
               placeholder="Optional"
               value={batch.supplierPhone}
             />
           </label>
           <div>
             <span className={labelClass}>Payment</span>
-            <div className="mt-1.5 flex gap-2" role="group" aria-label="Payment">
+            <div
+              className="mt-1.5 flex gap-2"
+              role="group"
+              aria-label="Payment"
+            >
               <button
                 aria-pressed={batch.paymentStatus === "paid_full"}
                 className={`${toggleBase} ${
@@ -752,7 +777,8 @@ function BarcodeStockInWorkspace(): JSX.Element {
           <ul className="mt-4 space-y-3">
             {lines.map((line, index) => {
               const errors = rowErrors.get(index);
-              const errorList = errors === undefined ? [] : Object.values(errors).flat();
+              const errorList =
+                errors === undefined ? [] : Object.values(errors).flat();
               return (
                 <li
                   className="rounded-control border border-line bg-surface-subtle/40 p-3"
@@ -898,9 +924,7 @@ function BarcodeStockInWorkspace(): JSX.Element {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-muted">
           {lines.length} lines ·{" "}
-          <span className="font-mono font-semibold text-ink">
-            {totalUnits}
-          </span>{" "}
+          <span className="font-mono font-semibold text-ink">{totalUnits}</span>{" "}
           units
         </p>
         <button
@@ -908,7 +932,9 @@ function BarcodeStockInWorkspace(): JSX.Element {
           disabled={mutation.isPending || lines.length === 0}
           type="submit"
         >
-          {mutation.isPending ? "Saving…" : `Save & add stock (${lines.length})`}
+          {mutation.isPending
+            ? "Saving…"
+            : `Save & add stock (${lines.length})`}
         </button>
       </div>
     </form>

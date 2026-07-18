@@ -35,12 +35,48 @@ const SNAPSHOT: DashboardSnapshot = {
   asOf: "2026-07-16T09:30:00.000Z",
   businessDate: "2026-07-16",
   moneyKpis: [
-    { key: "sales_today", label: "Sales today", href: "/finance", definition: "x", value: moneyValue(500_000, "x") },
-    { key: "gross_profit", label: "Gross profit", href: "/finance", definition: "x", value: moneyValue(200_000, "x") },
-    { key: "expenses", label: "Expenses", href: "/finance", definition: "x", value: moneyValue(12_000, "x") },
-    { key: "net_operating", label: "Net operating", href: "/finance", definition: "x", value: moneyValue(195_000, "x") },
-    { key: "cash_position", label: "Cash position", href: "/closing", definition: "x", value: moneyValue(75_000, "Expected drawer · session CS-1") },
-    { key: "inventory_value", label: "Inventory value", href: "/stock", definition: "x", value: moneyValue(2_500_000, "x") },
+    {
+      key: "sales_today",
+      label: "Sales today",
+      href: "/finance",
+      definition: "x",
+      value: moneyValue(500_000, "x"),
+    },
+    {
+      key: "gross_profit",
+      label: "Gross profit",
+      href: "/finance",
+      definition: "x",
+      value: moneyValue(200_000, "x"),
+    },
+    {
+      key: "expenses",
+      label: "Expenses",
+      href: "/finance",
+      definition: "x",
+      value: moneyValue(12_000, "x"),
+    },
+    {
+      key: "net_operating",
+      label: "Net operating",
+      href: "/finance",
+      definition: "x",
+      value: moneyValue(195_000, "x"),
+    },
+    {
+      key: "cash_position",
+      label: "Cash position",
+      href: "/closing",
+      definition: "x",
+      value: moneyValue(75_000, "Expected drawer · session CS-1"),
+    },
+    {
+      key: "inventory_value",
+      label: "Inventory value",
+      href: "/stock",
+      definition: "x",
+      value: moneyValue(2_500_000, "x"),
+    },
   ],
   attention: { availability: "partial", items: [], message: "x" },
   recentSales: { availability: "available", items: [] },
@@ -49,7 +85,11 @@ const SNAPSHOT: DashboardSnapshot = {
     data: {
       topUnmet: [],
       recommendedBudget: moneyValue(0, "x"),
-      selectedInvestment: { availability: "unavailable", reason: "source_not_configured", message: "x" },
+      selectedInvestment: {
+        availability: "unavailable",
+        reason: "source_not_configured",
+        message: "x",
+      },
       expectedGrossProfit: moneyValue(0, "x"),
     },
   },
@@ -65,10 +105,19 @@ const SNAPSHOT: DashboardSnapshot = {
       actionQueue: [],
     },
   },
-  todaysTasks: { availability: "unavailable", reason: "source_not_built", message: "x" },
+  todaysTasks: {
+    availability: "unavailable",
+    reason: "source_not_built",
+    message: "x",
+  },
   stockSummary: {
     availability: "available",
-    data: { onHandUnits: 5, reservedUnits: 1, availableUnits: 4, outOfStockVariantCount: 0 },
+    data: {
+      onHandUnits: 5,
+      reservedUnits: 1,
+      availableUnits: 4,
+      outOfStockVariantCount: 0,
+    },
   },
 };
 
@@ -77,9 +126,24 @@ function render(permissions: readonly string[]): string {
     defaultOptions: { queries: { retry: false } },
   });
   client.setQueryData(queryKeys.currentAuth, {
-    user: { id: "22222222-2222-4222-8222-222222222222", email: "o@e.com", fullName: "Owner", phone: null, mustChangePassword: false },
-    organization: { id: "33333333-3333-4333-8333-333333333333", name: "Shop", currency: "PKR", timezone: "Asia/Karachi" },
-    branch: { id: "44444444-4444-4444-8444-444444444444", code: "MAIN", name: "Main" },
+    user: {
+      id: "22222222-2222-4222-8222-222222222222",
+      email: "o@e.com",
+      fullName: "Owner",
+      phone: null,
+      mustChangePassword: false,
+    },
+    organization: {
+      id: "33333333-3333-4333-8333-333333333333",
+      name: "Shop",
+      currency: "PKR",
+      timezone: "Asia/Karachi",
+    },
+    branch: {
+      id: "44444444-4444-4444-8444-444444444444",
+      code: "MAIN",
+      name: "Main",
+    },
     roles: ["owner"],
     permissions,
     scopes: [],

@@ -671,7 +671,10 @@ export function IntelligenceWorkspace(): JSX.Element {
     capabilities.canView &&
     capabilities.canViewFinancialReports;
   const trending = useQuery(
-    trendingProductsQueryOptions({ windowDays: 30, limit: 8 }, financialEnabled),
+    trendingProductsQueryOptions(
+      { windowDays: 30, limit: 8 },
+      financialEnabled,
+    ),
   );
   const topBrands = useQuery(
     topBrandsQueryOptions({ period: "month", limit: 8 }, financialEnabled),

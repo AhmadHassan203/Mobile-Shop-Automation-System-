@@ -102,26 +102,38 @@ const SETTLEMENT_ACCOUNT_BY_METHOD = Object.freeze({
 
 type ExternalRow = Prisma.ExternalTransactionGetPayload<Record<string, never>>;
 
-function safeInteger(value: bigint | number, label: string, minimum?: number): number {
+function safeInteger(
+  value: bigint | number,
+  label: string,
+  minimum?: number,
+): number {
   const result = Number(value);
-  if (!Number.isSafeInteger(result) || (minimum !== undefined && result < minimum)) {
+  if (
+    !Number.isSafeInteger(result) ||
+    (minimum !== undefined && result < minimum)
+  ) {
     throw new Error(`${label} is outside the safe-integer range.`);
   }
   return result;
 }
 
 function iso(value: Date): string {
-  if (!Number.isFinite(value.getTime())) throw new Error("Invalid database timestamp.");
+  if (!Number.isFinite(value.getTime()))
+    throw new Error("Invalid database timestamp.");
   return value.toISOString();
 }
 
 function businessDateText(value: Date): string {
-  if (!Number.isFinite(value.getTime())) throw new Error("Invalid business date.");
+  if (!Number.isFinite(value.getTime()))
+    throw new Error("Invalid business date.");
   return value.toISOString().slice(0, 10);
 }
 
 function notFound(label = "external transaction"): DomainError {
-  return new DomainError(ERROR_CODES.NOT_FOUND, `This ${label} no longer exists.`);
+  return new DomainError(
+    ERROR_CODES.NOT_FOUND,
+    `This ${label} no longer exists.`,
+  );
 }
 
 function validation(message: string, field = "external"): DomainError {
@@ -135,7 +147,10 @@ function validation(message: string, field = "external"): DomainError {
  * comparing the recorded fee against the configured per-started-block fee — a
  * charged fee that differs from the standard rate is, by definition, an override.
  */
-function externalResponse(row: ExternalRow, config: ExternalFeeConfig): ExternalTransaction {
+function externalResponse(
+  row: ExternalRow,
+  config: ExternalFeeConfig,
+): ExternalTransaction {
   const principalMinor = safeInteger(row.principalMinor, "principal", 0);
   const feeChargedMinor = safeInteger(row.feeChargedMinor, "fee charged", 0);
   const standardFeeMinor = computeExternalFeeMinor(
@@ -151,7 +166,11 @@ function externalResponse(row: ExternalRow, config: ExternalFeeConfig): External
     direction: row.direction,
     principalMinor,
     feeChargedMinor,
-    providerChargeMinor: safeInteger(row.providerChargeMinor, "provider charge", 0),
+    providerChargeMinor: safeInteger(
+      row.providerChargeMinor,
+      "provider charge",
+      0,
+    ),
     serviceProfitMinor: safeInteger(row.serviceProfitMinor, "service profit"),
     cashImpactMinor: safeInteger(row.cashImpactMinor, "cash impact"),
     feeOverridden: feeChargedMinor !== standardFeeMinor,
@@ -228,7 +247,10 @@ export class ExternalService {
     });
   }
 
-  async detail(context: ExternalActorContext, id: string): Promise<ExternalTransaction> {
+  async detail(
+    context: ExternalActorContext,
+    id: string,
+  ): Promise<ExternalTransaction> {
     const [config, row] = await Promise.all([
       this.feeConfig(this.prisma.client, context),
       this.prisma.client.externalTransaction.findFirst({
@@ -254,7 +276,9 @@ export class ExternalService {
    * "sent" out of the float and principal on `cash_out` is "received" into it,
    * so net float movement is received − sent.
    */
-  async balances(context: ExternalActorContext): Promise<ExternalBalancesResult> {
+  async balances(
+    context: ExternalActorContext,
+  ): Promise<ExternalBalancesResult> {
     const businessDateValue = toBusinessDate(new Date());
     const businessDate = new Date(`${businessDateValue}T00:00:00.000Z`);
     const grouped = await this.prisma.client.externalTransaction.groupBy({
@@ -280,12 +304,19 @@ export class ExternalService {
         count: 0,
         last: null,
       };
-      const principal = safeInteger(row._sum.principalMinor ?? 0n, "principal", 0);
+      const principal = safeInteger(
+        row._sum.principalMinor ?? 0n,
+        "principal",
+        0,
+      );
       if (row.direction === "cash_in") entry.sent += principal;
       else entry.received += principal;
       entry.count += row._count._all;
       const last = row._max.createdAt;
-      if (last !== null && (entry.last === null || last.getTime() > entry.last.getTime())) {
+      if (
+        last !== null &&
+        (entry.last === null || last.getTime() > entry.last.getTime())
+      ) {
         entry.last = last;
       }
       aggregated.set(row.provider, entry);
@@ -433,14 +464,20 @@ export class ExternalService {
     retryCount = 0,
   ): Promise<ExternalTransaction> {
     const overridden = input.feeChargedMinor !== undefined;
-    if (overridden && !context.permissions.includes(PERMISSIONS.EXTERNAL_OVERRIDE_FEE)) {
+    if (
+      overridden &&
+      !context.permissions.includes(PERMISSIONS.EXTERNAL_OVERRIDE_FEE)
+    ) {
       throw new DomainError(
         ERROR_CODES.FORBIDDEN_PERMISSION,
         "Overriding the computed fee requires external.override_fee permission.",
       );
     }
     if (overridden && input.feeOverrideReason === null) {
-      throw validation("A manual fee override requires a reason.", "feeOverrideReason");
+      throw validation(
+        "A manual fee override requires a reason.",
+        "feeOverrideReason",
+      );
     }
     const requestHash = createHash("sha256")
       .update(
@@ -490,7 +527,11 @@ export class ExternalService {
           const providerChargeMinor = input.providerChargeMinor;
           const feeChargedMinor = overridden
             ? (input.feeChargedMinor as number)
-            : computeExternalFeeMinor(input.transactionType, principalMinor, config);
+            : computeExternalFeeMinor(
+                input.transactionType,
+                principalMinor,
+                config,
+              );
           safeInteger(feeChargedMinor, "fee charged", 0);
           const serviceProfitMinor = computeServiceProfitMinor(
             feeChargedMinor,
@@ -536,7 +577,8 @@ export class ExternalService {
             subtype: (typeof accounts)[number]["accountSubtype"],
           ) => {
             const account = accounts.find(
-              (candidate) => candidate.code === code && candidate.accountSubtype === subtype,
+              (candidate) =>
+                candidate.code === code && candidate.accountSubtype === subtype,
             );
             if (account === undefined) {
               throw validation(
@@ -547,7 +589,10 @@ export class ExternalService {
             return account;
           };
           const settlementAccount = accountFor(routing.code, routing.subtype);
-          const serviceRevenue = accountFor("SERVICE-REVENUE", "service_revenue");
+          const serviceRevenue = accountFor(
+            "SERVICE-REVENUE",
+            "service_revenue",
+          );
           const serviceFloat = accountFor("SERVICE-FLOAT", "service_float");
           // The provider's own charge is a real operating cost, resolved by code
           // exactly like the revenue/float accounts. It is only required — and
@@ -556,7 +601,9 @@ export class ExternalService {
           // but the account is missing, accountFor throws VALIDATION_FAILED so
           // the cost is never silently dropped.
           const serviceCost =
-            providerChargeMinor > 0 ? accountFor("SERVICE-COST", "expense") : undefined;
+            providerChargeMinor > 0
+              ? accountFor("SERVICE-COST", "expense")
+              : undefined;
 
           const now = new Date();
           const businessDateValue = toBusinessDate(now);
@@ -565,7 +612,9 @@ export class ExternalService {
 
           let cashSessionId: string | null = null;
           if (input.paymentMethod === "cash") {
-            const lockedSessions = await tx.$queryRaw<readonly { readonly id: string }[]>`
+            const lockedSessions = await tx.$queryRaw<
+              readonly { readonly id: string }[]
+            >`
               SELECT id
                 FROM cash_sessions
                WHERE organization_id = ${context.organizationId}::uuid
@@ -586,7 +635,10 @@ export class ExternalService {
           const customer = await this.customerSnapshot(tx, context, input);
           const txnNumber = await allocateDocumentNumber(
             tx,
-            { organizationId: context.organizationId, branchId: context.branchId },
+            {
+              organizationId: context.organizationId,
+              branchId: context.branchId,
+            },
             { key: SEQUENCE_KEYS.EXTERNAL, defaultPrefix: "EXT-", periodKey },
           );
 
@@ -715,7 +767,8 @@ export class ExternalService {
               "The external transaction ledger did not balance.",
             );
           }
-          if (legs.length > 0) await tx.financialEntry.createMany({ data: legs });
+          if (legs.length > 0)
+            await tx.financialEntry.createMany({ data: legs });
 
           await this.audit(
             tx,
@@ -734,7 +787,7 @@ export class ExternalService {
               feeOverridden: overridden,
               paymentMethod: input.paymentMethod,
             },
-            overridden ? input.feeOverrideReason ?? undefined : undefined,
+            overridden ? (input.feeOverrideReason ?? undefined) : undefined,
           );
           return { row, config };
         },
@@ -743,7 +796,9 @@ export class ExternalService {
       return externalResponse(result.row, result.config);
     } catch (error) {
       const code =
-        typeof error === "object" && error !== null && "code" in error ? error.code : null;
+        typeof error === "object" && error !== null && "code" in error
+          ? error.code
+          : null;
       if (code !== "P2002" && code !== "P2034") throw error;
       if (idempotencyKey !== null) {
         const used = await this.prisma.client.externalTransaction.findFirst({
@@ -820,15 +875,22 @@ export class ExternalService {
     });
     const value = (key: string, fallback: number): number => {
       const row =
-        rows.find((candidate) => candidate.key === key && candidate.branchId === context.branchId) ??
-        rows.find((candidate) => candidate.key === key && candidate.branchId === null);
+        rows.find(
+          (candidate) =>
+            candidate.key === key && candidate.branchId === context.branchId,
+        ) ??
+        rows.find(
+          (candidate) => candidate.key === key && candidate.branchId === null,
+        );
       if (row === undefined) return fallback;
       if (
         typeof row.value !== "number" ||
         !Number.isSafeInteger(row.value) ||
         row.value < 0
       ) {
-        throw new Error(`Application setting ${key} must be a non-negative integer.`);
+        throw new Error(
+          `Application setting ${key} must be a non-negative integer.`,
+        );
       }
       return row.value;
     };

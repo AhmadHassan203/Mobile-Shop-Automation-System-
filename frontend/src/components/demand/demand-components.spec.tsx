@@ -63,6 +63,5 @@ describe("Demand prototype components", () => {
     );
     expect(available).toContain("2 available");
     expect(available).toContain("Main counter");
-
   });
 });

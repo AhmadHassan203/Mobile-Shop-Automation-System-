@@ -43,7 +43,10 @@ test.describe("demand workspace", () => {
         response.request().method() === "GET" &&
         new URL(response.url()).pathname.endsWith("/demand"),
     );
-    await page.getByRole("link", { name: /Demand/u }).first().click();
+    await page
+      .getByRole("link", { name: /Demand/u })
+      .first()
+      .click();
     const response = await demandResponse;
 
     expect(response.status()).toBe(200);

@@ -30,7 +30,9 @@ const ACCOUNTS = [
   { id: "acc-expense", code: "EXPENSE", accountSubtype: "expense" },
 ];
 
-function expenseInput(overrides: Partial<CreateExpenseData> = {}): CreateExpenseData {
+function expenseInput(
+  overrides: Partial<CreateExpenseData> = {},
+): CreateExpenseData {
   return {
     category: "utilities",
     amountMinor: 5_000,
@@ -61,7 +63,13 @@ function baseTransaction() {
       const sql = strings.join(" ");
       if (sql.includes("number_sequences")) {
         return Promise.resolve([
-          { id: IDS.sequence, prefix: "EXP-", nextValue: 1, padding: 6, periodKey: "2026" },
+          {
+            id: IDS.sequence,
+            prefix: "EXP-",
+            nextValue: 1,
+            padding: 6,
+            periodKey: "2026",
+          },
         ]);
       }
       if (sql.includes("cash_sessions")) {
@@ -75,7 +83,8 @@ function baseTransaction() {
 function serviceFor(tx: ReturnType<typeof baseTransaction>) {
   const client = {
     $transaction: vi.fn(
-      async (operation: (transaction: typeof tx) => Promise<unknown>) => operation(tx),
+      async (operation: (transaction: typeof tx) => Promise<unknown>) =>
+        operation(tx),
     ),
   };
   return new ExpensesService({ client } as unknown as PrismaService);
@@ -113,11 +122,15 @@ describe("ExpensesService", () => {
 
     // Ledger: DR expense account, CR the cash the money left from.
     const legs = ledgerData(tx);
-    expect(legs.find((leg) => leg.financialAccountId === "acc-expense")).toMatchObject({
+    expect(
+      legs.find((leg) => leg.financialAccountId === "acc-expense"),
+    ).toMatchObject({
       direction: "debit",
       amountMinor: 5_000n,
     });
-    expect(legs.find((leg) => leg.financialAccountId === "acc-cash")).toMatchObject({
+    expect(
+      legs.find((leg) => leg.financialAccountId === "acc-cash"),
+    ).toMatchObject({
       direction: "credit",
       amountMinor: 5_000n,
     });
@@ -137,7 +150,13 @@ describe("ExpensesService", () => {
       const sql = strings.join(" ");
       if (sql.includes("number_sequences")) {
         return Promise.resolve([
-          { id: IDS.sequence, prefix: "EXP-", nextValue: 1, padding: 6, periodKey: "2026" },
+          {
+            id: IDS.sequence,
+            prefix: "EXP-",
+            nextValue: 1,
+            padding: 6,
+            periodKey: "2026",
+          },
         ]);
       }
       return Promise.resolve([]); // no open session
@@ -154,7 +173,10 @@ describe("ExpensesService", () => {
     const tx = baseTransaction();
     const service = serviceFor(tx);
 
-    await service.record(CONTEXT, expenseInput({ paymentMethod: "bank_transfer" }));
+    await service.record(
+      CONTEXT,
+      expenseInput({ paymentMethod: "bank_transfer" }),
+    );
 
     const created = tx.expense.create.mock.calls[0]?.[0]?.data as {
       cashSessionId: string | null;
@@ -162,7 +184,9 @@ describe("ExpensesService", () => {
     };
     expect(created.cashSessionId).toBeNull();
     expect(created.financialAccountId).toBe("acc-bank");
-    expect(ledgerData(tx).find((leg) => leg.financialAccountId === "acc-bank")).toMatchObject({
+    expect(
+      ledgerData(tx).find((leg) => leg.financialAccountId === "acc-bank"),
+    ).toMatchObject({
       direction: "credit",
       amountMinor: 5_000n,
     });

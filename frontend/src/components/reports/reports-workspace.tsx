@@ -215,7 +215,11 @@ function ProfitSummaryPanel({
     );
   } else {
     const tiles = [
-      { label: "Sales revenue", minor: data.salesRevenueMinor, earnings: false },
+      {
+        label: "Sales revenue",
+        minor: data.salesRevenueMinor,
+        earnings: false,
+      },
       { label: "COGS", minor: data.cogsMinor, earnings: false },
       { label: "Gross profit", minor: data.grossProfitMinor, earnings: true },
       {
@@ -297,7 +301,9 @@ function SalesTrendBars({
   readonly currency: string;
   readonly points: readonly SalesTrendPoint[];
 }): JSX.Element {
-  const maxRevenue = Math.max(...points.map((point) => point.salesRevenueMinor));
+  const maxRevenue = Math.max(
+    ...points.map((point) => point.salesRevenueMinor),
+  );
   const lastIndex = points.length - 1;
   return (
     <div className="flex h-52 items-end gap-2 border-b border-line sm:gap-4">
@@ -305,7 +311,10 @@ function SalesTrendBars({
         const isToday = index === lastIndex;
         const heightPercent =
           maxRevenue > 0
-            ? Math.max(4, Math.round((point.salesRevenueMinor / maxRevenue) * 100))
+            ? Math.max(
+                4,
+                Math.round((point.salesRevenueMinor / maxRevenue) * 100),
+              )
             : 2;
         return (
           <div
@@ -367,15 +376,16 @@ function SalesTrendPanel({
       (sum, point) => sum + point.salesRevenueMinor,
       0,
     );
-    const average = data.points.length === 0 ? 0 : Math.round(total / data.points.length);
+    const average =
+      data.points.length === 0 ? 0 : Math.round(total / data.points.length);
     hint = `Total ${money(total, currency)} · avg ${money(average, currency)}/day`;
     body =
       total === 0 ? (
         <div>
           <SalesTrendBars currency={currency} points={data.points} />
           <p className="mt-3 text-xs leading-5 text-ink-muted">
-            No posted sales in the last {data.days} business days. Bars fill from
-            immutable posted-sale totals as sales are recorded.
+            No posted sales in the last {data.days} business days. Bars fill
+            from immutable posted-sale totals as sales are recorded.
           </p>
         </div>
       ) : (
@@ -383,7 +393,8 @@ function SalesTrendPanel({
           <SalesTrendBars currency={currency} points={data.points} />
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs leading-5 text-ink-muted">
-              {data.from} — {data.to} · revenue per business day at posted totals.
+              {data.from} — {data.to} · revenue per business day at posted
+              totals.
             </p>
             <Link className="text-xs font-semibold text-accent" href="/finance">
               Open Daily sales &amp; profit →
@@ -410,7 +421,9 @@ function TopProductsPanel({
   readonly currency: string;
 }): JSX.Element {
   const [period, setPeriod] = useState<FinancialSummaryPeriod>("month");
-  const products = useQuery(topProductsQueryOptions({ period, limit: 5 }, true));
+  const products = useQuery(
+    topProductsQueryOptions({ period, limit: 5 }, true),
+  );
   const data = products.data;
 
   let body: JSX.Element;
@@ -442,8 +455,8 @@ function TopProductsPanel({
   } else if (data.items.length === 0) {
     body = (
       <p className="rounded-control border border-dashed border-line bg-surface-subtle px-4 py-8 text-center text-xs text-ink-muted">
-        No posted sale lines in {data.from} — {data.to}. Rankings appear as sales
-        post.
+        No posted sale lines in {data.from} — {data.to}. Rankings appear as
+        sales post.
       </p>
     );
   } else {

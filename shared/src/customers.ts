@@ -50,17 +50,19 @@ const nullableText = (maximum: number) =>
  * All accepted counter formats become one PK E.164 identity before persistence
  * and uniqueness checks (0300-1234567 -> +923001234567).
  */
-export const PakistanMobileInputSchema = z.string().transform((value, context) => {
-  const result = normalizePakistanPhone(value);
-  if (!result.valid || result.normalized === null) {
-    context.addIssue({
-      code: "custom",
-      message: result.reason ?? "Enter a valid Pakistani mobile number.",
-    });
-    return z.NEVER;
-  }
-  return result.normalized;
-});
+export const PakistanMobileInputSchema = z
+  .string()
+  .transform((value, context) => {
+    const result = normalizePakistanPhone(value);
+    if (!result.valid || result.normalized === null) {
+      context.addIssue({
+        code: "custom",
+        message: result.reason ?? "Enter a valid Pakistani mobile number.",
+      });
+      return z.NEVER;
+    }
+    return result.normalized;
+  });
 export type PakistanMobileInput = z.input<typeof PakistanMobileInputSchema>;
 export type PakistanMobile = z.output<typeof PakistanMobileInputSchema>;
 

@@ -50,7 +50,9 @@ describe("ReturnsController", () => {
       ReturnsController.prototype as unknown as Record<string, unknown>
     )["post"];
 
-    expect(Reflect.getMetadata(PATH_METADATA, ReturnsController)).toBe("returns");
+    expect(Reflect.getMetadata(PATH_METADATA, ReturnsController)).toBe(
+      "returns",
+    );
     expect(Reflect.getMetadata(PATH_METADATA, postMethod as object)).toBe(
       ":id/post",
     );
@@ -68,7 +70,9 @@ describe("ReturnsController", () => {
       ReturnsController.prototype as unknown as Record<string, unknown>
     )["detail"];
 
-    expect(methods.indexOf("eligibility")).toBeLessThan(methods.indexOf("detail"));
+    expect(methods.indexOf("eligibility")).toBeLessThan(
+      methods.indexOf("detail"),
+    );
     expect(Reflect.getMetadata(PATH_METADATA, eligibility as object)).toBe(
       "eligibility",
     );

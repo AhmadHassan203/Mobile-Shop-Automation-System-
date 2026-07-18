@@ -40,9 +40,9 @@ describe("externalCapabilities", () => {
         PERMISSIONS.EXTERNAL_CREATE,
       ]),
     ).toEqual({ canView: true, canCreate: true });
-    expect(
-      externalCapabilities([PERMISSIONS.EXTERNAL_VIEW]).canCreate,
-    ).toBe(false);
+    expect(externalCapabilities([PERMISSIONS.EXTERNAL_VIEW]).canCreate).toBe(
+      false,
+    );
   });
 });
 
@@ -88,10 +88,12 @@ describe("externalPreview", () => {
   });
 
   it("reports no fee for a blank or zero principal", () => {
-    expect(externalPreview({ ...BASE, principalMajor: "" }).principalValid).toBe(
-      false,
-    );
-    expect(externalPreview({ ...BASE, principalMajor: "" }).feeMinor).toBeNull();
+    expect(
+      externalPreview({ ...BASE, principalMajor: "" }).principalValid,
+    ).toBe(false);
+    expect(
+      externalPreview({ ...BASE, principalMajor: "" }).feeMinor,
+    ).toBeNull();
   });
 });
 
@@ -108,9 +110,9 @@ describe("buildExternalInput", () => {
     expect(result.input.providerReference).toBe("TXN-99");
     expect(result.input.note).toBe("Load for regular customer");
     expect("accountReference" in result.input).toBe(false);
-    expect(CreateExternalTransactionInputSchema.safeParse(result.input).success).toBe(
-      true,
-    );
+    expect(
+      CreateExternalTransactionInputSchema.safeParse(result.input).success,
+    ).toBe(true);
   });
 
   it("blocks a non-positive principal with a message", () => {
@@ -190,7 +192,8 @@ describe("recordExternalTransaction idempotency lifecycle", () => {
         key: string,
       ): Promise<ExternalTransaction> => {
         capturedKeys.push(key);
-        if (shouldFail) throw new Error("The external API could not be reached.");
+        if (shouldFail)
+          throw new Error("The external API could not be reached.");
         return SAVED_TXN;
       },
     );

@@ -28,9 +28,9 @@ describe("repair kanban UI", () => {
     const html = renderToStaticMarkup(
       <RepairKanban focusedStage="ready" onBook={vi.fn()} />,
     );
-    expect(html).toContain("id=\"repair-stage-ready\"");
-    expect(html.match(/shadow-\[0_0_0_3px_var\(--accent-soft\)\]/gu)).toHaveLength(
-      1,
-    );
+    expect(html).toContain('id="repair-stage-ready"');
+    expect(
+      html.match(/shadow-\[0_0_0_3px_var\(--accent-soft\)\]/gu),
+    ).toHaveLength(1);
   });
 });

@@ -37,7 +37,9 @@ async function smokePage(
   endpointMatch: (pathname: string) => boolean,
 ): Promise<void> {
   const waiter = page.waitForResponse(
-    (r) => r.request().method() === "GET" && endpointMatch(new URL(r.url()).pathname),
+    (r) =>
+      r.request().method() === "GET" &&
+      endpointMatch(new URL(r.url()).pathname),
     { timeout: 60000 },
   );
   await page.goto(`${frontendUrl}${route}`, { timeout: 60000 });
@@ -52,12 +54,18 @@ test.describe("digital + reports read-models (runtime)", () => {
     "Set E2E_OWNER_EMAIL and E2E_OWNER_PASSWORD to run the read-model runtime flow.",
   );
 
-  test("each read-model page loads real authenticated data", async ({ page }) => {
+  test("each read-model page loads real authenticated data", async ({
+    page,
+  }) => {
     test.setTimeout(240000); // next dev compiles routes on demand on first hit
     await signIn(page);
     await smokePage(page, "/digital/history", (p) => p.endsWith("/external"));
-    await smokePage(page, "/digital/balances", (p) => p.endsWith("/external/balances"));
-    await smokePage(page, "/digital/commission", (p) => p.endsWith("/external/commission"));
+    await smokePage(page, "/digital/balances", (p) =>
+      p.endsWith("/external/balances"),
+    );
+    await smokePage(page, "/digital/commission", (p) =>
+      p.endsWith("/external/commission"),
+    );
     await smokePage(page, "/reports", (p) => /\/reports\/dashboard\//u.test(p));
     await smokePage(page, "/intelligence", (p) =>
       p.endsWith("/reports/dashboard/reorder-suggestions"),
@@ -88,10 +96,16 @@ test.describe("digital + reports read-models (runtime)", () => {
     }
 
     // --- commission: 200 + shape + net = gross - cost + independent reduce of list ---
-    const commRes = await api.get(`${apiBase}/external/commission?period=month`);
+    const commRes = await api.get(
+      `${apiBase}/external/commission?period=month`,
+    );
     expect(commRes.status(), "GET /external/commission").toBe(200);
     const commission = await commRes.json();
-    for (const bucket of [commission.totals, ...commission.byProvider, ...commission.byType]) {
+    for (const bucket of [
+      commission.totals,
+      ...commission.byProvider,
+      ...commission.byType,
+    ]) {
       expect(bucket.netCommissionMinor, "net = gross - cost").toBe(
         bucket.grossFeeMinor - bucket.providerCostMinor,
       );
@@ -106,33 +120,53 @@ test.describe("digital + reports read-models (runtime)", () => {
     );
     expect(listRes.status(), "GET /external list").toBe(200);
     const list = await listRes.json();
-    const rows: Array<{ feeChargedMinor: number; providerChargeMinor: number }> =
-      list.items ?? list.data ?? list.rows ?? [];
+    const rows: Array<{
+      feeChargedMinor: number;
+      providerChargeMinor: number;
+    }> = list.items ?? list.data ?? list.rows ?? [];
     const gross = rows.reduce((s, r) => s + r.feeChargedMinor, 0);
     const cost = rows.reduce((s, r) => s + r.providerChargeMinor, 0);
-    expect(commission.totals.grossFeeMinor, "gross fee == Σ feeChargedMinor (raw)").toBe(gross);
-    expect(commission.totals.providerCostMinor, "provider cost == Σ providerChargeMinor (raw)").toBe(
-      cost,
+    expect(
+      commission.totals.grossFeeMinor,
+      "gross fee == Σ feeChargedMinor (raw)",
+    ).toBe(gross);
+    expect(
+      commission.totals.providerCostMinor,
+      "provider cost == Σ providerChargeMinor (raw)",
+    ).toBe(cost);
+    expect(commission.totals.transactionCount, "count == raw row count").toBe(
+      rows.length,
     );
-    expect(commission.totals.transactionCount, "count == raw row count").toBe(rows.length);
 
     // --- reports endpoints: 200 + shape ---
-    const trendRes = await api.get(`${apiBase}/reports/dashboard/sales-trend?days=7`);
+    const trendRes = await api.get(
+      `${apiBase}/reports/dashboard/sales-trend?days=7`,
+    );
     expect(trendRes.status(), "GET /reports/dashboard/sales-trend").toBe(200);
     const trend = await trendRes.json();
-    expect(trend.points.length, "sales-trend fills all requested days").toBe(trend.days);
-    const topRes = await api.get(`${apiBase}/reports/dashboard/top-products?period=month`);
+    expect(trend.points.length, "sales-trend fills all requested days").toBe(
+      trend.days,
+    );
+    const topRes = await api.get(
+      `${apiBase}/reports/dashboard/top-products?period=month`,
+    );
     expect(topRes.status(), "GET /reports/dashboard/top-products").toBe(200);
     const reorderRes = await api.get(
       `${apiBase}/reports/dashboard/reorder-suggestions?windowDays=30`,
     );
-    expect(reorderRes.status(), "GET /reports/dashboard/reorder-suggestions").toBe(200);
+    expect(
+      reorderRes.status(),
+      "GET /reports/dashboard/reorder-suggestions",
+    ).toBe(200);
 
     // --- route resolution: static routes not shadowed; :id resolves ---
     // A well-formed but non-existent UUID must 404 (proves :id handler ran, not balances/commission).
     const ghost = "00000000-0000-4000-8000-000000000000";
     const ghostRes = await api.get(`${apiBase}/external/${ghost}`);
-    expect(ghostRes.status(), "GET /external/<nonexistent-uuid> must be 404").toBe(404);
+    expect(
+      ghostRes.status(),
+      "GET /external/<nonexistent-uuid> must be 404",
+    ).toBe(404);
     // A real id (if any transactions exist) must 200.
     if (rows.length > 0 && (list.items?.[0]?.id ?? list.data?.[0]?.id)) {
       const realId = (list.items ?? list.data)[0].id as string;

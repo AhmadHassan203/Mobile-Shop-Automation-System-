@@ -41,12 +41,13 @@ interface AggregateArg {
 
 const field = (row: FixtureRow, name: string): bigint | string | Date =>
   (row as unknown as Record<string, bigint | string | Date>)[name] as
-    | bigint
-    | string
-    | Date;
+    bigint | string | Date;
 
 function matchesWhere(row: FixtureRow, where: WhereArg): boolean {
-  if (where.organizationId !== undefined && row.organizationId !== where.organizationId) {
+  if (
+    where.organizationId !== undefined &&
+    row.organizationId !== where.organizationId
+  ) {
     return false;
   }
   if (where.branchId !== undefined && row.branchId !== where.branchId) {
@@ -57,8 +58,10 @@ function matchesWhere(row: FixtureRow, where: WhereArg): boolean {
     return row.businessDate.getTime() === bd.getTime();
   }
   if (bd !== undefined) {
-    if (bd.gte !== undefined && row.businessDate.getTime() < bd.gte.getTime()) return false;
-    if (bd.lte !== undefined && row.businessDate.getTime() > bd.lte.getTime()) return false;
+    if (bd.gte !== undefined && row.businessDate.getTime() < bd.gte.getTime())
+      return false;
+    if (bd.lte !== undefined && row.businessDate.getTime() > bd.lte.getTime())
+      return false;
   }
   return true;
 }
@@ -93,7 +96,9 @@ function fakePrisma(rows: readonly FixtureRow[]) {
               name,
               list.reduce<Date | null>((max, row) => {
                 const value = field(row, name) as Date;
-                return max === null || value.getTime() > max.getTime() ? value : max;
+                return max === null || value.getTime() > max.getTime()
+                  ? value
+                  : max;
               }, null),
             ]),
           );
@@ -111,7 +116,10 @@ function fakePrisma(rows: readonly FixtureRow[]) {
             name,
             filtered.length === 0
               ? null
-              : filtered.reduce((total, row) => total + (field(row, name) as bigint), 0n),
+              : filtered.reduce(
+                  (total, row) => total + (field(row, name) as bigint),
+                  0n,
+                ),
           ]),
         )
       : {};
@@ -353,7 +361,9 @@ describe("External read models — tenant/branch isolation and money", () => {
 
     expect(result.totals.grossFeeMinor).toBe(expGrossFee); // 4000, excludes B's 9999+789 and branch A2's 7777
     expect(result.totals.providerCostMinor).toBe(expProviderCost); // 500
-    expect(result.totals.netCommissionMinor).toBe(expGrossFee - expProviderCost); // 3500
+    expect(result.totals.netCommissionMinor).toBe(
+      expGrossFee - expProviderCost,
+    ); // 3500
     expect(result.totals.transactionCount).toBe(aRows.length); // 3
 
     // Grouped rows never surface the other tenant's provider.
@@ -405,7 +415,9 @@ describe("External read models — tenant/branch isolation and money", () => {
 
   it("returns no providers when the scoped tenant has no activity today", async () => {
     // Only the other tenant has rows — tenant A must see an empty, honest result.
-    const service = fakePrisma(noiseRows.filter((r) => r.organizationId === ORG_B));
+    const service = fakePrisma(
+      noiseRows.filter((r) => r.organizationId === ORG_B),
+    );
 
     const result = await service.balances(CONTEXT_A);
 

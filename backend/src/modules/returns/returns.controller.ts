@@ -97,7 +97,9 @@ export class ReturnsController {
 
   @Get()
   @RequirePermissions(PERMISSIONS.RETURNS_VIEW)
-  @ApiOperation({ summary: "List returns in the current branch and location scope" })
+  @ApiOperation({
+    summary: "List returns in the current branch and location scope",
+  })
   list(
     @Req() request: Request,
     @Query(new ZodValidationPipe(ReturnListQuerySchema)) query: ReturnListQuery,
@@ -108,7 +110,9 @@ export class ReturnsController {
   // Declared before :id so Nest's ordered matcher never lets ":id" swallow it.
   @Get("eligibility")
   @RequirePermissions(PERMISSIONS.RETURNS_CREATE)
-  @ApiOperation({ summary: "Resolve return eligibility, policy, and refundable amounts" })
+  @ApiOperation({
+    summary: "Resolve return eligibility, policy, and refundable amounts",
+  })
   eligibility(
     @Req() request: Request,
     @Query(new ZodValidationPipe(ReturnEligibilityQuerySchema))
@@ -119,7 +123,9 @@ export class ReturnsController {
 
   @Post()
   @RequirePermissions(PERMISSIONS.RETURNS_CREATE)
-  @ApiOperation({ summary: "Create a return draft without touching stock, numbers, or ledger" })
+  @ApiOperation({
+    summary: "Create a return draft without touching stock, numbers, or ledger",
+  })
   create(
     @Req() request: Request,
     @Body(zodBody(CreateReturnDraftInputSchema)) input: CreateReturnDraftData,
@@ -129,7 +135,9 @@ export class ReturnsController {
 
   @Get(":id")
   @RequirePermissions(PERMISSIONS.RETURNS_VIEW)
-  @ApiOperation({ summary: "Read one scoped return with profit and contact redaction" })
+  @ApiOperation({
+    summary: "Read one scoped return with profit and contact redaction",
+  })
   detail(
     @Req() request: Request,
     @Param("id", uuidParam) id: string,
@@ -140,7 +148,10 @@ export class ReturnsController {
   @Post(":id/post")
   @RequirePermissions(PERMISSIONS.RETURNS_APPROVE, PERMISSIONS.PAYMENTS_COLLECT)
   @ApiHeader({ name: IDEMPOTENCY_KEY_HEADER, required: true })
-  @ApiOperation({ summary: "Atomically restock, settle, reverse the ledger, and freeze the return" })
+  @ApiOperation({
+    summary:
+      "Atomically restock, settle, reverse the ledger, and freeze the return",
+  })
   post(
     @Req() request: Request,
     @Param("id", uuidParam) id: string,
@@ -157,7 +168,9 @@ export class ReturnsController {
 
   @Post(":id/exchange")
   @RequirePermissions(PERMISSIONS.RETURNS_APPROVE, PERMISSIONS.PAYMENTS_COLLECT)
-  @ApiOperation({ summary: "Exchange a return (atomic sales-posting boundary unavailable)" })
+  @ApiOperation({
+    summary: "Exchange a return (atomic sales-posting boundary unavailable)",
+  })
   exchange(
     @Req() request: Request,
     @Param("id", uuidParam) id: string,

@@ -431,9 +431,7 @@ describe("DemandService", () => {
       ),
     ).resolves.toBeNull();
 
-    expect(sqlTextOf(tx.$executeRaw, 0)).toContain(
-      "pg_advisory_xact_lock",
-    );
+    expect(sqlTextOf(tx.$executeRaw, 0)).toContain("pg_advisory_xact_lock");
     expect(sqlTextOf(tx.$executeRaw, 0)).not.toContain("+923001234567");
     expect(tx.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
       tx.demandRequest.findFirst.mock.invocationCallOrder[0] ?? Infinity,

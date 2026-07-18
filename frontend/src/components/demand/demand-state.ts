@@ -174,8 +174,7 @@ function parseBudgetAmount(value: string): number {
     .replaceAll(",", "")
     .replace(/\s+/gu, "");
   const thousands = /^(\d+)k$/u.exec(normalized);
-  const major =
-    thousands === null ? normalized : `${thousands[1] ?? "0"}000`;
+  const major = thousands === null ? normalized : `${thousands[1] ?? "0"}000`;
   const minor = fromMajor(major);
   if (minor < 0) throw new Error("Budget cannot be negative.");
   return minor;

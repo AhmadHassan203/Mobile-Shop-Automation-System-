@@ -118,9 +118,9 @@ describe("QuickStockInInputSchema", () => {
   });
 
   it("rejects non-positive quantity and negative money", () => {
-    expect(QuickStockInInputSchema.safeParse(base({ quantity: 0 })).success).toBe(
-      false,
-    );
+    expect(
+      QuickStockInInputSchema.safeParse(base({ quantity: 0 })).success,
+    ).toBe(false);
     expect(
       QuickStockInInputSchema.safeParse(base({ unitCostMinor: -1 })).success,
     ).toBe(false);
@@ -195,7 +195,12 @@ describe("resolveQuickStockInAmounts", () => {
 
 describe("QuickStockInResultSchema", () => {
   const result = {
-    product: { id: VARIANT, name: "Galaxy A15", sku: "SKU-1", wasCreated: false },
+    product: {
+      id: VARIANT,
+      name: "Galaxy A15",
+      sku: "SKU-1",
+      wasCreated: false,
+    },
     supplier: { id: SUPPLIER, name: "Ali Traders", wasCreated: false },
     quantityAdded: 5,
     currentStockOnHand: 5,

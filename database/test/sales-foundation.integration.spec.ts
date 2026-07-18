@@ -28,7 +28,8 @@ function requiredUrl(
   name: "TEST_DATABASE_URL" | "TEST_MIGRATION_DATABASE_URL",
 ): string {
   const value = process.env[name];
-  if (!value) throw new Error(`${name} is required for database integration tests`);
+  if (!value)
+    throw new Error(`${name} is required for database integration tests`);
   return value;
 }
 
@@ -87,7 +88,9 @@ async function ensureMigrationApplied(): Promise<void> {
   const current = state.rows[0];
   if (current?.table_exists === true && current.ledger_exists === true) return;
   if (current?.table_exists !== current?.ledger_exists) {
-    throw new Error("0011 sales migration schema and migration ledger disagree");
+    throw new Error(
+      "0011 sales migration schema and migration ledger disagree",
+    );
   }
 
   const prerequisite = await migratorPool.query<{ readonly exists: boolean }>(
@@ -272,7 +275,14 @@ async function insertVariant(
        (id, organization_id, brand_id, category_id, name, canonical_name,
         updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, now())`,
-    [modelId, organizationId, brandId, categoryId, `Model ${token}`, `model ${slug}`],
+    [
+      modelId,
+      organizationId,
+      brandId,
+      categoryId,
+      `Model ${token}`,
+      `model ${slug}`,
+    ],
   );
   await client.query(
     `INSERT INTO product_variants
@@ -299,7 +309,11 @@ async function createBaseFixture(
 ): Promise<BaseFixture> {
   const organizationId = await insertOrganization(client, label);
   const branchId = await insertBranch(client, organizationId);
-  const stockLocationId = await insertLocation(client, organizationId, branchId);
+  const stockLocationId = await insertLocation(
+    client,
+    organizationId,
+    branchId,
+  );
   const userId = await insertUser(client, organizationId);
   const quantityVariantId = await insertVariant(
     client,
@@ -419,7 +433,12 @@ async function createPostedQuantitySale(
 ): Promise<SaleFixture> {
   const fixture = await createBaseFixture(client, label);
   const customerId = await insertCustomer(client, fixture.organizationId);
-  const sale = await insertDraftQuantitySale(client, fixture, customerId, label);
+  const sale = await insertDraftQuantitySale(
+    client,
+    fixture,
+    customerId,
+    label,
+  );
   await postSale(client, sale.saleId, `INV-${suffix()}`);
   await forceDeferredChecks(client);
   return { ...fixture, customerId, ...sale };
@@ -465,7 +484,13 @@ async function createPostedSerializedSale(
         gross_profit_minor, updated_at)
      VALUES ($1, $2, $3, $4, 'Ayesha Customer', '+923001234567',
              $5, $5, 'draft', 1000, 0, 0, 1000, 700, 300, now())`,
-    [saleId, fixture.organizationId, fixture.branchId, customerId, fixture.userId],
+    [
+      saleId,
+      fixture.organizationId,
+      fixture.branchId,
+      customerId,
+      fixture.userId,
+    ],
   );
   await client.query(
     `INSERT INTO sale_lines
@@ -510,7 +535,13 @@ async function insertCashSession(
        (id, organization_id, branch_id, session_number, cashier_user_id,
         opened_by_user_id, opening_cash_minor, business_date, updated_at)
      VALUES ($1, $2, $3, $4, $5, $5, 20000, DATE '2026-07-17', now())`,
-    [id, fixture.organizationId, fixture.branchId, `CS-${suffix()}`, fixture.userId],
+    [
+      id,
+      fixture.organizationId,
+      fixture.branchId,
+      `CS-${suffix()}`,
+      fixture.userId,
+    ],
   );
   return id;
 }
@@ -564,11 +595,34 @@ describe("0011 sales foundation", () => {
       enumRows.rows.map((row) => [row.typname, row.labels]),
     );
     expect(enums).toMatchObject({
-      SaleStatus: ["draft", "posted", "cancelled", "partially_returned", "returned"],
-      PaymentMethod: ["cash", "bank_transfer", "card", "digital_wallet", "credit"],
-      CashSessionStatus: ["open", "closing_pending", "closed", "reviewed", "reopened_with_authorization"],
+      SaleStatus: [
+        "draft",
+        "posted",
+        "cancelled",
+        "partially_returned",
+        "returned",
+      ],
+      PaymentMethod: [
+        "cash",
+        "bank_transfer",
+        "card",
+        "digital_wallet",
+        "credit",
+      ],
+      CashSessionStatus: [
+        "open",
+        "closing_pending",
+        "closed",
+        "reviewed",
+        "reopened_with_authorization",
+      ],
       LedgerDirection: ["debit", "credit"],
-      CustomerMarketingConsentStatus: ["pending", "granted", "declined", "withdrawn"],
+      CustomerMarketingConsentStatus: [
+        "pending",
+        "granted",
+        "declined",
+        "withdrawn",
+      ],
     });
 
     const columns = await migratorPool.query<{
@@ -849,10 +903,9 @@ describe("0011 sales foundation", () => {
       const first = await client.query<{
         readonly invoice_number: string;
         readonly post_request_id: string;
-      }>(
-        `SELECT invoice_number, post_request_id FROM sales WHERE id = $1`,
-        [sale.saleId],
-      );
+      }>(`SELECT invoice_number, post_request_id FROM sales WHERE id = $1`, [
+        sale.saleId,
+      ]);
       await expectPgError(
         client,
         () =>
@@ -960,12 +1013,18 @@ describe("0011 sales foundation", () => {
 
       await expectPgError(
         client,
-        () => client.query(`UPDATE payments SET amount_minor = 1 WHERE id = $1`, [paymentId]),
+        () =>
+          client.query(`UPDATE payments SET amount_minor = 1 WHERE id = $1`, [
+            paymentId,
+          ]),
         "55000",
       );
       await expectPgError(
         client,
-        () => client.query(`DELETE FROM payment_allocations WHERE id = $1`, [allocationId]),
+        () =>
+          client.query(`DELETE FROM payment_allocations WHERE id = $1`, [
+            allocationId,
+          ]),
         "55000",
       );
       await expectPgError(
@@ -995,7 +1054,11 @@ describe("0011 sales foundation", () => {
       );
       await expectPgError(
         client,
-        () => client.query(`UPDATE financial_entries SET amount_minor = 1 WHERE id = $1`, [entryId]),
+        () =>
+          client.query(
+            `UPDATE financial_entries SET amount_minor = 1 WHERE id = $1`,
+            [entryId],
+          ),
         "55000",
       );
       await expectPgError(
@@ -1123,7 +1186,8 @@ describe("0011 sales foundation", () => {
       );
       await expectPgError(
         client,
-        () => client.query(`DELETE FROM receivables WHERE id = $1`, [receivableId]),
+        () =>
+          client.query(`DELETE FROM receivables WHERE id = $1`, [receivableId]),
         "55000",
       );
     });

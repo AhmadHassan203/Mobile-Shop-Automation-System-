@@ -196,7 +196,12 @@ const eligibility = {
   exchange: exchangeCapability,
 } as const;
 const postedReturn = {
-  return: { ...returnDetail, status: "posted", postedAt: TIMESTAMP, version: 2 },
+  return: {
+    ...returnDetail,
+    status: "posted",
+    postedAt: TIMESTAMP,
+    version: 2,
+  },
   idempotencyReplay: false,
 } as const;
 

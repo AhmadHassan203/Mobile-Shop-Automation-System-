@@ -102,7 +102,9 @@ export class SalesController {
 
   @Get()
   @RequirePermissions(PERMISSIONS.SALES_VIEW)
-  @ApiOperation({ summary: "List sales in the current branch and location scope" })
+  @ApiOperation({
+    summary: "List sales in the current branch and location scope",
+  })
   list(
     @Req() request: Request,
     @Query(new ZodValidationPipe(SaleListQuerySchema)) query: SaleListQuery,
@@ -112,7 +114,9 @@ export class SalesController {
 
   @Post()
   @RequirePermissions(PERMISSIONS.SALES_CREATE)
-  @ApiOperation({ summary: "Create a mutable draft without consuming stock or numbers" })
+  @ApiOperation({
+    summary: "Create a mutable draft without consuming stock or numbers",
+  })
   create(
     @Req() request: Request,
     @Body(zodBody(CreateSaleDraftInputSchema)) input: CreateSaleDraftData,
@@ -132,7 +136,9 @@ export class SalesController {
 
   @Put(":id")
   @RequirePermissions(PERMISSIONS.SALES_CREATE)
-  @ApiOperation({ summary: "Replace a draft cart using optimistic concurrency" })
+  @ApiOperation({
+    summary: "Replace a draft cart using optimistic concurrency",
+  })
   replace(
     @Req() request: Request,
     @Param("id", uuidParam) id: string,
@@ -143,7 +149,9 @@ export class SalesController {
 
   @Post(":id/review")
   @RequirePermissions(PERMISSIONS.SALES_CREATE)
-  @ApiOperation({ summary: "Recompute authoritative price, stock, cost and warnings" })
+  @ApiOperation({
+    summary: "Recompute authoritative price, stock, cost and warnings",
+  })
   review(
     @Req() request: Request,
     @Param("id", uuidParam) id: string,
@@ -177,7 +185,9 @@ export class SalesController {
   @Post(":id/post")
   @RequirePermissions(PERMISSIONS.SALES_POST, PERMISSIONS.PAYMENTS_COLLECT)
   @ApiHeader({ name: IDEMPOTENCY_KEY_HEADER, required: true })
-  @ApiOperation({ summary: "Atomically post stock, settlement, ledger and receipt" })
+  @ApiOperation({
+    summary: "Atomically post stock, settlement, ledger and receipt",
+  })
   post(
     @Req() request: Request,
     @Param("id", uuidParam) id: string,
@@ -198,7 +208,8 @@ export class SalesController {
   receipt(
     @Req() request: Request,
     @Param("id", uuidParam) id: string,
-    @Query(new ZodValidationPipe(SaleReceiptQuerySchema)) query: SaleReceiptQuery,
+    @Query(new ZodValidationPipe(SaleReceiptQuerySchema))
+    query: SaleReceiptQuery,
   ): Promise<SaleReceipt> {
     return this.sales.receipt(salesActorContext(request), id, query);
   }

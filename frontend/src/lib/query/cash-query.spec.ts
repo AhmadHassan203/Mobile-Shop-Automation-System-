@@ -1,7 +1,10 @@
 import { keepPreviousData } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 import type { CashSessionListParameters } from "@/lib/api/cash";
-import { cashSessionsQueryOptions, currentCashSessionQueryOptions } from "./cash-query";
+import {
+  cashSessionsQueryOptions,
+  currentCashSessionQueryOptions,
+} from "./cash-query";
 import { queryKeys } from "./keys";
 
 const LIST_PARAMETERS: CashSessionListParameters = {

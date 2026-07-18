@@ -4,12 +4,17 @@ import { CustomersWorkspace } from "@/components/customers/customers-workspace";
 
 export const metadata: Metadata = {
   title: "Customers | MobileShop OS",
-  description: "Review customer relationships, consent, purchases, demand and receivables.",
+  description:
+    "Review customer relationships, consent, purchases, demand and receivables.",
 };
 
 function CustomersRouteFallback() {
   return (
-    <div aria-label="Loading customers workspace" className="space-y-4" role="status">
+    <div
+      aria-label="Loading customers workspace"
+      className="space-y-4"
+      role="status"
+    >
       <span className="sr-only">Loading customers workspace</span>
       <div className="h-28 animate-pulse rounded-card bg-line-subtle" />
       <div className="h-80 animate-pulse rounded-card bg-line-subtle" />

@@ -46,21 +46,32 @@ type CashSessionRecord = Prisma.CashSessionGetPayload<{
   include: typeof cashSessionInclude;
 }>;
 
-function safeInteger(value: bigint | number, label: string, minimum?: number): number {
+function safeInteger(
+  value: bigint | number,
+  label: string,
+  minimum?: number,
+): number {
   const result = Number(value);
-  if (!Number.isSafeInteger(result) || (minimum !== undefined && result < minimum)) {
+  if (
+    !Number.isSafeInteger(result) ||
+    (minimum !== undefined && result < minimum)
+  ) {
     throw new Error(`${label} is outside the safe-integer range.`);
   }
   return result;
 }
 
 function iso(value: Date): string {
-  if (!Number.isFinite(value.getTime())) throw new Error("Invalid database timestamp.");
+  if (!Number.isFinite(value.getTime()))
+    throw new Error("Invalid database timestamp.");
   return value.toISOString();
 }
 
 function notFound(): DomainError {
-  return new DomainError(ERROR_CODES.NOT_FOUND, "This cash session no longer exists.");
+  return new DomainError(
+    ERROR_CODES.NOT_FOUND,
+    "This cash session no longer exists.",
+  );
 }
 
 function optimistic(): DomainError {
@@ -124,7 +135,10 @@ export class CashService {
         const businessDate = new Date(`${businessDateText}T00:00:00.000Z`);
         const sessionNumber = await allocateDocumentNumber(
           tx,
-          { organizationId: context.organizationId, branchId: context.branchId },
+          {
+            organizationId: context.organizationId,
+            branchId: context.branchId,
+          },
           {
             key: SEQUENCE_KEYS.CASH_SESSION,
             defaultPrefix: "CS-",
@@ -175,7 +189,11 @@ export class CashService {
       select: { id: true, sessionNumber: true, openingCashMinor: true },
     });
     if (session === null) return null;
-    const openingCashMinor = safeInteger(session.openingCashMinor, "opening cash", 0);
+    const openingCashMinor = safeInteger(
+      session.openingCashMinor,
+      "opening cash",
+      0,
+    );
     const movement = await this.drawerMovement(
       this.prisma.client,
       context,
@@ -308,7 +326,11 @@ export class CashService {
         id: record.id,
         sessionNumber: record.sessionNumber,
         status: record.status,
-        openingCashMinor: safeInteger(record.openingCashMinor, "opening cash", 0),
+        openingCashMinor: safeInteger(
+          record.openingCashMinor,
+          "opening cash",
+          0,
+        ),
         varianceMinor:
           record.closingVarianceMinor === null
             ? null
@@ -407,7 +429,11 @@ export class CashService {
     id: string,
   ): Promise<CashSessionRecord> {
     const record = await client.cashSession.findFirst({
-      where: { id, organizationId: context.organizationId, branchId: context.branchId },
+      where: {
+        id,
+        organizationId: context.organizationId,
+        branchId: context.branchId,
+      },
       include: cashSessionInclude,
     });
     if (record === null) throw notFound();

@@ -42,7 +42,7 @@ describe("Pakistan customer phone boundary", () => {
   });
 
   it("rejects foreign, landline and malformed numbers", () => {
-    for (const input of ["+1 202 555 0100", "042-1234567", "0300-123"] ) {
+    for (const input of ["+1 202 555 0100", "042-1234567", "0300-123"]) {
       expect(PakistanMobileInputSchema.safeParse(input).success).toBe(false);
     }
   });

@@ -70,7 +70,10 @@ const saleInclude = {
           id: true,
           identifiers: {
             select: { identifierType: true, normalizedValue: true },
-            orderBy: [{ identifierType: "asc" as const }, { position: "asc" as const }],
+            orderBy: [
+              { identifierType: "asc" as const },
+              { position: "asc" as const },
+            ],
           },
         },
       },
@@ -131,10 +134,17 @@ interface ResolvedLine {
   readonly sku: string;
   readonly name: string;
   readonly trackingType: "serialized" | "quantity";
-  readonly location: { readonly id: string; readonly code: string; readonly name: string };
+  readonly location: {
+    readonly id: string;
+    readonly code: string;
+    readonly name: string;
+  };
   readonly quantity: number;
   readonly serializedUnitId: string | null;
-  readonly identifiers: readonly { readonly type: "imei" | "serial"; readonly value: string }[];
+  readonly identifiers: readonly {
+    readonly type: "imei" | "serial";
+    readonly value: string;
+  }[];
   readonly stockRecordId: string;
   readonly stockVersion: number;
   readonly available: boolean;
@@ -189,8 +199,7 @@ interface SalesPolicy {
 }
 
 const SALES_SETTING_KEYS = Object.freeze({
-  DISCOUNT_OVERRIDE_THRESHOLD_MINOR:
-    "sales.discount_override_threshold_minor",
+  DISCOUNT_OVERRIDE_THRESHOLD_MINOR: "sales.discount_override_threshold_minor",
   MINIMUM_MARGIN_BASIS_POINTS: "sales.minimum_margin_basis_points",
   RETURN_WINDOW_DAYS: "sales.return_window_days",
   CREDIT_DUE_DAYS: "sales.credit_due_days",
@@ -205,21 +214,32 @@ const DEFAULT_SALES_POLICY: SalesPolicy = Object.freeze({
   creditDueDays: 30,
 });
 
-function safeInteger(value: bigint | number, label: string, minimum?: number): number {
+function safeInteger(
+  value: bigint | number,
+  label: string,
+  minimum?: number,
+): number {
   const result = Number(value);
-  if (!Number.isSafeInteger(result) || (minimum !== undefined && result < minimum)) {
+  if (
+    !Number.isSafeInteger(result) ||
+    (minimum !== undefined && result < minimum)
+  ) {
     throw new Error(`${label} is outside the safe-integer range.`);
   }
   return result;
 }
 
 function iso(value: Date): string {
-  if (!Number.isFinite(value.getTime())) throw new Error("Invalid database timestamp.");
+  if (!Number.isFinite(value.getTime()))
+    throw new Error("Invalid database timestamp.");
   return value.toISOString();
 }
 
 function notFound(label = "sale"): DomainError {
-  return new DomainError(ERROR_CODES.NOT_FOUND, `This ${label} no longer exists.`);
+  return new DomainError(
+    ERROR_CODES.NOT_FOUND,
+    `This ${label} no longer exists.`,
+  );
 }
 
 function optimistic(label = "sale"): DomainError {
@@ -237,7 +257,10 @@ function validation(message: string, field = "sale"): DomainError {
 
 function marginBasisPoints(profit: number, revenue: number): number | null {
   if (revenue === 0) return null;
-  return safeInteger((BigInt(profit) * 10_000n) / BigInt(revenue), "gross margin");
+  return safeInteger(
+    (BigInt(profit) * 10_000n) / BigInt(revenue),
+    "gross margin",
+  );
 }
 
 function calculate(
@@ -257,12 +280,18 @@ function calculate(
     0,
   );
   if (discountMinor > subtotalMinor) {
-    throw validation("The requested discount cannot exceed the sale subtotal.", "requestedDiscountMinor");
+    throw validation(
+      "The requested discount cannot exceed the sale subtotal.",
+      "requestedDiscountMinor",
+    );
   }
   const discounts =
     discountMinor === 0
       ? resolved.map(() => 0)
-      : allocateByIntegerWeights(toMinor(discountMinor, "sale discount"), subtotals);
+      : allocateByIntegerWeights(
+          toMinor(discountMinor, "sale discount"),
+          subtotals,
+        );
   const lines = resolved.map((line, index): CalculatedLine => {
     const lineSubtotalMinor = subtotals[index];
     const lineDiscountMinor = discounts[index];
@@ -283,7 +312,10 @@ function calculate(
       lineTotalMinor,
       cogsMinor,
       grossProfitMinor,
-      grossMarginBasisPoints: marginBasisPoints(grossProfitMinor, lineTotalMinor),
+      grossMarginBasisPoints: marginBasisPoints(
+        grossProfitMinor,
+        lineTotalMinor,
+      ),
     };
   });
   const totalMinor = subtotalMinor - discountMinor;
@@ -332,7 +364,9 @@ function customerReference(record: SaleRecord) {
   };
 }
 
-function userReference(user: { readonly id: string; readonly fullName: string } | null) {
+function userReference(
+  user: { readonly id: string; readonly fullName: string } | null,
+) {
   return user === null ? null : { id: user.id, fullName: user.fullName };
 }
 
@@ -374,16 +408,30 @@ function paymentSettlement(record: SaleRecord): SaleSettlement {
   };
 }
 
-function recordLine(line: SaleRecord["lines"][number], canViewProfit: boolean): SaleLine {
+function recordLine(
+  line: SaleRecord["lines"][number],
+  canViewProfit: boolean,
+): SaleLine {
   const quantity = line.quantity;
   const unitPriceMinor = safeInteger(line.unitPriceMinor, "unit price", 0);
-  const lineSubtotalMinor = safeInteger(BigInt(quantity) * line.unitPriceMinor, "line subtotal", 0);
+  const lineSubtotalMinor = safeInteger(
+    BigInt(quantity) * line.unitPriceMinor,
+    "line subtotal",
+    0,
+  );
   const lineTotalMinor = safeInteger(line.lineTotalMinor, "line total", 0);
   const cogsMinor = safeInteger(line.cogsMinor, "line COGS", 0);
-  const grossProfitMinor = safeInteger(line.grossProfitMinor, "line gross profit");
+  const grossProfitMinor = safeInteger(
+    line.grossProfitMinor,
+    "line gross profit",
+  );
   const common = {
     id: line.id,
-    product: { id: line.productVariantId, sku: line.skuSnapshot, name: line.productNameSnapshot },
+    product: {
+      id: line.productVariantId,
+      sku: line.skuSnapshot,
+      name: line.productNameSnapshot,
+    },
     location: line.stockLocation,
     priceVersion: line.priceVersionSnapshot,
     unitPriceMinor,
@@ -399,7 +447,8 @@ function recordLine(line: SaleRecord["lines"][number], canViewProfit: boolean): 
     ),
   };
   if (line.trackingTypeSnapshot === "serialized") {
-    if (line.serializedUnit === null) throw new Error("Serialized sale line lost its unit.");
+    if (line.serializedUnit === null)
+      throw new Error("Serialized sale line lost its unit.");
     return {
       ...common,
       trackingType: "serialized",
@@ -416,7 +465,11 @@ function recordLine(line: SaleRecord["lines"][number], canViewProfit: boolean): 
   return { ...common, trackingType: "quantity", quantity };
 }
 
-function calculatedLine(line: CalculatedLine, canViewProfit: boolean, discountReason: string | null): SaleLine {
+function calculatedLine(
+  line: CalculatedLine,
+  canViewProfit: boolean,
+  discountReason: string | null,
+): SaleLine {
   const common = {
     id: line.id,
     product: { id: line.productVariantId, sku: line.sku, name: line.name },
@@ -439,15 +492,24 @@ function calculatedLine(line: CalculatedLine, canViewProfit: boolean, discountRe
         ...common,
         trackingType: "serialized",
         quantity: 1,
-        serializedUnit: { id: line.serializedUnitId ?? "", identifiers: [...line.identifiers] },
+        serializedUnit: {
+          id: line.serializedUnitId ?? "",
+          identifiers: [...line.identifiers],
+        },
       }
     : { ...common, trackingType: "quantity", quantity: line.quantity };
 }
 
-function detailResponse(record: SaleRecord, context: SalesActorContext): SaleDetail {
+function detailResponse(
+  record: SaleRecord,
+  context: SalesActorContext,
+): SaleDetail {
   const totalMinor = safeInteger(record.totalMinor, "sale total", 0);
   const cogsMinor = safeInteger(record.cogsMinor, "sale COGS", 0);
-  const grossProfitMinor = safeInteger(record.grossProfitMinor, "sale gross profit");
+  const grossProfitMinor = safeInteger(
+    record.grossProfitMinor,
+    "sale gross profit",
+  );
   return SaleDetailSchema.parse({
     id: record.id,
     status: record.status,
@@ -459,7 +521,11 @@ function detailResponse(record: SaleRecord, context: SalesActorContext): SaleDet
     hold:
       record.heldAt === null || record.heldBy === null
         ? null
-        : { heldAt: iso(record.heldAt), heldBy: record.heldBy, note: record.note },
+        : {
+            heldAt: iso(record.heldAt),
+            heldBy: record.heldBy,
+            note: record.note,
+          },
     lines: record.lines.map((line) => recordLine(line, context.canViewProfit)),
     totals: {
       subtotalMinor: safeInteger(record.subtotalMinor, "sale subtotal", 0),
@@ -484,8 +550,16 @@ function detailResponse(record: SaleRecord, context: SalesActorContext): SaleDet
 }
 
 function receiptResponse(record: SaleRecord): SaleReceipt {
-  if (record.status === "draft" || record.status === "cancelled" || record.invoiceNumber === null || record.postedAt === null) {
-    throw new DomainError(ERROR_CODES.CONFLICT, "A receipt exists only after a sale is posted.");
+  if (
+    record.status === "draft" ||
+    record.status === "cancelled" ||
+    record.invoiceNumber === null ||
+    record.postedAt === null
+  ) {
+    throw new DomainError(
+      ERROR_CODES.CONFLICT,
+      "A receipt exists only after a sale is posted.",
+    );
   }
   if (record.receiptSnapshot !== null) {
     return SaleReceiptSchema.parse(record.receiptSnapshot);
@@ -509,10 +583,22 @@ function receiptResponse(record: SaleRecord): SaleReceipt {
     lines: record.lines.map((line) => {
       const common = {
         id: line.id,
-        product: { id: line.productVariantId, sku: line.skuSnapshot, name: line.productNameSnapshot },
+        product: {
+          id: line.productVariantId,
+          sku: line.skuSnapshot,
+          name: line.productNameSnapshot,
+        },
         locationName: line.stockLocation.name,
-        unitPriceMinor: safeInteger(line.unitPriceMinor, "receipt unit price", 0),
-        lineSubtotalMinor: safeInteger(line.unitPriceMinor * BigInt(line.quantity), "receipt subtotal", 0),
+        unitPriceMinor: safeInteger(
+          line.unitPriceMinor,
+          "receipt unit price",
+          0,
+        ),
+        lineSubtotalMinor: safeInteger(
+          line.unitPriceMinor * BigInt(line.quantity),
+          "receipt subtotal",
+          0,
+        ),
         discountMinor: safeInteger(line.discountMinor, "receipt discount", 0),
         lineTotalMinor: safeInteger(line.lineTotalMinor, "receipt total", 0),
         discountReason: line.discountReason,
@@ -535,7 +621,11 @@ function receiptResponse(record: SaleRecord): SaleReceipt {
           ],
         };
       }
-      return { ...common, trackingType: "quantity" as const, quantity: line.quantity };
+      return {
+        ...common,
+        trackingType: "quantity" as const,
+        quantity: line.quantity,
+      };
     }),
     totals: {
       subtotalMinor: safeInteger(record.subtotalMinor, "receipt subtotal", 0),
@@ -605,8 +695,7 @@ function postedReceiptSnapshot({
         lineSubtotalMinor: line.lineSubtotalMinor,
         discountMinor: line.discountMinor,
         lineTotalMinor: line.lineTotalMinor,
-        discountReason:
-          line.discountMinor === 0 ? null : record.discountReason,
+        discountReason: line.discountMinor === 0 ? null : record.discountReason,
       };
       return line.trackingType === "serialized"
         ? {
@@ -643,7 +732,10 @@ function postedReceiptSnapshot({
 export class SalesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(context: SalesActorContext, query: SaleListQuery): Promise<SalePage> {
+  async list(
+    context: SalesActorContext,
+    query: SaleListQuery,
+  ): Promise<SalePage> {
     const additionalFilters: Prisma.SaleWhereInput[] = [];
     if (query.q !== undefined) {
       additionalFilters.push({
@@ -657,7 +749,9 @@ export class SalesService {
           },
           {
             lines: {
-              some: { imeiSnapshot: { contains: query.q, mode: "insensitive" } },
+              some: {
+                imeiSnapshot: { contains: query.q, mode: "insensitive" },
+              },
             },
           },
         ],
@@ -687,11 +781,21 @@ export class SalesService {
       organizationId: context.organizationId,
       branchId: context.branchId,
       ...(query.status === undefined ? {} : { status: query.status }),
-      ...(query.cashierId === undefined ? {} : { cashierUserId: query.cashierId }),
-      ...(query.salespersonId === undefined ? {} : { salespersonUserId: query.salespersonId }),
+      ...(query.cashierId === undefined
+        ? {}
+        : { cashierUserId: query.cashierId }),
+      ...(query.salespersonId === undefined
+        ? {}
+        : { salespersonUserId: query.salespersonId }),
       ...(context.allowedLocationIds === null
         ? {}
-        : { lines: { every: { stockLocationId: { in: [...context.allowedLocationIds] } } } }),
+        : {
+            lines: {
+              every: {
+                stockLocationId: { in: [...context.allowedLocationIds] },
+              },
+            },
+          }),
       ...(query.from === undefined && query.to === undefined
         ? {}
         : {
@@ -725,7 +829,10 @@ export class SalesService {
         const settlement = paymentSettlement(record);
         const totalMinor = safeInteger(record.totalMinor, "sale total", 0);
         const cogsMinor = safeInteger(record.cogsMinor, "sale COGS", 0);
-        const grossProfitMinor = safeInteger(record.grossProfitMinor, "sale gross profit");
+        const grossProfitMinor = safeInteger(
+          record.grossProfitMinor,
+          "sale gross profit",
+        );
         return {
           id: record.id,
           status: record.status,
@@ -734,8 +841,15 @@ export class SalesService {
           lineCount: record.lines.length,
           unitCount: record.lines.reduce((sum, line) => sum + line.quantity, 0),
           totalMinor,
-          paymentMethods: [...new Set(settlement.payments.map((payment) => payment.method))],
-          profit: profit(context.canViewProfit, cogsMinor, grossProfitMinor, marginBasisPoints(grossProfitMinor, totalMinor)),
+          paymentMethods: [
+            ...new Set(settlement.payments.map((payment) => payment.method)),
+          ],
+          profit: profit(
+            context.canViewProfit,
+            cogsMinor,
+            grossProfitMinor,
+            marginBasisPoints(grossProfitMinor, totalMinor),
+          ),
           cashier: userReference(record.cashier),
           salesperson: userReference(record.salesperson),
           heldAt: record.heldAt === null ? null : iso(record.heldAt),
@@ -751,10 +865,18 @@ export class SalesService {
     });
   }
 
-  async createDraft(context: SalesActorContext, input: CreateSaleDraftData): Promise<SaleDetail> {
+  async createDraft(
+    context: SalesActorContext,
+    input: CreateSaleDraftData,
+  ): Promise<SaleDetail> {
     const record = await this.prisma.client.$transaction(async (tx) => {
       const customer = await this.customer(tx, context, input.customerId);
-      const resolved = await this.resolveInputLines(tx, context, input.lines, false);
+      const resolved = await this.resolveInputLines(
+        tx,
+        context,
+        input.lines,
+        false,
+      );
       const calculation = calculate(resolved, input.requestedDiscountMinor);
       const sale = await tx.sale.create({
         data: {
@@ -770,12 +892,17 @@ export class SalesService {
           totalMinor: BigInt(calculation.totalMinor),
           cogsMinor: BigInt(calculation.cogsMinor),
           grossProfitMinor: BigInt(calculation.grossProfitMinor),
-          discountReason: calculation.discountMinor === 0 ? null : input.discountReason,
+          discountReason:
+            calculation.discountMinor === 0 ? null : input.discountReason,
           note: input.note,
         },
         select: { id: true },
       });
-      await tx.saleLine.createMany({ data: calculation.lines.map((line) => this.lineData(context, sale.id, line, input.discountReason, false)) });
+      await tx.saleLine.createMany({
+        data: calculation.lines.map((line) =>
+          this.lineData(context, sale.id, line, input.discountReason, false),
+        ),
+      });
       await this.audit(tx, context, "sale.draft_created", sale.id, null, {
         version: 1,
         lineCount: calculation.lines.length,
@@ -787,10 +914,17 @@ export class SalesService {
   }
 
   async detail(context: SalesActorContext, id: string): Promise<SaleDetail> {
-    return detailResponse(await this.load(this.prisma.client, context, id), context);
+    return detailResponse(
+      await this.load(this.prisma.client, context, id),
+      context,
+    );
   }
 
-  async replaceDraft(context: SalesActorContext, id: string, input: ReplaceSaleDraftData): Promise<SaleDetail> {
+  async replaceDraft(
+    context: SalesActorContext,
+    id: string,
+    input: ReplaceSaleDraftData,
+  ): Promise<SaleDetail> {
     const record = await this.prisma.client.$transaction(async (tx) => {
       const current = await this.load(tx, context, id);
       this.assertDraftVersion(current, input.version);
@@ -800,7 +934,13 @@ export class SalesService {
         input.requestedDiscountMinor,
       );
       const changed = await tx.sale.updateMany({
-        where: { id, organizationId: context.organizationId, branchId: context.branchId, status: "draft", version: input.version },
+        where: {
+          id,
+          organizationId: context.organizationId,
+          branchId: context.branchId,
+          status: "draft",
+          version: input.version,
+        },
         data: {
           customerId: customer?.id ?? null,
           customerNameSnapshot: customer?.fullName ?? "Walk-in Customer",
@@ -810,7 +950,8 @@ export class SalesService {
           totalMinor: BigInt(calculation.totalMinor),
           cogsMinor: BigInt(calculation.cogsMinor),
           grossProfitMinor: BigInt(calculation.grossProfitMinor),
-          discountReason: calculation.discountMinor === 0 ? null : input.discountReason,
+          discountReason:
+            calculation.discountMinor === 0 ? null : input.discountReason,
           note: input.note,
           heldAt: null,
           heldByUserId: null,
@@ -818,19 +959,36 @@ export class SalesService {
         },
       });
       if (changed.count !== 1) throw optimistic();
-      await tx.saleLine.deleteMany({ where: { saleId: id, organizationId: context.organizationId } });
-      await tx.saleLine.createMany({ data: calculation.lines.map((line) => this.lineData(context, id, line, input.discountReason, false)) });
-      await this.audit(tx, context, "sale.draft_replaced", id, { version: input.version }, {
-        version: input.version + 1,
-        lineCount: calculation.lines.length,
-        totalMinor: calculation.totalMinor,
+      await tx.saleLine.deleteMany({
+        where: { saleId: id, organizationId: context.organizationId },
       });
+      await tx.saleLine.createMany({
+        data: calculation.lines.map((line) =>
+          this.lineData(context, id, line, input.discountReason, false),
+        ),
+      });
+      await this.audit(
+        tx,
+        context,
+        "sale.draft_replaced",
+        id,
+        { version: input.version },
+        {
+          version: input.version + 1,
+          lineCount: calculation.lines.length,
+          totalMinor: calculation.totalMinor,
+        },
+      );
       return this.load(tx, context, id);
     });
     return detailResponse(record, context);
   }
 
-  async review(context: SalesActorContext, id: string, input: SaleReviewData): Promise<SaleReview> {
+  async review(
+    context: SalesActorContext,
+    id: string,
+    input: SaleReviewData,
+  ): Promise<SaleReview> {
     return this.prisma.client.$transaction(async (tx) => {
       const record = await this.load(tx, context, id);
       this.assertDraftVersion(record, input.version);
@@ -851,13 +1009,20 @@ export class SalesService {
         customer: customerReference(record),
         currency: record.organization.currency,
         discountReason: record.discountReason,
-        lines: calculation.lines.map((line) => calculatedLine(line, context.canViewProfit, record.discountReason)),
+        lines: calculation.lines.map((line) =>
+          calculatedLine(line, context.canViewProfit, record.discountReason),
+        ),
         totals: {
           subtotalMinor: calculation.subtotalMinor,
           discountMinor: calculation.discountMinor,
           totalMinor: calculation.totalMinor,
         },
-        profit: profit(context.canViewProfit, calculation.cogsMinor, calculation.grossProfitMinor, calculation.grossMarginBasisPoints),
+        profit: profit(
+          context.canViewProfit,
+          calculation.cogsMinor,
+          calculation.grossProfitMinor,
+          calculation.grossMarginBasisPoints,
+        ),
         warnings,
         canPost: !warnings.some((warning) => warning.severity === "blocking"),
         reviewedAt: new Date().toISOString(),
@@ -865,28 +1030,60 @@ export class SalesService {
     });
   }
 
-  async hold(context: SalesActorContext, id: string, input: HoldSaleData): Promise<SaleDetail> {
+  async hold(
+    context: SalesActorContext,
+    id: string,
+    input: HoldSaleData,
+  ): Promise<SaleDetail> {
     const record = await this.prisma.client.$transaction(async (tx) => {
       const current = await this.load(tx, context, id);
       this.assertDraftVersion(current, input.version);
       const changed = await tx.sale.updateMany({
-        where: { id, organizationId: context.organizationId, branchId: context.branchId, status: "draft", version: input.version },
-        data: { heldAt: new Date(), heldByUserId: context.actorUserId, note: input.note, version: { increment: 1 } },
+        where: {
+          id,
+          organizationId: context.organizationId,
+          branchId: context.branchId,
+          status: "draft",
+          version: input.version,
+        },
+        data: {
+          heldAt: new Date(),
+          heldByUserId: context.actorUserId,
+          note: input.note,
+          version: { increment: 1 },
+        },
       });
       if (changed.count !== 1) throw optimistic();
-      await this.audit(tx, context, "sale.held", id, { version: input.version }, { version: input.version + 1 });
+      await this.audit(
+        tx,
+        context,
+        "sale.held",
+        id,
+        { version: input.version },
+        { version: input.version + 1 },
+      );
       return this.load(tx, context, id);
     });
     return detailResponse(record, context);
   }
 
-  async cancel(context: SalesActorContext, id: string, input: CancelSaleData): Promise<SaleDetail> {
+  async cancel(
+    context: SalesActorContext,
+    id: string,
+    input: CancelSaleData,
+  ): Promise<SaleDetail> {
     const record = await this.prisma.client.$transaction(async (tx) => {
       const current = await this.load(tx, context, id);
       this.assertDraftVersion(current, input.version);
       const now = new Date();
       const changed = await tx.sale.updateMany({
-        where: { id, organizationId: context.organizationId, branchId: context.branchId, status: "draft", version: input.version },
+        where: {
+          id,
+          organizationId: context.organizationId,
+          branchId: context.branchId,
+          status: "draft",
+          version: input.version,
+        },
         data: {
           status: "cancelled",
           cancelledAt: now,
@@ -898,7 +1095,15 @@ export class SalesService {
         },
       });
       if (changed.count !== 1) throw optimistic();
-      await this.audit(tx, context, "sale.cancelled", id, { version: input.version }, { version: input.version + 1 }, input.reason);
+      await this.audit(
+        tx,
+        context,
+        "sale.cancelled",
+        id,
+        { version: input.version },
+        { version: input.version + 1 },
+        input.reason,
+      );
       return this.load(tx, context, id);
     });
     return detailResponse(record, context);
@@ -912,51 +1117,78 @@ export class SalesService {
     retryCount = 0,
   ): Promise<PostSaleResponse> {
     const requestHash = createHash("sha256")
-      .update(JSON.stringify({ saleId: id, version: input.version, payments: input.payments }))
+      .update(
+        JSON.stringify({
+          saleId: id,
+          version: input.version,
+          payments: input.payments,
+        }),
+      )
       .digest("hex");
     let result: { readonly record: SaleRecord; readonly replay: boolean };
     try {
       result = await this.prisma.client.$transaction(
         async (tx) => {
-        const used = await tx.sale.findFirst({
-          where: { organizationId: context.organizationId, branchId: context.branchId, postRequestId: idempotencyKey },
-          select: { id: true, postRequestHash: true },
-        });
-        if (used !== null && used.id !== id) {
-          throw new DomainError(ERROR_CODES.IDEMPOTENCY_KEY_REUSED, "This idempotency key was already used for another sale.");
-        }
-        await tx.$queryRaw`SELECT id FROM sales WHERE id = ${id}::uuid AND organization_id = ${context.organizationId}::uuid AND branch_id = ${context.branchId}::uuid FOR UPDATE`;
-        const current = await this.load(tx, context, id);
-        if (current.status !== "draft") {
-          if (current.postRequestId === idempotencyKey) {
-            if (current.postRequestHash !== requestHash) {
-              throw new DomainError(ERROR_CODES.IDEMPOTENCY_KEY_REUSED, "The idempotency key was reused with a different posting request.");
-            }
-            return { record: current, replay: true };
+          const used = await tx.sale.findFirst({
+            where: {
+              organizationId: context.organizationId,
+              branchId: context.branchId,
+              postRequestId: idempotencyKey,
+            },
+            select: { id: true, postRequestHash: true },
+          });
+          if (used !== null && used.id !== id) {
+            throw new DomainError(
+              ERROR_CODES.IDEMPOTENCY_KEY_REUSED,
+              "This idempotency key was already used for another sale.",
+            );
           }
-          throw new DomainError(ERROR_CODES.SALE_ALREADY_POSTED, "This sale is already closed and cannot be posted again.");
-        }
-        if (current.version !== input.version) throw optimistic();
+          await tx.$queryRaw`SELECT id FROM sales WHERE id = ${id}::uuid AND organization_id = ${context.organizationId}::uuid AND branch_id = ${context.branchId}::uuid FOR UPDATE`;
+          const current = await this.load(tx, context, id);
+          if (current.status !== "draft") {
+            if (current.postRequestId === idempotencyKey) {
+              if (current.postRequestHash !== requestHash) {
+                throw new DomainError(
+                  ERROR_CODES.IDEMPOTENCY_KEY_REUSED,
+                  "The idempotency key was reused with a different posting request.",
+                );
+              }
+              return { record: current, replay: true };
+            }
+            throw new DomainError(
+              ERROR_CODES.SALE_ALREADY_POSTED,
+              "This sale is already closed and cannot be posted again.",
+            );
+          }
+          if (current.version !== input.version) throw optimistic();
 
-        const calculation = calculate(
-          await this.resolveRecordLines(tx, context, current, true),
-          safeInteger(current.discountMinor, "sale discount", 0),
-        );
-        const policy = await this.policy(tx, context);
-        this.assertPostAllowed(context, calculation, policy);
-        const paid = input.payments.reduce((sum, payment) => sum + BigInt(payment.amountMinor), 0n);
-        if (paid !== BigInt(calculation.totalMinor)) {
-          throw new DomainError(ERROR_CODES.SALE_PAYMENT_MISMATCH, "Payment and credit allocations must exactly equal the authoritative sale total.");
-        }
-        const now = new Date();
-        const businessDateText = toBusinessDate(now);
-        const businessDate = new Date(`${businessDateText}T00:00:00.000Z`);
-        const cashLeg = input.payments.find((payment) => payment.method === "cash");
-        let cashSession: { readonly id: string } | null = null;
-        if (cashLeg !== undefined) {
-          const lockedSessions = await tx.$queryRaw<
-            readonly { readonly id: string }[]
-          >`SELECT id
+          const calculation = calculate(
+            await this.resolveRecordLines(tx, context, current, true),
+            safeInteger(current.discountMinor, "sale discount", 0),
+          );
+          const policy = await this.policy(tx, context);
+          this.assertPostAllowed(context, calculation, policy);
+          const paid = input.payments.reduce(
+            (sum, payment) => sum + BigInt(payment.amountMinor),
+            0n,
+          );
+          if (paid !== BigInt(calculation.totalMinor)) {
+            throw new DomainError(
+              ERROR_CODES.SALE_PAYMENT_MISMATCH,
+              "Payment and credit allocations must exactly equal the authoritative sale total.",
+            );
+          }
+          const now = new Date();
+          const businessDateText = toBusinessDate(now);
+          const businessDate = new Date(`${businessDateText}T00:00:00.000Z`);
+          const cashLeg = input.payments.find(
+            (payment) => payment.method === "cash",
+          );
+          let cashSession: { readonly id: string } | null = null;
+          if (cashLeg !== undefined) {
+            const lockedSessions = await tx.$queryRaw<
+              readonly { readonly id: string }[]
+            >`SELECT id
               FROM cash_sessions
              WHERE organization_id = ${context.organizationId}::uuid
                AND branch_id = ${context.branchId}::uuid
@@ -966,335 +1198,423 @@ export class SalesService {
              ORDER BY opened_at DESC, id DESC
              LIMIT 1
              FOR UPDATE`;
-          cashSession = lockedSessions[0] ?? null;
-        }
-        if (cashLeg !== undefined && cashSession === null) {
-          throw new DomainError(ERROR_CODES.SALE_CASH_SESSION_REQUIRED, "Open a cash session before accepting cash.");
-        }
-        const creditLeg = input.payments.find((payment) => payment.method === "credit");
-        if (creditLeg !== undefined) await this.assertCredit(tx, context, current, creditLeg.amountMinor);
-
-        const accounts = await tx.financialAccount.findMany({
-          where: {
-            organizationId: context.organizationId,
-            branchId: context.branchId,
-            isActive: true,
-            code: {
-              in: ["CASH", "BANK", "DIGITAL", "AR", "SALES", "COGS", "INVENTORY"],
-            },
-          },
-          orderBy: [{ code: "asc" }, { id: "asc" }],
-        });
-        const accountFor = (
-          code: string,
-          subtype: (typeof accounts)[number]["accountSubtype"],
-        ) => {
-          const account = accounts.find(
-            (candidate) =>
-              candidate.code === code && candidate.accountSubtype === subtype,
-          );
-          if (account === undefined) {
-            throw validation(
-              `Configure the active ${code} account as ${subtype.replaceAll("_", " ")} before posting.`,
-              "payments",
+            cashSession = lockedSessions[0] ?? null;
+          }
+          if (cashLeg !== undefined && cashSession === null) {
+            throw new DomainError(
+              ERROR_CODES.SALE_CASH_SESSION_REQUIRED,
+              "Open a cash session before accepting cash.",
             );
           }
-          return account;
-        };
-        const paymentAccount = {
-          cash: { code: "CASH", subtype: "physical_cash" },
-          bank_transfer: { code: "BANK", subtype: "bank" },
-          card: { code: "BANK", subtype: "bank" },
-          digital_wallet: { code: "DIGITAL", subtype: "provider_float" },
-          credit: { code: "AR", subtype: "receivable" },
-        } as const;
+          const creditLeg = input.payments.find(
+            (payment) => payment.method === "credit",
+          );
+          if (creditLeg !== undefined)
+            await this.assertCredit(
+              tx,
+              context,
+              current,
+              creditLeg.amountMinor,
+            );
 
-        for (const line of calculation.lines) {
-          if (line.trackingType === "serialized") {
-            const updated = await tx.serializedUnit.updateMany({
-              where: { id: line.stockRecordId, organizationId: context.organizationId, branchId: context.branchId, version: line.stockVersion, state: "available" },
-              data: { state: "sold", version: { increment: 1 } },
-            });
-            if (updated.count !== 1) throw new DomainError(ERROR_CODES.INVENTORY_UNIT_NOT_AVAILABLE, "A selected serialized unit is no longer available.");
-          } else {
-            const updated = await tx.stockBatch.updateMany({
-              where: {
-                id: line.stockRecordId,
+          const accounts = await tx.financialAccount.findMany({
+            where: {
+              organizationId: context.organizationId,
+              branchId: context.branchId,
+              isActive: true,
+              code: {
+                in: [
+                  "CASH",
+                  "BANK",
+                  "DIGITAL",
+                  "AR",
+                  "SALES",
+                  "COGS",
+                  "INVENTORY",
+                ],
+              },
+            },
+            orderBy: [{ code: "asc" }, { id: "asc" }],
+          });
+          const accountFor = (
+            code: string,
+            subtype: (typeof accounts)[number]["accountSubtype"],
+          ) => {
+            const account = accounts.find(
+              (candidate) =>
+                candidate.code === code && candidate.accountSubtype === subtype,
+            );
+            if (account === undefined) {
+              throw validation(
+                `Configure the active ${code} account as ${subtype.replaceAll("_", " ")} before posting.`,
+                "payments",
+              );
+            }
+            return account;
+          };
+          const paymentAccount = {
+            cash: { code: "CASH", subtype: "physical_cash" },
+            bank_transfer: { code: "BANK", subtype: "bank" },
+            card: { code: "BANK", subtype: "bank" },
+            digital_wallet: { code: "DIGITAL", subtype: "provider_float" },
+            credit: { code: "AR", subtype: "receivable" },
+          } as const;
+
+          for (const line of calculation.lines) {
+            if (line.trackingType === "serialized") {
+              const updated = await tx.serializedUnit.updateMany({
+                where: {
+                  id: line.stockRecordId,
+                  organizationId: context.organizationId,
+                  branchId: context.branchId,
+                  version: line.stockVersion,
+                  state: "available",
+                },
+                data: { state: "sold", version: { increment: 1 } },
+              });
+              if (updated.count !== 1)
+                throw new DomainError(
+                  ERROR_CODES.INVENTORY_UNIT_NOT_AVAILABLE,
+                  "A selected serialized unit is no longer available.",
+                );
+            } else {
+              const updated = await tx.stockBatch.updateMany({
+                where: {
+                  id: line.stockRecordId,
+                  organizationId: context.organizationId,
+                  branchId: context.branchId,
+                  version: line.stockVersion,
+                  quantityOnHand: { gte: line.quantity },
+                },
+                data: {
+                  quantityOnHand: { decrement: line.quantity },
+                  version: { increment: 1 },
+                },
+              });
+              if (updated.count !== 1)
+                throw new DomainError(
+                  ERROR_CODES.INVENTORY_INSUFFICIENT_STOCK,
+                  "Quantity stock changed before posting.",
+                );
+            }
+            await tx.inventoryMovement.create({
+              data: {
                 organizationId: context.organizationId,
                 branchId: context.branchId,
-                version: line.stockVersion,
-                quantityOnHand: { gte: line.quantity },
+                productVariantId: line.productVariantId,
+                serializedUnitId:
+                  line.trackingType === "serialized"
+                    ? line.serializedUnitId
+                    : null,
+                stockBatchId:
+                  line.trackingType === "quantity" ? line.stockRecordId : null,
+                stockLocationId: line.location.id,
+                movementType: "sale",
+                quantity: line.quantity,
+                fromState:
+                  line.trackingType === "serialized" ? "available" : null,
+                toState: line.trackingType === "serialized" ? "sold" : null,
+                referenceType: "sale",
+                referenceId: id,
+                actorUserId: context.actorUserId,
               },
-              data: { quantityOnHand: { decrement: line.quantity }, version: { increment: 1 } },
             });
-            if (updated.count !== 1) throw new DomainError(ERROR_CODES.INVENTORY_INSUFFICIENT_STOCK, "Quantity stock changed before posting.");
+            await tx.saleLine.update({
+              where: { id: line.id },
+              data: {
+                priceEntryId: line.priceEntryId,
+                productNameSnapshot: line.name,
+                skuSnapshot: line.sku,
+                imeiSnapshot:
+                  line.trackingType === "serialized"
+                    ? (line.identifiers[0]?.value ?? null)
+                    : null,
+                unitPriceMinor: BigInt(line.unitPriceMinor),
+                priceVersionSnapshot: line.priceVersion,
+                discountMinor: BigInt(line.discountMinor),
+                discountReason:
+                  line.discountMinor === 0 ? null : current.discountReason,
+                lineTotalMinor: BigInt(line.lineTotalMinor),
+                unitCogsMinor: BigInt(line.unitCogsMinor),
+                cogsMinor: BigInt(line.cogsMinor),
+                grossProfitMinor: BigInt(line.grossProfitMinor),
+                warrantyTypeSnapshot: line.warrantyType,
+                warrantyMonthsSnapshot: line.warrantyMonths,
+                unitSaleActive: line.trackingType === "serialized",
+              },
+            });
           }
-          await tx.inventoryMovement.create({
-            data: {
-              organizationId: context.organizationId,
-              branchId: context.branchId,
-              productVariantId: line.productVariantId,
-              serializedUnitId: line.trackingType === "serialized" ? line.serializedUnitId : null,
-              stockBatchId: line.trackingType === "quantity" ? line.stockRecordId : null,
-              stockLocationId: line.location.id,
-              movementType: "sale",
-              quantity: line.quantity,
-              fromState: line.trackingType === "serialized" ? "available" : null,
-              toState: line.trackingType === "serialized" ? "sold" : null,
-              referenceType: "sale",
-              referenceId: id,
-              actorUserId: context.actorUserId,
-            },
-          });
-          await tx.saleLine.update({
-            where: { id: line.id },
-            data: {
-              priceEntryId: line.priceEntryId,
-              productNameSnapshot: line.name,
-              skuSnapshot: line.sku,
-              imeiSnapshot: line.trackingType === "serialized" ? line.identifiers[0]?.value ?? null : null,
-              unitPriceMinor: BigInt(line.unitPriceMinor),
-              priceVersionSnapshot: line.priceVersion,
-              discountMinor: BigInt(line.discountMinor),
-              discountReason: line.discountMinor === 0 ? null : current.discountReason,
-              lineTotalMinor: BigInt(line.lineTotalMinor),
-              unitCogsMinor: BigInt(line.unitCogsMinor),
-              cogsMinor: BigInt(line.cogsMinor),
-              grossProfitMinor: BigInt(line.grossProfitMinor),
-              warrantyTypeSnapshot: line.warrantyType,
-              warrantyMonthsSnapshot: line.warrantyMonths,
-              unitSaleActive: line.trackingType === "serialized",
-            },
-          });
-        }
 
-        const periodKey = businessDateText.slice(0, 4);
-        const invoiceNumber = await allocateDocumentNumber(
-          tx,
-          { organizationId: context.organizationId, branchId: context.branchId },
-          { key: SEQUENCE_KEYS.SALE_INVOICE, defaultPrefix: "INV-", periodKey },
-        );
-        let receivableId: string | null = null;
-        if (creditLeg !== undefined && current.customerId !== null) {
-          const dueOn = new Date(businessDate);
-          dueOn.setUTCDate(dueOn.getUTCDate() + policy.creditDueDays);
-          const receivable = await tx.receivable.create({
-            data: {
-              organizationId: context.organizationId,
-              branchId: context.branchId,
-              customerId: current.customerId,
-              saleId: id,
-              amountMinor: BigInt(creditLeg.amountMinor),
-              balanceMinor: BigInt(creditLeg.amountMinor),
-              dueOn,
-              approvedByUserId: context.actorUserId,
-            },
-            select: { id: true },
-          });
-          receivableId = receivable.id;
-        }
-
-        const ledgerPayments: { readonly accountId: string; readonly amountMinor: number; readonly index: number }[] = [];
-        const receiptPayments: SalePayment[] = [];
-        for (const [index, paymentInput] of input.payments.entries()) {
-          const requiredAccount = paymentAccount[paymentInput.method];
-          const account = accountFor(
-            requiredAccount.code,
-            requiredAccount.subtype,
-          );
-          const paymentNumber = await allocateDocumentNumber(
+          const periodKey = businessDateText.slice(0, 4);
+          const invoiceNumber = await allocateDocumentNumber(
             tx,
-            { organizationId: context.organizationId, branchId: context.branchId },
-            { key: "payment", defaultPrefix: "PAY-", periodKey },
-          );
-          const payment = await tx.payment.create({
-            data: {
+            {
               organizationId: context.organizationId,
               branchId: context.branchId,
-              paymentNumber,
-              customerId: current.customerId,
-              paymentMethod: paymentInput.method,
-              amountMinor: BigInt(paymentInput.amountMinor),
-              financialAccountId: account.id,
+            },
+            {
+              key: SEQUENCE_KEYS.SALE_INVOICE,
+              defaultPrefix: "INV-",
+              periodKey,
+            },
+          );
+          let receivableId: string | null = null;
+          if (creditLeg !== undefined && current.customerId !== null) {
+            const dueOn = new Date(businessDate);
+            dueOn.setUTCDate(dueOn.getUTCDate() + policy.creditDueDays);
+            const receivable = await tx.receivable.create({
+              data: {
+                organizationId: context.organizationId,
+                branchId: context.branchId,
+                customerId: current.customerId,
+                saleId: id,
+                amountMinor: BigInt(creditLeg.amountMinor),
+                balanceMinor: BigInt(creditLeg.amountMinor),
+                dueOn,
+                approvedByUserId: context.actorUserId,
+              },
+              select: { id: true },
+            });
+            receivableId = receivable.id;
+          }
+
+          const ledgerPayments: {
+            readonly accountId: string;
+            readonly amountMinor: number;
+            readonly index: number;
+          }[] = [];
+          const receiptPayments: SalePayment[] = [];
+          for (const [index, paymentInput] of input.payments.entries()) {
+            const requiredAccount = paymentAccount[paymentInput.method];
+            const account = accountFor(
+              requiredAccount.code,
+              requiredAccount.subtype,
+            );
+            const paymentNumber = await allocateDocumentNumber(
+              tx,
+              {
+                organizationId: context.organizationId,
+                branchId: context.branchId,
+              },
+              { key: "payment", defaultPrefix: "PAY-", periodKey },
+            );
+            const payment = await tx.payment.create({
+              data: {
+                organizationId: context.organizationId,
+                branchId: context.branchId,
+                paymentNumber,
+                customerId: current.customerId,
+                paymentMethod: paymentInput.method,
+                amountMinor: BigInt(paymentInput.amountMinor),
+                financialAccountId: account.id,
+                reference: paymentInput.reference,
+                receivedAt: now,
+                businessDate,
+                cashSessionId:
+                  paymentInput.method === "cash"
+                    ? (cashSession?.id ?? null)
+                    : null,
+                receivedByUserId: context.actorUserId,
+                idempotencyKey: randomUUID(),
+              },
+              select: { id: true },
+            });
+            await tx.paymentAllocation.create({
+              data: {
+                organizationId: context.organizationId,
+                branchId: context.branchId,
+                paymentId: payment.id,
+                saleId: paymentInput.method === "credit" ? null : id,
+                receivableId:
+                  paymentInput.method === "credit" ? receivableId : null,
+                amountMinor: BigInt(paymentInput.amountMinor),
+              },
+            });
+            ledgerPayments.push({
+              accountId: account.id,
+              amountMinor: paymentInput.amountMinor,
+              index,
+            });
+            receiptPayments.push({
+              id: payment.id,
+              method: paymentInput.method,
+              amountMinor: paymentInput.amountMinor,
               reference: paymentInput.reference,
-              receivedAt: now,
-              businessDate,
-              cashSessionId: paymentInput.method === "cash" ? cashSession?.id ?? null : null,
-              receivedByUserId: context.actorUserId,
-              idempotencyKey: randomUUID(),
-            },
-            select: { id: true },
-          });
-          await tx.paymentAllocation.create({
-            data: {
-              organizationId: context.organizationId,
-              branchId: context.branchId,
-              paymentId: payment.id,
-              saleId: paymentInput.method === "credit" ? null : id,
-              receivableId: paymentInput.method === "credit" ? receivableId : null,
-              amountMinor: BigInt(paymentInput.amountMinor),
-            },
-          });
-          ledgerPayments.push({ accountId: account.id, amountMinor: paymentInput.amountMinor, index });
-          receiptPayments.push({
-            id: payment.id,
-            method: paymentInput.method,
-            amountMinor: paymentInput.amountMinor,
-            reference: paymentInput.reference,
-            recordedAt: iso(now),
-          });
-        }
+              recordedAt: iso(now),
+            });
+          }
 
-        const entryGroupId = randomUUID();
-        const entries: Prisma.FinancialEntryCreateManyInput[] = ledgerPayments.map((payment) => ({
-          organizationId: context.organizationId,
-          branchId: context.branchId,
-          entryGroupId,
-          sourceType: "sale",
-          sourceId: id,
-          sourceKey: `sale:${id}:settlement:${payment.index}`,
-          financialAccountId: payment.accountId,
-          direction: "debit",
-          amountMinor: BigInt(payment.amountMinor),
-          description: `Sale ${invoiceNumber} settlement`,
-          occurredAt: now,
-          businessDate,
-          actorUserId: context.actorUserId,
-        }));
-        if (calculation.totalMinor > 0) {
-          entries.push({
-            organizationId: context.organizationId,
-            branchId: context.branchId,
-            entryGroupId,
-            sourceType: "sale",
-            sourceId: id,
-            sourceKey: `sale:${id}:revenue`,
-            financialAccountId: accountFor("SALES", "sales_revenue").id,
-            direction: "credit",
-            amountMinor: BigInt(calculation.totalMinor),
-            description: `Sale ${invoiceNumber} revenue`,
-            occurredAt: now,
-            businessDate,
-            actorUserId: context.actorUserId,
-          });
-        }
-        if (calculation.cogsMinor > 0) {
-          entries.push(
-            {
+          const entryGroupId = randomUUID();
+          const entries: Prisma.FinancialEntryCreateManyInput[] =
+            ledgerPayments.map((payment) => ({
               organizationId: context.organizationId,
               branchId: context.branchId,
               entryGroupId,
               sourceType: "sale",
               sourceId: id,
-              sourceKey: `sale:${id}:cogs`,
-              financialAccountId: accountFor("COGS", "cost_of_goods_sold").id,
+              sourceKey: `sale:${id}:settlement:${payment.index}`,
+              financialAccountId: payment.accountId,
               direction: "debit",
-              amountMinor: BigInt(calculation.cogsMinor),
-              description: `Sale ${invoiceNumber} cost of goods sold`,
+              amountMinor: BigInt(payment.amountMinor),
+              description: `Sale ${invoiceNumber} settlement`,
               occurredAt: now,
               businessDate,
               actorUserId: context.actorUserId,
-            },
-            {
+            }));
+          if (calculation.totalMinor > 0) {
+            entries.push({
               organizationId: context.organizationId,
               branchId: context.branchId,
               entryGroupId,
               sourceType: "sale",
               sourceId: id,
-              sourceKey: `sale:${id}:inventory`,
-              financialAccountId: accountFor("INVENTORY", "inventory_asset").id,
+              sourceKey: `sale:${id}:revenue`,
+              financialAccountId: accountFor("SALES", "sales_revenue").id,
               direction: "credit",
-              amountMinor: BigInt(calculation.cogsMinor),
-              description: `Sale ${invoiceNumber} inventory relief`,
+              amountMinor: BigInt(calculation.totalMinor),
+              description: `Sale ${invoiceNumber} revenue`,
               occurredAt: now,
               businessDate,
               actorUserId: context.actorUserId,
-            },
-          );
-        }
-        const debit = entries
-          .filter((entry) => entry.direction === "debit")
-          .reduce((sum, entry) => sum + BigInt(entry.amountMinor), 0n);
-        const credit = entries
-          .filter((entry) => entry.direction === "credit")
-          .reduce((sum, entry) => sum + BigInt(entry.amountMinor), 0n);
-        if (debit !== credit) throw new DomainError(ERROR_CODES.LEDGER_UNBALANCED, "The sale ledger did not balance.");
-        if (entries.length > 0) await tx.financialEntry.createMany({ data: entries });
+            });
+          }
+          if (calculation.cogsMinor > 0) {
+            entries.push(
+              {
+                organizationId: context.organizationId,
+                branchId: context.branchId,
+                entryGroupId,
+                sourceType: "sale",
+                sourceId: id,
+                sourceKey: `sale:${id}:cogs`,
+                financialAccountId: accountFor("COGS", "cost_of_goods_sold").id,
+                direction: "debit",
+                amountMinor: BigInt(calculation.cogsMinor),
+                description: `Sale ${invoiceNumber} cost of goods sold`,
+                occurredAt: now,
+                businessDate,
+                actorUserId: context.actorUserId,
+              },
+              {
+                organizationId: context.organizationId,
+                branchId: context.branchId,
+                entryGroupId,
+                sourceType: "sale",
+                sourceId: id,
+                sourceKey: `sale:${id}:inventory`,
+                financialAccountId: accountFor("INVENTORY", "inventory_asset")
+                  .id,
+                direction: "credit",
+                amountMinor: BigInt(calculation.cogsMinor),
+                description: `Sale ${invoiceNumber} inventory relief`,
+                occurredAt: now,
+                businessDate,
+                actorUserId: context.actorUserId,
+              },
+            );
+          }
+          const debit = entries
+            .filter((entry) => entry.direction === "debit")
+            .reduce((sum, entry) => sum + BigInt(entry.amountMinor), 0n);
+          const credit = entries
+            .filter((entry) => entry.direction === "credit")
+            .reduce((sum, entry) => sum + BigInt(entry.amountMinor), 0n);
+          if (debit !== credit)
+            throw new DomainError(
+              ERROR_CODES.LEDGER_UNBALANCED,
+              "The sale ledger did not balance.",
+            );
+          if (entries.length > 0)
+            await tx.financialEntry.createMany({ data: entries });
 
-        const customer = await this.customer(tx, context, current.customerId);
-        const receiptSnapshot = postedReceiptSnapshot({
-          record: current,
-          context,
-          calculation,
-          invoiceNumber,
-          issuedAt: now,
-          customer,
-          payments: receiptPayments,
-        });
-        const updated = await tx.sale.updateMany({
-          where: { id, organizationId: context.organizationId, branchId: context.branchId, status: "draft", version: input.version },
-          data: {
-            status: "posted",
+          const customer = await this.customer(tx, context, current.customerId);
+          const receiptSnapshot = postedReceiptSnapshot({
+            record: current,
+            context,
+            calculation,
             invoiceNumber,
-            customerNameSnapshot: customer?.fullName ?? "Walk-in Customer",
-            customerPhoneSnapshot: customer?.phoneE164 ?? null,
-            cashierUserId: context.actorUserId,
-            cashSessionId: cashSession?.id ?? null,
-            subtotalMinor: BigInt(calculation.subtotalMinor),
-            discountMinor: BigInt(calculation.discountMinor),
-            totalMinor: BigInt(calculation.totalMinor),
-            cogsMinor: BigInt(calculation.cogsMinor),
-            grossProfitMinor: BigInt(calculation.grossProfitMinor),
-            discountApprovedByUserId: calculation.discountMinor > 0 ? context.actorUserId : null,
-            heldAt: null,
-            heldByUserId: null,
-            postedAt: now,
-            businessDate,
-            postRequestId: idempotencyKey,
-            postRequestHash: requestHash,
-            returnWindowDays: policy.returnWindowDays,
-            receiptSnapshot,
-            version: { increment: 1 },
-          },
-        });
-        if (updated.count !== 1) throw optimistic();
-        const discountOverrideExercised =
-          calculation.discountMinor > policy.discountOverrideThresholdMinor ||
-          calculation.lines.some(
-            (line) =>
-              BigInt(line.lineTotalMinor) <
-              BigInt(line.minimumUnitPriceMinor) * BigInt(line.quantity),
+            issuedAt: now,
+            customer,
+            payments: receiptPayments,
+          });
+          const updated = await tx.sale.updateMany({
+            where: {
+              id,
+              organizationId: context.organizationId,
+              branchId: context.branchId,
+              status: "draft",
+              version: input.version,
+            },
+            data: {
+              status: "posted",
+              invoiceNumber,
+              customerNameSnapshot: customer?.fullName ?? "Walk-in Customer",
+              customerPhoneSnapshot: customer?.phoneE164 ?? null,
+              cashierUserId: context.actorUserId,
+              cashSessionId: cashSession?.id ?? null,
+              subtotalMinor: BigInt(calculation.subtotalMinor),
+              discountMinor: BigInt(calculation.discountMinor),
+              totalMinor: BigInt(calculation.totalMinor),
+              cogsMinor: BigInt(calculation.cogsMinor),
+              grossProfitMinor: BigInt(calculation.grossProfitMinor),
+              discountApprovedByUserId:
+                calculation.discountMinor > 0 ? context.actorUserId : null,
+              heldAt: null,
+              heldByUserId: null,
+              postedAt: now,
+              businessDate,
+              postRequestId: idempotencyKey,
+              postRequestHash: requestHash,
+              returnWindowDays: policy.returnWindowDays,
+              receiptSnapshot,
+              version: { increment: 1 },
+            },
+          });
+          if (updated.count !== 1) throw optimistic();
+          const discountOverrideExercised =
+            calculation.discountMinor > policy.discountOverrideThresholdMinor ||
+            calculation.lines.some(
+              (line) =>
+                BigInt(line.lineTotalMinor) <
+                BigInt(line.minimumUnitPriceMinor) * BigInt(line.quantity),
+            );
+          const minimumMarginOverrideExercised =
+            BigInt(calculation.grossProfitMinor) * 10_000n <
+            BigInt(calculation.totalMinor) *
+              BigInt(policy.minimumMarginBasisPoints);
+          await this.audit(
+            tx,
+            context,
+            "sale.posted",
+            id,
+            { version: input.version },
+            {
+              version: input.version + 1,
+              invoiceNumber,
+              totalMinor: calculation.totalMinor,
+              cogsMinor: calculation.cogsMinor,
+              paymentCount: input.payments.length,
+              ...(current.discountReason === null
+                ? {}
+                : { discountReason: current.discountReason }),
+              policy: {
+                discountOverrideThresholdMinor:
+                  policy.discountOverrideThresholdMinor,
+                minimumMarginBasisPoints: policy.minimumMarginBasisPoints,
+                returnWindowDays: policy.returnWindowDays,
+                creditDueDays: policy.creditDueDays,
+              },
+              discountOverrideExercised,
+              minimumMarginOverrideExercised,
+              ...(calculation.discountMinor > 0 ||
+              discountOverrideExercised ||
+              minimumMarginOverrideExercised
+                ? { approverActorUserId: context.actorUserId }
+                : {}),
+            },
+            current.discountReason ?? undefined,
           );
-        const minimumMarginOverrideExercised =
-          BigInt(calculation.grossProfitMinor) * 10_000n <
-          BigInt(calculation.totalMinor) *
-            BigInt(policy.minimumMarginBasisPoints);
-        await this.audit(tx, context, "sale.posted", id, { version: input.version }, {
-          version: input.version + 1,
-          invoiceNumber,
-          totalMinor: calculation.totalMinor,
-          cogsMinor: calculation.cogsMinor,
-          paymentCount: input.payments.length,
-          ...(current.discountReason === null
-            ? {}
-            : { discountReason: current.discountReason }),
-          policy: {
-            discountOverrideThresholdMinor:
-              policy.discountOverrideThresholdMinor,
-            minimumMarginBasisPoints: policy.minimumMarginBasisPoints,
-            returnWindowDays: policy.returnWindowDays,
-            creditDueDays: policy.creditDueDays,
-          },
-          discountOverrideExercised,
-          minimumMarginOverrideExercised,
-          ...(
-            calculation.discountMinor > 0 ||
-            discountOverrideExercised ||
-            minimumMarginOverrideExercised
-              ? { approverActorUserId: context.actorUserId }
-              : {}),
-        }, current.discountReason ?? undefined);
-        return { record: await this.load(tx, context, id), replay: false };
+          return { record: await this.load(tx, context, id), replay: false };
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -1343,7 +1663,11 @@ export class SalesService {
     });
   }
 
-  async receipt(context: SalesActorContext, id: string, _query: SaleReceiptQuery): Promise<SaleReceipt> {
+  async receipt(
+    context: SalesActorContext,
+    id: string,
+    _query: SaleReceiptQuery,
+  ): Promise<SaleReceipt> {
     return receiptResponse(await this.load(this.prisma.client, context, id));
   }
 
@@ -1354,17 +1678,37 @@ export class SalesService {
   ) {
     if (id === null) return null;
     const customer = await tx.customer.findFirst({
-      where: { id, organizationId: context.organizationId, isActive: true, deletedAt: null },
-      select: { id: true, fullName: true, phoneE164: true, creditLimitMinor: true },
+      where: {
+        id,
+        organizationId: context.organizationId,
+        isActive: true,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        phoneE164: true,
+        creditLimitMinor: true,
+      },
     });
     if (customer === null) throw notFound("customer");
-    if (customer.phoneE164 === null) throw validation("The selected customer needs a valid mobile number.", "customerId");
+    if (customer.phoneE164 === null)
+      throw validation(
+        "The selected customer needs a valid mobile number.",
+        "customerId",
+      );
     return { ...customer, phoneE164: customer.phoneE164 };
   }
 
   private assertLocation(context: SalesActorContext, locationId: string): void {
-    if (context.allowedLocationIds !== null && !context.allowedLocationIds.includes(locationId)) {
-      throw new DomainError(ERROR_CODES.FORBIDDEN_SCOPE, "This stock location is outside your assigned scope.");
+    if (
+      context.allowedLocationIds !== null &&
+      !context.allowedLocationIds.includes(locationId)
+    ) {
+      throw new DomainError(
+        ERROR_CODES.FORBIDDEN_SCOPE,
+        "This stock location is outside your assigned scope.",
+      );
     }
   }
 
@@ -1391,26 +1735,43 @@ export class SalesService {
           },
         },
       },
-      select: { id: true, branchId: true, priceMinor: true, minPriceMinor: true, effectiveFrom: true },
+      select: {
+        id: true,
+        branchId: true,
+        priceMinor: true,
+        minPriceMinor: true,
+        effectiveFrom: true,
+      },
       orderBy: [{ effectiveFrom: "desc" }, { id: "desc" }],
     });
-    const entry = entries.find((candidate) => candidate.branchId === context.branchId) ?? entries.find((candidate) => candidate.branchId === null);
+    const entry =
+      entries.find((candidate) => candidate.branchId === context.branchId) ??
+      entries.find((candidate) => candidate.branchId === null);
     if (entry !== undefined) {
       return {
         source: "price_rule",
         sourceId: entry.id,
         version: 1,
         unitPriceMinor: safeInteger(entry.priceMinor, "price", 0),
-        minimumUnitPriceMinor: safeInteger(entry.minPriceMinor ?? variant.minPriceMinor ?? 0n, "minimum price", 0),
+        minimumUnitPriceMinor: safeInteger(
+          entry.minPriceMinor ?? variant.minPriceMinor ?? 0n,
+          "minimum price",
+          0,
+        ),
       };
     }
-    if (variant.defaultPriceMinor === null) throw validation("This product has no active selling price.", "lines");
+    if (variant.defaultPriceMinor === null)
+      throw validation("This product has no active selling price.", "lines");
     return {
       source: "variant_default",
       sourceId: null,
       version: variant.version,
       unitPriceMinor: safeInteger(variant.defaultPriceMinor, "price", 0),
-      minimumUnitPriceMinor: safeInteger(variant.minPriceMinor ?? 0n, "minimum price", 0),
+      minimumUnitPriceMinor: safeInteger(
+        variant.minPriceMinor ?? 0n,
+        "minimum price",
+        0,
+      ),
     };
   }
 
@@ -1427,9 +1788,12 @@ export class SalesService {
       trackingType: line.trackingType,
       locationId: line.locationId,
       quantity: line.trackingType === "serialized" ? 1 : line.quantity,
-      serializedUnitId: line.trackingType === "serialized" ? line.serializedUnitId : null,
-      expectedUnitVersion: line.trackingType === "serialized" ? line.serializedUnitVersion : null,
-      expectedStockVersion: line.trackingType === "quantity" ? line.stockVersion : null,
+      serializedUnitId:
+        line.trackingType === "serialized" ? line.serializedUnitId : null,
+      expectedUnitVersion:
+        line.trackingType === "serialized" ? line.serializedUnitVersion : null,
+      expectedStockVersion:
+        line.trackingType === "quantity" ? line.stockVersion : null,
       expectedPriceSource: line.priceSource,
       expectedPriceSourceId: line.priceSourceId,
       expectedPriceVersion: line.priceVersion,
@@ -1437,7 +1801,11 @@ export class SalesService {
       snapshotUnitCogsMinor: null,
     }));
     const result: ResolvedLine[] = [];
-    for (const selection of selections.sort((left, right) => `${left.locationId}:${left.productVariantId}:${left.serializedUnitId ?? ""}`.localeCompare(`${right.locationId}:${right.productVariantId}:${right.serializedUnitId ?? ""}`))) {
+    for (const selection of selections.sort((left, right) =>
+      `${left.locationId}:${left.productVariantId}:${left.serializedUnitId ?? ""}`.localeCompare(
+        `${right.locationId}:${right.productVariantId}:${right.serializedUnitId ?? ""}`,
+      ),
+    )) {
       result.push(await this.resolveLine(tx, context, selection, lock, true));
     }
     return result.sort((left, right) => left.lineNumber - right.lineNumber);
@@ -1459,14 +1827,27 @@ export class SalesService {
       serializedUnitId: line.serializedUnitId,
       expectedUnitVersion: null,
       expectedStockVersion: null,
-      expectedPriceSource: line.priceEntryId === null ? "variant_default" : "price_rule",
+      expectedPriceSource:
+        line.priceEntryId === null ? "variant_default" : "price_rule",
       expectedPriceSourceId: line.priceEntryId,
       expectedPriceVersion: line.priceVersionSnapshot,
-      snapshotUnitPriceMinor: safeInteger(line.unitPriceMinor, "snapshot price", 0),
-      snapshotUnitCogsMinor: safeInteger(line.unitCogsMinor, "snapshot cost", 0),
+      snapshotUnitPriceMinor: safeInteger(
+        line.unitPriceMinor,
+        "snapshot price",
+        0,
+      ),
+      snapshotUnitCogsMinor: safeInteger(
+        line.unitCogsMinor,
+        "snapshot cost",
+        0,
+      ),
     }));
     const result: ResolvedLine[] = [];
-    for (const selection of selections.sort((left, right) => `${left.locationId}:${left.productVariantId}:${left.serializedUnitId ?? ""}`.localeCompare(`${right.locationId}:${right.productVariantId}:${right.serializedUnitId ?? ""}`))) {
+    for (const selection of selections.sort((left, right) =>
+      `${left.locationId}:${left.productVariantId}:${left.serializedUnitId ?? ""}`.localeCompare(
+        `${right.locationId}:${right.productVariantId}:${right.serializedUnitId ?? ""}`,
+      ),
+    )) {
       result.push(await this.resolveLine(tx, context, selection, lock, false));
     }
     return result.sort((left, right) => left.lineNumber - right.lineNumber);
@@ -1482,20 +1863,37 @@ export class SalesService {
     this.assertLocation(context, selection.locationId);
     const [location, variant] = await Promise.all([
       tx.stockLocation.findFirst({
-        where: { id: selection.locationId, organizationId: context.organizationId, branchId: context.branchId, isActive: true },
+        where: {
+          id: selection.locationId,
+          organizationId: context.organizationId,
+          branchId: context.branchId,
+          isActive: true,
+        },
         select: { id: true, code: true, name: true },
       }),
       tx.productVariant.findFirst({
-        where: { id: selection.productVariantId, organizationId: context.organizationId },
+        where: {
+          id: selection.productVariantId,
+          organizationId: context.organizationId,
+        },
         select: variantSelect,
       }),
     ]);
     if (location === null) throw notFound("stock location");
     if (variant === null) throw notFound("product");
-    if (!variant.isActive || !variant.productModel.isActive || !variant.productModel.brand.isActive || !variant.productModel.category.isActive) {
-      throw new DomainError(ERROR_CODES.CATALOG_VARIANT_INACTIVE, "This product is not active for sale.");
+    if (
+      !variant.isActive ||
+      !variant.productModel.isActive ||
+      !variant.productModel.brand.isActive ||
+      !variant.productModel.category.isActive
+    ) {
+      throw new DomainError(
+        ERROR_CODES.CATALOG_VARIANT_INACTIVE,
+        "This product is not active for sale.",
+      );
     }
-    if (variant.trackingType !== selection.trackingType) throw validation("The product tracking type changed.", "lines");
+    if (variant.trackingType !== selection.trackingType)
+      throw validation("The product tracking type changed.", "lines");
     const price = await this.price(tx, context, variant, new Date());
     if (
       enforceProposal &&
@@ -1506,7 +1904,8 @@ export class SalesService {
       throw optimistic("price");
     }
     if (selection.trackingType === "serialized") {
-      if (selection.serializedUnitId === null) throw validation("Choose a serialized unit.", "lines");
+      if (selection.serializedUnitId === null)
+        throw validation("Choose a serialized unit.", "lines");
       if (lock) {
         await tx.$queryRaw`SELECT id FROM serialized_units WHERE id = ${selection.serializedUnitId}::uuid AND organization_id = ${context.organizationId}::uuid AND branch_id = ${context.branchId}::uuid FOR UPDATE`;
       }
@@ -1531,15 +1930,26 @@ export class SalesService {
         },
       });
       if (unit === null) throw notFound("serialized unit");
-      if (selection.expectedUnitVersion !== null && unit.version !== selection.expectedUnitVersion) throw optimistic("serialized unit");
-      if (unit.identifiers.length === 0) throw validation("The serialized unit has no verified identifier.", "lines");
+      if (
+        selection.expectedUnitVersion !== null &&
+        unit.version !== selection.expectedUnitVersion
+      )
+        throw optimistic("serialized unit");
+      if (unit.identifiers.length === 0)
+        throw validation(
+          "The serialized unit has no verified identifier.",
+          "lines",
+        );
       const cost = unit.landedCostMinor ?? unit.actualCostMinor;
       return {
         ...selection,
         sku: variant.sku,
         name: variant.name,
         location,
-        identifiers: unit.identifiers.map((identifier) => ({ type: identifier.identifierType, value: identifier.normalizedValue })),
+        identifiers: unit.identifiers.map((identifier) => ({
+          type: identifier.identifierType,
+          value: identifier.normalizedValue,
+        })),
         stockRecordId: unit.id,
         stockVersion: unit.version,
         available: unit.state === "available",
@@ -1564,10 +1974,21 @@ export class SalesService {
         productVariantId: selection.productVariantId,
         stockLocationId: selection.locationId,
       },
-      select: { id: true, quantityOnHand: true, quantityReserved: true, version: true, actualCostMinor: true, landedCostMinor: true },
+      select: {
+        id: true,
+        quantityOnHand: true,
+        quantityReserved: true,
+        version: true,
+        actualCostMinor: true,
+        landedCostMinor: true,
+      },
     });
     if (batch === null) throw notFound("stock batch");
-    if (selection.expectedStockVersion !== null && batch.version !== selection.expectedStockVersion) throw optimistic("stock");
+    if (
+      selection.expectedStockVersion !== null &&
+      batch.version !== selection.expectedStockVersion
+    )
+      throw optimistic("stock");
     const cost = batch.landedCostMinor ?? batch.actualCostMinor;
     return {
       ...selection,
@@ -1577,7 +1998,8 @@ export class SalesService {
       identifiers: [],
       stockRecordId: batch.id,
       stockVersion: batch.version,
-      available: batch.quantityOnHand - batch.quantityReserved >= selection.quantity,
+      available:
+        batch.quantityOnHand - batch.quantityReserved >= selection.quantity,
       priceSource: price.source,
       priceEntryId: price.sourceId,
       priceVersion: price.version,
@@ -1605,16 +2027,31 @@ export class SalesService {
           line.expectedPriceSourceId !== line.priceEntryId ||
           line.expectedPriceVersion !== line.priceVersion)
       ) {
-        warnings.push({ code: "price_changed", severity: "blocking", message: `${line.name}'s selling price changed. Refresh the cart.`, lineId: line.id });
+        warnings.push({
+          code: "price_changed",
+          severity: "blocking",
+          message: `${line.name}'s selling price changed. Refresh the cart.`,
+          lineId: line.id,
+        });
       }
       if (!line.available) {
-        warnings.push({ code: "stock_unavailable", severity: "blocking", message: `${line.name} is no longer available in the selected location.`, lineId: line.id });
+        warnings.push({
+          code: "stock_unavailable",
+          severity: "blocking",
+          message: `${line.name} is no longer available in the selected location.`,
+          lineId: line.id,
+        });
       } else if (
         includeCostPolicy &&
         line.snapshotUnitCogsMinor !== null &&
         line.snapshotUnitCogsMinor !== line.unitCogsMinor
       ) {
-        warnings.push({ code: "stock_changed", severity: "warning", message: `${line.name}'s inventory cost changed and was recalculated.`, lineId: line.id });
+        warnings.push({
+          code: "stock_changed",
+          severity: "warning",
+          message: `${line.name}'s inventory cost changed and was recalculated.`,
+          lineId: line.id,
+        });
       }
       if (includeCostPolicy && !line.costAvailable) {
         warnings.push({
@@ -1626,24 +2063,39 @@ export class SalesService {
           lineId: context.canViewProfit ? line.id : null,
         });
       }
-      if (BigInt(line.lineTotalMinor) < BigInt(line.minimumUnitPriceMinor) * BigInt(line.quantity)) {
+      if (
+        BigInt(line.lineTotalMinor) <
+        BigInt(line.minimumUnitPriceMinor) * BigInt(line.quantity)
+      ) {
         warnings.push({
           code: "below_minimum_price",
-          severity: context.permissions.includes(PERMISSIONS.SALES_DISCOUNT_OVERRIDE) ? "warning" : "blocking",
+          severity: context.permissions.includes(
+            PERMISSIONS.SALES_DISCOUNT_OVERRIDE,
+          )
+            ? "warning"
+            : "blocking",
           message: `${line.name} falls below its configured minimum selling price.`,
           lineId: line.id,
         });
       }
     }
-    if (calculation.discountMinor > 0 && !context.permissions.includes(PERMISSIONS.SALES_DISCOUNT)) {
-      warnings.push({ code: "discount_requires_authorization", severity: "blocking", message: "This sale discount requires sales.discount permission.", lineId: null });
-    }
     if (
-      calculation.discountMinor > policy.discountOverrideThresholdMinor
+      calculation.discountMinor > 0 &&
+      !context.permissions.includes(PERMISSIONS.SALES_DISCOUNT)
     ) {
       warnings.push({
         code: "discount_requires_authorization",
-        severity: context.permissions.includes(PERMISSIONS.SALES_DISCOUNT_OVERRIDE)
+        severity: "blocking",
+        message: "This sale discount requires sales.discount permission.",
+        lineId: null,
+      });
+    }
+    if (calculation.discountMinor > policy.discountOverrideThresholdMinor) {
+      warnings.push({
+        code: "discount_requires_authorization",
+        severity: context.permissions.includes(
+          PERMISSIONS.SALES_DISCOUNT_OVERRIDE,
+        )
           ? "warning"
           : "blocking",
         message: `Discounts above ${policy.discountOverrideThresholdMinor} minor units require sales.discount_override permission.`,
@@ -1653,7 +2105,7 @@ export class SalesService {
     if (
       includeCostPolicy &&
       BigInt(calculation.grossProfitMinor) * 10_000n <
-      BigInt(calculation.totalMinor) * BigInt(policy.minimumMarginBasisPoints)
+        BigInt(calculation.totalMinor) * BigInt(policy.minimumMarginBasisPoints)
     ) {
       warnings.push({
         code: "below_minimum_margin",
@@ -1677,14 +2129,36 @@ export class SalesService {
     policy: SalesPolicy,
   ): void {
     const warnings = this.reviewWarnings(context, calculation, policy, true);
-    const unavailable = warnings.find((warning) => warning.code === "stock_unavailable");
-    if (unavailable !== undefined) throw new DomainError(ERROR_CODES.INVENTORY_INSUFFICIENT_STOCK, unavailable.message);
-    const priceChanged = warnings.find((warning) => warning.code === "price_changed");
+    const unavailable = warnings.find(
+      (warning) => warning.code === "stock_unavailable",
+    );
+    if (unavailable !== undefined)
+      throw new DomainError(
+        ERROR_CODES.INVENTORY_INSUFFICIENT_STOCK,
+        unavailable.message,
+      );
+    const priceChanged = warnings.find(
+      (warning) => warning.code === "price_changed",
+    );
     if (priceChanged !== undefined) throw optimistic("price");
-    const discount = warnings.find((warning) => warning.code === "discount_requires_authorization" || (warning.code === "below_minimum_price" && warning.severity === "blocking"));
-    if (discount !== undefined) throw new DomainError(ERROR_CODES.SALE_DISCOUNT_NOT_AUTHORIZED, discount.message);
-    const margin = warnings.find((warning) => warning.code === "below_minimum_margin" && warning.severity === "blocking");
-    if (margin !== undefined) throw new DomainError(ERROR_CODES.SALE_BELOW_MIN_MARGIN, margin.message);
+    const discount = warnings.find(
+      (warning) =>
+        warning.code === "discount_requires_authorization" ||
+        (warning.code === "below_minimum_price" &&
+          warning.severity === "blocking"),
+    );
+    if (discount !== undefined)
+      throw new DomainError(
+        ERROR_CODES.SALE_DISCOUNT_NOT_AUTHORIZED,
+        discount.message,
+      );
+    const margin = warnings.find(
+      (warning) =>
+        warning.code === "below_minimum_margin" &&
+        warning.severity === "blocking",
+    );
+    if (margin !== undefined)
+      throw new DomainError(ERROR_CODES.SALE_BELOW_MIN_MARGIN, margin.message);
   }
 
   private async assertCredit(
@@ -1694,19 +2168,35 @@ export class SalesService {
     amountMinor: number,
   ): Promise<void> {
     if (!context.permissions.includes(PERMISSIONS.SALES_CREDIT)) {
-      throw new DomainError(ERROR_CODES.SALE_CREDIT_NOT_AUTHORIZED, "Customer credit requires sales.credit permission.");
+      throw new DomainError(
+        ERROR_CODES.SALE_CREDIT_NOT_AUTHORIZED,
+        "Customer credit requires sales.credit permission.",
+      );
     }
     if (record.customerId === null) {
-      throw new DomainError(ERROR_CODES.SALE_CREDIT_NOT_AUTHORIZED, "Choose a customer before using credit.");
+      throw new DomainError(
+        ERROR_CODES.SALE_CREDIT_NOT_AUTHORIZED,
+        "Choose a customer before using credit.",
+      );
     }
     const customer = await this.customer(tx, context, record.customerId);
     if (customer === null) throw notFound("customer");
     const outstanding = await tx.receivable.aggregate({
-      where: { organizationId: context.organizationId, customerId: record.customerId, status: { in: ["open", "partially_paid"] } },
+      where: {
+        organizationId: context.organizationId,
+        customerId: record.customerId,
+        status: { in: ["open", "partially_paid"] },
+      },
       _sum: { balanceMinor: true },
     });
-    if ((outstanding._sum.balanceMinor ?? 0n) + BigInt(amountMinor) > customer.creditLimitMinor) {
-      throw new DomainError(ERROR_CODES.SALE_CREDIT_NOT_AUTHORIZED, "This credit sale exceeds the customer's approved credit limit.");
+    if (
+      (outstanding._sum.balanceMinor ?? 0n) + BigInt(amountMinor) >
+      customer.creditLimitMinor
+    ) {
+      throw new DomainError(
+        ERROR_CODES.SALE_CREDIT_NOT_AUTHORIZED,
+        "This credit sale exceeds the customer's approved credit limit.",
+      );
     }
   }
 
@@ -1738,7 +2228,9 @@ export class SalesService {
         row.value < 0 ||
         row.value > maximum
       ) {
-        throw new Error(`Application setting ${key} must be an integer from 0 to ${maximum}.`);
+        throw new Error(
+          `Application setting ${key} must be an integer from 0 to ${maximum}.`,
+        );
       }
       return row.value;
     };
@@ -1773,8 +2265,10 @@ export class SalesService {
     discountReason: string | null,
     unitSaleActive: boolean,
   ): Prisma.SaleLineCreateManyInput {
-    const imei = line.trackingType === "serialized" ? line.identifiers[0]?.value : null;
-    if (line.trackingType === "serialized" && imei === undefined) throw validation("A serialized unit must have an identifier.", "lines");
+    const imei =
+      line.trackingType === "serialized" ? line.identifiers[0]?.value : null;
+    if (line.trackingType === "serialized" && imei === undefined)
+      throw validation("A serialized unit must have an identifier.", "lines");
     return {
       id: line.id,
       organizationId: context.organizationId,
@@ -1810,22 +2304,34 @@ export class SalesService {
     id: string,
   ): Promise<SaleRecord> {
     const record = await client.sale.findFirst({
-      where: { id, organizationId: context.organizationId, branchId: context.branchId },
+      where: {
+        id,
+        organizationId: context.organizationId,
+        branchId: context.branchId,
+      },
       include: saleInclude,
     });
     if (record === null) throw notFound();
     if (
       context.allowedLocationIds !== null &&
-      record.lines.some((line) => !context.allowedLocationIds?.includes(line.stockLocationId))
+      record.lines.some(
+        (line) => !context.allowedLocationIds?.includes(line.stockLocationId),
+      )
     ) {
-      throw new DomainError(ERROR_CODES.FORBIDDEN_SCOPE, "This sale contains stock outside your assigned location scope.");
+      throw new DomainError(
+        ERROR_CODES.FORBIDDEN_SCOPE,
+        "This sale contains stock outside your assigned location scope.",
+      );
     }
     return record;
   }
 
   private assertDraftVersion(record: SaleRecord, version: number): void {
     if (record.status !== "draft") {
-      throw new DomainError(ERROR_CODES.SALE_POSTED_IMMUTABLE, "Only a draft sale can be changed.");
+      throw new DomainError(
+        ERROR_CODES.SALE_POSTED_IMMUTABLE,
+        "Only a draft sale can be changed.",
+      );
     }
     if (record.version !== version) throw optimistic();
   }

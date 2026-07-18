@@ -52,9 +52,9 @@ describe("used intake state", () => {
     const preview = usedIntakeGatePreview(validDraft);
     expect(preview).toHaveLength(USED_INTAKE_GATES.length);
     expect(preview[0]?.state).toBe("locally_ready");
-    expect(preview.slice(1).every((gate) => gate.state === "pending_external")).toBe(
-      true,
-    );
+    expect(
+      preview.slice(1).every((gate) => gate.state === "pending_external"),
+    ).toBe(true);
   });
 
   it("keeps every unsafe backend boundary visible", () => {

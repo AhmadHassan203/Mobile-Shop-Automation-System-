@@ -108,8 +108,7 @@ export interface ExternalFeeConfig {
   readonly amountBlockMinor?: number | undefined;
   /** Per-type override of the fee charged per started block, in minor units. */
   readonly feePerBlockMinorByType?:
-    | Partial<Record<ExternalTransactionType, number>>
-    | undefined;
+    Partial<Record<ExternalTransactionType, number>> | undefined;
 }
 
 /**
@@ -142,7 +141,9 @@ export function computeExternalFeeMinor(
     config.feePerBlockMinorByType?.[transactionType] ??
     DEFAULT_EXTERNAL_FEE_PER_BLOCK_MINOR[transactionType];
   if (!Number.isSafeInteger(feePerBlockMinor) || feePerBlockMinor < 0) {
-    throw new RangeError("feePerBlockMinor must be a non-negative safe integer.");
+    throw new RangeError(
+      "feePerBlockMinor must be a non-negative safe integer.",
+    );
   }
   if (feePerBlockMinor === 0) return 0;
 
@@ -247,14 +248,20 @@ export const CreateExternalTransactionInputSchema = z
   })
   .strict()
   .superRefine((input, context) => {
-    if (input.feeChargedMinor !== undefined && input.feeOverrideReason === null) {
+    if (
+      input.feeChargedMinor !== undefined &&
+      input.feeOverrideReason === null
+    ) {
       context.addIssue({
         code: "custom",
         message: "A manual fee override requires a reason.",
         path: ["feeOverrideReason"],
       });
     }
-    if (input.feeChargedMinor === undefined && input.feeOverrideReason !== null) {
+    if (
+      input.feeChargedMinor === undefined &&
+      input.feeOverrideReason !== null
+    ) {
       context.addIssue({
         code: "custom",
         message: "An override reason is only valid with a fee override.",
@@ -276,7 +283,10 @@ export type CreateExternalTransactionData = z.output<
 export const ExternalTransactionSchema = z
   .object({
     id: z.uuid(),
-    txnNumber: z.string().min(1).max(EXTERNAL_CONTRACT_LIMITS.TXN_NUMBER_LENGTH),
+    txnNumber: z
+      .string()
+      .min(1)
+      .max(EXTERNAL_CONTRACT_LIMITS.TXN_NUMBER_LENGTH),
     provider: z.enum(EXTERNAL_PROVIDERS),
     transactionType: z.enum(EXTERNAL_TRANSACTION_TYPES),
     direction: z.enum(EXTERNAL_CASH_DIRECTIONS),
@@ -308,7 +318,11 @@ export const ExternalTransactionSchema = z
       .min(1)
       .max(EXTERNAL_CONTRACT_LIMITS.PHONE_LENGTH)
       .nullable(),
-    note: z.string().min(1).max(EXTERNAL_CONTRACT_LIMITS.NOTE_LENGTH).nullable(),
+    note: z
+      .string()
+      .min(1)
+      .max(EXTERNAL_CONTRACT_LIMITS.NOTE_LENGTH)
+      .nullable(),
     businessDate: z.iso.date(),
     createdAt: responseTimestampSchema,
   })

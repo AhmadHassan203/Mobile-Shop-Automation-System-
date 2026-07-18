@@ -99,7 +99,10 @@ test.describe("returns workspace", () => {
         page.getByRole("heading", { level: 1, name: /returns/iu }),
       ).toBeVisible();
 
-      await page.getByRole("button", { name: /new return/iu }).first().click();
+      await page
+        .getByRole("button", { name: /new return/iu })
+        .first()
+        .click();
       const invoiceField = page.getByLabel(/original invoice number/iu);
       await expect(invoiceField).toBeVisible();
 

@@ -159,7 +159,9 @@ export function validateCustomerDraft(
   ) {
     errors.email = "Enter a valid email address.";
   }
-  if (draft.addressLine.trim().length > CUSTOMER_CONTRACT_LIMITS.ADDRESS_LENGTH) {
+  if (
+    draft.addressLine.trim().length > CUSTOMER_CONTRACT_LIMITS.ADDRESS_LENGTH
+  ) {
     errors.addressLine = `Address must be ${CUSTOMER_CONTRACT_LIMITS.ADDRESS_LENGTH} characters or less.`;
   }
   if (draft.notes.trim().length > CUSTOMER_CONTRACT_LIMITS.NOTE_LENGTH) {
@@ -225,10 +227,12 @@ export function customerLocallyFilteredPage(
     if (needle.length === 0) return true;
     const phone = customer.phone.toLocaleLowerCase("en-PK");
     const localPhone = phone.startsWith("+92") ? `0${phone.slice(3)}` : phone;
-    return `${customer.name} ${phone} ${localPhone}`
-      .toLocaleLowerCase("en-PK")
-      .includes(needle.replace(/[\s()-]/gu, "")) ||
-      customer.name.toLocaleLowerCase("en-PK").includes(needle);
+    return (
+      `${customer.name} ${phone} ${localPhone}`
+        .toLocaleLowerCase("en-PK")
+        .includes(needle.replace(/[\s()-]/gu, "")) ||
+      customer.name.toLocaleLowerCase("en-PK").includes(needle)
+    );
   });
   const total = matched.length;
   const totalPages = Math.ceil(total / pageSize);

@@ -448,7 +448,9 @@ function ProductsTab({
       } else {
         setCreateBarcode(code);
         setCreateOpen(true);
-        setScanNotice("Not in the catalog — starting a new product with this barcode.");
+        setScanNotice(
+          "Not in the catalog — starting a new product with this barcode.",
+        );
       }
     } catch {
       setScanNotice("Barcode lookup failed. Try scanning again.");
@@ -947,9 +949,7 @@ function ProductsTab({
         <ProductFormDrawer
           canCreateReferences={canCreate}
           mode="create"
-          {...(createBarcode === null
-            ? {}
-            : { initialBarcode: createBarcode })}
+          {...(createBarcode === null ? {} : { initialBarcode: createBarcode })}
           onClose={() => {
             setCreateOpen(false);
             setCreateBarcode(null);

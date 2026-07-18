@@ -51,11 +51,15 @@ function baseTransaction() {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       create: vi.fn().mockResolvedValue({ id: IDS.session }),
     },
-    payment: { aggregate: vi.fn().mockResolvedValue(aggregate({ amountMinor: 0n })) },
+    payment: {
+      aggregate: vi.fn().mockResolvedValue(aggregate({ amountMinor: 0n })),
+    },
     externalTransaction: {
       aggregate: vi.fn().mockResolvedValue(aggregate({ cashImpactMinor: 0n })),
     },
-    expense: { aggregate: vi.fn().mockResolvedValue(aggregate({ amountMinor: 0n })) },
+    expense: {
+      aggregate: vi.fn().mockResolvedValue(aggregate({ amountMinor: 0n })),
+    },
     numberSequence: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     auditEvent: { create: vi.fn().mockResolvedValue({}) },
     $executeRaw: vi.fn().mockResolvedValue(1),
@@ -63,7 +67,13 @@ function baseTransaction() {
       const sql = strings.join(" ");
       if (sql.includes("number_sequences")) {
         return Promise.resolve([
-          { id: IDS.sequence, prefix: "CS-", nextValue: 1, padding: 6, periodKey: "2026" },
+          {
+            id: IDS.sequence,
+            prefix: "CS-",
+            nextValue: 1,
+            padding: 6,
+            periodKey: "2026",
+          },
         ]);
       }
       return Promise.resolve([]);
@@ -74,7 +84,8 @@ function baseTransaction() {
 function serviceFor(tx: ReturnType<typeof baseTransaction>) {
   const client = {
     $transaction: vi.fn(
-      async (operation: (transaction: typeof tx) => Promise<unknown>) => operation(tx),
+      async (operation: (transaction: typeof tx) => Promise<unknown>) =>
+        operation(tx),
     ),
   };
   return new CashService({ client } as unknown as PrismaService);
@@ -162,18 +173,28 @@ describe("CashService", () => {
     const service = serviceFor(tx);
 
     await expect(
-      service.close(CONTEXT, IDS.session, { version: 1, countedCashMinor: 15_000, note: null }),
+      service.close(CONTEXT, IDS.session, {
+        version: 1,
+        countedCashMinor: 15_000,
+        note: null,
+      }),
     ).rejects.toMatchObject({ code: ERROR_CODES.OPTIMISTIC_LOCK_FAILED });
     expect(tx.cashSession.updateMany).not.toHaveBeenCalled();
   });
 
   it("refuses to close a session that is not open", async () => {
     const tx = baseTransaction();
-    tx.cashSession.findFirst.mockResolvedValueOnce(openSession({ status: "closed" }));
+    tx.cashSession.findFirst.mockResolvedValueOnce(
+      openSession({ status: "closed" }),
+    );
     const service = serviceFor(tx);
 
     await expect(
-      service.close(CONTEXT, IDS.session, { version: 1, countedCashMinor: 15_000, note: null }),
+      service.close(CONTEXT, IDS.session, {
+        version: 1,
+        countedCashMinor: 15_000,
+        note: null,
+      }),
     ).rejects.toMatchObject({ code: ERROR_CODES.CASH_SESSION_NOT_OPEN });
     expect(tx.cashSession.updateMany).not.toHaveBeenCalled();
   });

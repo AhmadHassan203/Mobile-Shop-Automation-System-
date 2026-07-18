@@ -124,9 +124,10 @@ export function saleRecordsParametersFrom(
   const from = isoDateValue(searchParams.get("from"));
   const toRaw = isoDateValue(searchParams.get("to"));
   // A start after the end is dropped so the server never rejects the read.
-  const to = from !== undefined && toRaw !== undefined && from > toRaw
-    ? undefined
-    : toRaw;
+  const to =
+    from !== undefined && toRaw !== undefined && from > toRaw
+      ? undefined
+      : toRaw;
   return {
     page: positivePage(searchParams.get("page")),
     pageSize: PAGE_SIZE,
@@ -442,7 +443,9 @@ function SalesFilters({
 }: {
   readonly filters: FiltersState;
   readonly onSearch: (value: string) => void;
-  readonly onUpdate: (values: Readonly<Record<string, string | undefined>>) => void;
+  readonly onUpdate: (
+    values: Readonly<Record<string, string | undefined>>,
+  ) => void;
   readonly onClear: () => void;
   readonly hasFilters: boolean;
 }): JSX.Element {
@@ -621,8 +624,8 @@ function SalesWorkspace({
             </h1>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-ink-muted">
               Every posted invoice and unposted draft from your branch. Figures
-              are the server&apos;s exact ledger values; open a record to see its
-              full line items and settlement.
+              are the server&apos;s exact ledger values; open a record to see
+              its full line items and settlement.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs font-semibold">
@@ -678,7 +681,10 @@ function SalesWorkspace({
           )}
           <Pagination
             onPage={(next) =>
-              applyParams({ page: next === 1 ? undefined : String(next) }, false)
+              applyParams(
+                { page: next === 1 ? undefined : String(next) },
+                false,
+              )
             }
             page={page.page}
             total={page.total}

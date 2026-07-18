@@ -23,10 +23,14 @@ describe("computeExternalFeeMinor — per started PKR 1,000 block (ceil)", () =>
     expect(computeExternalFeeMinor("money_send", PKR(2_000))).toBe(PKR(20));
   });
   it("charges PKR 20 for a PKR 1,000 withdrawal", () => {
-    expect(computeExternalFeeMinor("money_withdrawal", PKR(1_000))).toBe(PKR(20));
+    expect(computeExternalFeeMinor("money_withdrawal", PKR(1_000))).toBe(
+      PKR(20),
+    );
   });
   it("charges PKR 40 for a PKR 1,001 withdrawal", () => {
-    expect(computeExternalFeeMinor("money_withdrawal", PKR(1_001))).toBe(PKR(40));
+    expect(computeExternalFeeMinor("money_withdrawal", PKR(1_001))).toBe(
+      PKR(40),
+    );
   });
   it("charges zero fee for zero principal", () => {
     expect(computeExternalFeeMinor("money_send", 0)).toBe(0);
@@ -62,8 +66,12 @@ describe("service profit and cash impact", () => {
     expect(defaultDirectionForType("mobile_load")).toBe("cash_in");
   });
   it("computes a signed cash impact (in = principal+fee, out = -(principal-fee))", () => {
-    expect(computeCashImpactMinor("money_send", PKR(1_000), PKR(10))).toBe(PKR(1_010));
-    expect(computeCashImpactMinor("money_withdrawal", PKR(1_000), PKR(20))).toBe(-PKR(980));
+    expect(computeCashImpactMinor("money_send", PKR(1_000), PKR(10))).toBe(
+      PKR(1_010),
+    );
+    expect(
+      computeCashImpactMinor("money_withdrawal", PKR(1_000), PKR(20)),
+    ).toBe(-PKR(980));
   });
 });
 

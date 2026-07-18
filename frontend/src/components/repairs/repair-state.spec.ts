@@ -51,10 +51,10 @@ describe("repairs workspace state", () => {
   });
 
   it("makes board/list and focused stage state linkable", () => {
-    const query = repairRouteQuery(
-      new URLSearchParams("source=dashboard"),
-      { view: "all", stage: "ready" },
-    );
+    const query = repairRouteQuery(new URLSearchParams("source=dashboard"), {
+      view: "all",
+      stage: "ready",
+    });
     const parsed = new URLSearchParams(query);
     expect(repairViewFrom(parsed)).toBe("all");
     expect(repairStageFrom(parsed)).toBe("ready");

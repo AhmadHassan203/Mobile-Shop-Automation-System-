@@ -1,10 +1,7 @@
 import { ERROR_CODES } from "@mobileshop/shared";
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../../database/prisma.service";
-import {
-  SalesService,
-  type SalesActorContext,
-} from "./sales.service";
+import { SalesService, type SalesActorContext } from "./sales.service";
 
 const CONTEXT: SalesActorContext = {
   organizationId: "10000000-0000-4000-8000-000000000001",
@@ -176,9 +173,8 @@ describe("SalesService", () => {
     const findMany = vi.fn().mockResolvedValue([]);
     const client = {
       sale: { count, findMany },
-      $transaction: vi.fn(
-        async (operations: readonly Promise<unknown>[]) =>
-          Promise.all(operations),
+      $transaction: vi.fn(async (operations: readonly Promise<unknown>[]) =>
+        Promise.all(operations),
       ),
     };
     const service = new SalesService({ client } as unknown as PrismaService);
@@ -193,7 +189,11 @@ describe("SalesService", () => {
     });
 
     const call = findMany.mock.calls[0]?.[0] as
-      | { readonly where?: { readonly postedAt?: { readonly gte?: Date; readonly lt?: Date } } }
+      | {
+          readonly where?: {
+            readonly postedAt?: { readonly gte?: Date; readonly lt?: Date };
+          };
+        }
       | undefined;
     expect(call?.where?.postedAt?.gte?.toISOString()).toBe(
       "2026-07-15T19:00:00.000Z",

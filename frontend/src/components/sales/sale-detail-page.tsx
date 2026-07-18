@@ -33,7 +33,11 @@ function BackToRecords(): JSX.Element {
 }
 
 /** Shown for an unknown or foreign id — never a substituted sale. */
-export function SaleNotFoundState({ id }: { readonly id: string }): JSX.Element {
+export function SaleNotFoundState({
+  id,
+}: {
+  readonly id: string;
+}): JSX.Element {
   return (
     <div className="space-y-5">
       <header>
@@ -258,9 +262,7 @@ export function SaleDetailView({
               <DetailRow label="Note">{sale.note}</DetailRow>
             )}
             {sale.hold === null ? null : (
-              <DetailRow label="Held by">
-                {sale.hold.heldBy.fullName}
-              </DetailRow>
+              <DetailRow label="Held by">{sale.hold.heldBy.fullName}</DetailRow>
             )}
           </dl>
         </section>
@@ -443,7 +445,10 @@ export function SaleDetailPage({ id }: { readonly id: string }): JSX.Element {
   if (auth.data === undefined && auth.isPending) {
     return <SaleDetailSkeleton />;
   }
-  if (auth.data !== undefined && !permissions.includes(PERMISSIONS.SALES_VIEW)) {
+  if (
+    auth.data !== undefined &&
+    !permissions.includes(PERMISSIONS.SALES_VIEW)
+  ) {
     return (
       <CatalogForbiddenState
         description="Viewing a sale requires the server-provided sales.view permission. No sales request was sent."

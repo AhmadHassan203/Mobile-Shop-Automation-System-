@@ -66,7 +66,11 @@ const payment = {
   reference: null,
   recordedAt: TIMESTAMP,
 } as const;
-const settlement = { payments: [payment], paidMinor: 1_800, receivableMinor: 0 };
+const settlement = {
+  payments: [payment],
+  paidMinor: 1_800,
+  receivableMinor: 0,
+};
 const user = { id: IDS.user, fullName: "Haseeb Ahmed" };
 
 const detail = {
@@ -176,9 +180,9 @@ describe("sale draft inputs", () => {
       priceSourceId: IDS.price,
       priceVersion: 1,
     } as const;
-    expect(SerializedSaleDraftLineInputSchema.safeParse(serialized).success).toBe(
-      true,
-    );
+    expect(
+      SerializedSaleDraftLineInputSchema.safeParse(serialized).success,
+    ).toBe(true);
     expect(
       SerializedSaleDraftLineInputSchema.safeParse({
         ...serialized,
@@ -207,9 +211,9 @@ describe("sale draft inputs", () => {
       CancelSaleInputSchema.safeParse({ version: 3, reason: "Customer left" })
         .success,
     ).toBe(true);
-    expect(CancelSaleInputSchema.safeParse({ version: 3, reason: " " }).success).toBe(
-      false,
-    );
+    expect(
+      CancelSaleInputSchema.safeParse({ version: 3, reason: " " }).success,
+    ).toBe(false);
   });
 });
 
@@ -241,9 +245,7 @@ describe("sale posting boundary", () => {
     expect(
       PostSaleInputSchema.safeParse({
         version: 2,
-        payments: [
-          { method: "card", amountMinor: 100, reference: null },
-        ],
+        payments: [{ method: "card", amountMinor: 100, reference: null }],
       }).success,
     ).toBe(false);
     expect(
@@ -268,9 +270,9 @@ describe("sale posting boundary", () => {
 
 describe("sale responses, receipt and redaction", () => {
   it("makes redacted profit structurally unable to carry COGS or profit", () => {
-    expect(SaleProfitSchema.safeParse({ availability: "redacted" }).success).toBe(
-      true,
-    );
+    expect(
+      SaleProfitSchema.safeParse({ availability: "redacted" }).success,
+    ).toBe(true);
     expect(
       SaleProfitSchema.safeParse({
         availability: "redacted",
@@ -365,7 +367,9 @@ describe("sale lifecycle and list surfaces", () => {
   it("closes only terminal statuses and exposes explicit allowed transitions", () => {
     expect(isSaleTransitionAllowed("draft", "posted")).toBe(true);
     expect(isSaleTransitionAllowed("posted", "cancelled")).toBe(false);
-    expect(isSaleTransitionAllowed("partially_returned", "returned")).toBe(true);
+    expect(isSaleTransitionAllowed("partially_returned", "returned")).toBe(
+      true,
+    );
     expect(isSaleClosedStatus("cancelled")).toBe(true);
     expect(isSaleClosedStatus("posted")).toBe(false);
   });
@@ -374,9 +378,9 @@ describe("sale lifecycle and list surfaces", () => {
     expect(
       SaleListQuerySchema.parse({ from: "2026-07-01", to: "2026-07-16" }),
     ).toMatchObject({ page: 1, pageSize: 25, sort: "posted_at" });
-    expect(SaleListQuerySchema.safeParse({ branchId: IDS.location }).success).toBe(
-      false,
-    );
+    expect(
+      SaleListQuerySchema.safeParse({ branchId: IDS.location }).success,
+    ).toBe(false);
     expect(
       SaleListQuerySchema.safeParse({
         from: "2026-07-17",

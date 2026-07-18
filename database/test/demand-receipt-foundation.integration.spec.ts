@@ -29,17 +29,22 @@ if (existsSync(environmentPath)) {
 
 function requiredUrl(
   name:
-    | "TEST_DATABASE_URL"
-    | "TEST_MIGRATION_DATABASE_URL"
-    | "SHADOW_DATABASE_URL",
+    "TEST_DATABASE_URL" | "TEST_MIGRATION_DATABASE_URL" | "SHADOW_DATABASE_URL",
 ): string {
   const value = process.env[name];
-  if (!value) throw new Error(`${name} is required for database integration tests`);
+  if (!value)
+    throw new Error(`${name} is required for database integration tests`);
   return value;
 }
 
-const runtimePool = new Pool({ connectionString: requiredUrl("TEST_DATABASE_URL"), max: 1 });
-const migratorPool = new Pool({ connectionString: requiredUrl("TEST_MIGRATION_DATABASE_URL"), max: 2 });
+const runtimePool = new Pool({
+  connectionString: requiredUrl("TEST_DATABASE_URL"),
+  max: 1,
+});
+const migratorPool = new Pool({
+  connectionString: requiredUrl("TEST_MIGRATION_DATABASE_URL"),
+  max: 2,
+});
 
 interface Fixture {
   readonly organizationId: string;
@@ -128,18 +133,35 @@ async function createCommittedFixture(): Promise<Fixture> {
     await client.query(
       `INSERT INTO categories (id, organization_id, name, slug, updated_at)
        VALUES ($1, $2, $3, $4, now())`,
-      [categoryId, organizationId, `Phones ${suffix}`, `phones-${suffix.toLowerCase()}`],
+      [
+        categoryId,
+        organizationId,
+        `Phones ${suffix}`,
+        `phones-${suffix.toLowerCase()}`,
+      ],
     );
     await client.query(
       `INSERT INTO brands (id, organization_id, name, slug, updated_at)
        VALUES ($1, $2, $3, $4, now())`,
-      [brandId, organizationId, `Brand ${suffix}`, `brand-${suffix.toLowerCase()}`],
+      [
+        brandId,
+        organizationId,
+        `Brand ${suffix}`,
+        `brand-${suffix.toLowerCase()}`,
+      ],
     );
     await client.query(
       `INSERT INTO product_models
          (id, organization_id, brand_id, category_id, name, canonical_name, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, now())`,
-      [modelId, organizationId, brandId, categoryId, `Model ${suffix}`, `model ${suffix.toLowerCase()}`],
+      [
+        modelId,
+        organizationId,
+        brandId,
+        categoryId,
+        `Model ${suffix}`,
+        `model ${suffix.toLowerCase()}`,
+      ],
     );
     await client.query(
       `INSERT INTO product_variants
@@ -147,13 +169,25 @@ async function createCommittedFixture(): Promise<Fixture> {
           condition, pta_status, warranty_type, default_price_minor, updated_at)
        VALUES ($1, $2, $3, $4, $5, 'quantity', 'new', 'pta_approved',
                'none', 50000, now())`,
-      [variantId, organizationId, modelId, `SKU-${suffix}`, `Variant ${suffix}`],
+      [
+        variantId,
+        organizationId,
+        modelId,
+        `SKU-${suffix}`,
+        `Variant ${suffix}`,
+      ],
     );
     await client.query(
       `INSERT INTO stock_locations
          (id, organization_id, branch_id, code, name, kind, updated_at)
        VALUES ($1, $2, $3, $4, $5, 'store', now())`,
-      [locationId, organizationId, branchId, `LOC-${suffix}`, `Store ${suffix}`],
+      [
+        locationId,
+        organizationId,
+        branchId,
+        `LOC-${suffix}`,
+        `Store ${suffix}`,
+      ],
     );
     await client.query(
       `INSERT INTO stock_batches
@@ -233,7 +267,9 @@ beforeAll(async () => {
     `SELECT current_database() AS name`,
   );
   if (database.rows[0]?.name !== "mobileshop_test") {
-    throw new Error("Demand integration tests may run only against mobileshop_test");
+    throw new Error(
+      "Demand integration tests may run only against mobileshop_test",
+    );
   }
   const ledger = await migratorPool.query<{ readonly applied: boolean }>(
     `SELECT EXISTS (
@@ -242,7 +278,8 @@ beforeAll(async () => {
      ) AS applied`,
     [MIGRATION_NAME],
   );
-  if (ledger.rows[0]?.applied !== true) throw new Error(`${MIGRATION_NAME} is not applied`);
+  if (ledger.rows[0]?.applied !== true)
+    throw new Error(`${MIGRATION_NAME} is not applied`);
   fixture = await createCommittedFixture();
 });
 
@@ -291,11 +328,13 @@ describe("0012 demand and immutable receipt foundation", () => {
          FROM pg_trigger
         WHERE NOT tgisinternal
           AND tgname = ANY($1::text[])`,
-      [[
-        "demand_requests_no_hard_delete",
-        "demand_request_items_no_hard_delete",
-        "demand_follow_ups_append_only",
-      ]],
+      [
+        [
+          "demand_requests_no_hard_delete",
+          "demand_request_items_no_hard_delete",
+          "demand_follow_ups_append_only",
+        ],
+      ],
     );
     const triggerDefinitions = new Map(
       triggerRows.rows.map(({ name, definition }) => [name, definition]),
@@ -307,7 +346,9 @@ describe("0012 demand and immutable receipt foundation", () => {
       expect(triggerDefinitions.get(name)).toContain("DELETE");
       expect(triggerDefinitions.get(name)).toContain("TRUNCATE");
     }
-    const followUpGuard = triggerDefinitions.get("demand_follow_ups_append_only");
+    const followUpGuard = triggerDefinitions.get(
+      "demand_follow_ups_append_only",
+    );
     expect(followUpGuard).toContain("UPDATE");
     expect(followUpGuard).toContain("DELETE");
     expect(followUpGuard).toContain("TRUNCATE");
@@ -315,17 +356,28 @@ describe("0012 demand and immutable receipt foundation", () => {
 
   it("enforces Demand shapes, immutable wording, no hard delete, and append-only follow-ups", async () => {
     await transaction(runtimePool, async (client) => {
-      const anonymous = await insertDemand(client, { matched: false, contact: false });
+      const anonymous = await insertDemand(client, {
+        matched: false,
+        contact: false,
+      });
       await forceDeferredChecks(client);
 
       await expectPgError(
         client,
-        () => client.query(`UPDATE demand_request_items SET raw_request_text = 'rewritten', updated_at = now() WHERE id = $1`, [anonymous.itemId]),
+        () =>
+          client.query(
+            `UPDATE demand_request_items SET raw_request_text = 'rewritten', updated_at = now() WHERE id = $1`,
+            [anonymous.itemId],
+          ),
         "55000",
       );
       await expectPgError(
         client,
-        () => client.query(`UPDATE demand_requests SET note = 'without version', updated_at = now() WHERE id = $1`, [anonymous.requestId]),
+        () =>
+          client.query(
+            `UPDATE demand_requests SET note = 'without version', updated_at = now() WHERE id = $1`,
+            [anonymous.requestId],
+          ),
         "23514",
         "demand_requests_version_advance_check",
       );
@@ -347,23 +399,47 @@ describe("0012 demand and immutable receipt foundation", () => {
         "23514",
         "demand_requests_unmatched_availability_check",
       );
-      await expectPgError(client, () => client.query(`DELETE FROM demand_request_items WHERE id = $1`, [anonymous.itemId]), "42501");
-      await expectPgError(client, () => client.query(`DELETE FROM demand_requests WHERE id = $1`, [anonymous.requestId]), "42501");
       await expectPgError(
         client,
-        () => client.query(
-          `INSERT INTO demand_follow_ups
+        () =>
+          client.query(`DELETE FROM demand_request_items WHERE id = $1`, [
+            anonymous.itemId,
+          ]),
+        "42501",
+      );
+      await expectPgError(
+        client,
+        () =>
+          client.query(`DELETE FROM demand_requests WHERE id = $1`, [
+            anonymous.requestId,
+          ]),
+        "42501",
+      );
+      await expectPgError(
+        client,
+        () =>
+          client.query(
+            `INSERT INTO demand_follow_ups
              (id, organization_id, branch_id, demand_request_id, occurred_at,
               channel, result, note, actor_user_id)
            VALUES ($1, $2, $3, $4, now(), 'whatsapp', 'message_sent',
                    'No consent', $5)`,
-          [randomUUID(), fixture.organizationId, fixture.branchId, anonymous.requestId, fixture.userId],
-        ),
+            [
+              randomUUID(),
+              fixture.organizationId,
+              fixture.branchId,
+              anonymous.requestId,
+              fixture.userId,
+            ],
+          ),
         "23514",
         "demand_follow_ups_contact_consent_check",
       );
 
-      const contacted = await insertDemand(client, { matched: true, contact: true });
+      const contacted = await insertDemand(client, {
+        matched: true,
+        contact: true,
+      });
       await forceDeferredChecks(client);
       const followUpId = randomUUID();
       await client.query(
@@ -372,10 +448,31 @@ describe("0012 demand and immutable receipt foundation", () => {
             channel, result, note, next_follow_up_on, actor_user_id)
          VALUES ($1, $2, $3, $4, now(), 'whatsapp', 'message_sent',
                  'Customer asked for a restock alert', DATE '2026-07-22', $5)`,
-        [followUpId, fixture.organizationId, fixture.branchId, contacted.requestId, fixture.userId],
+        [
+          followUpId,
+          fixture.organizationId,
+          fixture.branchId,
+          contacted.requestId,
+          fixture.userId,
+        ],
       );
-      await expectPgError(client, () => client.query(`UPDATE demand_follow_ups SET note = 'changed' WHERE id = $1`, [followUpId]), "42501");
-      await expectPgError(client, () => client.query(`DELETE FROM demand_follow_ups WHERE id = $1`, [followUpId]), "42501");
+      await expectPgError(
+        client,
+        () =>
+          client.query(
+            `UPDATE demand_follow_ups SET note = 'changed' WHERE id = $1`,
+            [followUpId],
+          ),
+        "42501",
+      );
+      await expectPgError(
+        client,
+        () =>
+          client.query(`DELETE FROM demand_follow_ups WHERE id = $1`, [
+            followUpId,
+          ]),
+        "42501",
+      );
     });
   });
 
@@ -384,7 +481,10 @@ describe("0012 demand and immutable receipt foundation", () => {
       await client.query("SET LOCAL ROLE mobileshop_app");
       await client.query(`SELECT id FROM product_variants WHERE false`);
       await client.query(`SELECT id FROM stock_batches WHERE false FOR UPDATE`);
-      const demand = await insertDemand(client, { matched: true, contact: true });
+      const demand = await insertDemand(client, {
+        matched: true,
+        contact: true,
+      });
       await forceDeferredChecks(client);
       await client.query(
         `INSERT INTO demand_follow_ups
@@ -392,16 +492,42 @@ describe("0012 demand and immutable receipt foundation", () => {
             channel, result, note, actor_user_id)
          VALUES ($1, $2, $3, $4, now(), 'whatsapp', 'message_sent',
                  'Runtime append works', $5)`,
-        [randomUUID(), fixture.organizationId, fixture.branchId, demand.requestId, fixture.userId],
+        [
+          randomUUID(),
+          fixture.organizationId,
+          fixture.branchId,
+          demand.requestId,
+          fixture.userId,
+        ],
       );
-      await client.query(`UPDATE demand_requests SET note = 'runtime update', version = version + 1, updated_at = now() WHERE id = $1`, [demand.requestId]);
-      await expectPgError(client, () => client.query(`DELETE FROM demand_requests WHERE id = $1`, [demand.requestId]), "42501");
-      await expectPgError(client, () => client.query(`UPDATE demand_follow_ups SET note = 'forbidden' WHERE demand_request_id = $1`, [demand.requestId]), "42501");
+      await client.query(
+        `UPDATE demand_requests SET note = 'runtime update', version = version + 1, updated_at = now() WHERE id = $1`,
+        [demand.requestId],
+      );
+      await expectPgError(
+        client,
+        () =>
+          client.query(`DELETE FROM demand_requests WHERE id = $1`, [
+            demand.requestId,
+          ]),
+        "42501",
+      );
+      await expectPgError(
+        client,
+        () =>
+          client.query(
+            `UPDATE demand_follow_ups SET note = 'forbidden' WHERE demand_request_id = $1`,
+            [demand.requestId],
+          ),
+        "42501",
+      );
     });
   });
 
   it("allows legacy posted-null receipts but requires and freezes snapshots on new postings", async () => {
-    const metadata = await migratorPool.query<{ readonly convalidated: boolean }>(
+    const metadata = await migratorPool.query<{
+      readonly convalidated: boolean;
+    }>(
       `SELECT convalidated FROM pg_constraint
         WHERE conname = 'sales_posted_receipt_snapshot_required_check'`,
     );
@@ -422,7 +548,8 @@ describe("0012 demand and immutable receipt foundation", () => {
         version = version + 1, updated_at = now()`;
       await expectPgError(
         client,
-        () => client.query(`UPDATE sales SET ${posting} WHERE id = $1`, [saleId]),
+        () =>
+          client.query(`UPDATE sales SET ${posting} WHERE id = $1`, [saleId]),
         "23514",
         "sales_posted_receipt_snapshot_required_check",
       );
@@ -432,7 +559,11 @@ describe("0012 demand and immutable receipt foundation", () => {
       );
       await expectPgError(
         client,
-        () => client.query(`UPDATE sales SET receipt_snapshot = '{"changed":true}'::jsonb WHERE id = $1`, [saleId]),
+        () =>
+          client.query(
+            `UPDATE sales SET receipt_snapshot = '{"changed":true}'::jsonb WHERE id = $1`,
+            [saleId],
+          ),
         "55000",
       );
     });

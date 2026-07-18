@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Headers, Param, Post, Query, Req } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  Query,
+  Req,
+} from "@nestjs/common";
 import { ApiHeader, ApiOperation, ApiTags } from "@nestjs/swagger";
 import {
   CreateExternalTransactionInputSchema,
@@ -15,7 +24,10 @@ import {
 import type { Request } from "express";
 import { z } from "zod";
 import { RequirePermissions } from "../../common/auth/require-permissions.decorator";
-import { ZodValidationPipe, zodBody } from "../../common/pipes/zod-validation.pipe";
+import {
+  ZodValidationPipe,
+  zodBody,
+} from "../../common/pipes/zod-validation.pipe";
 import { authRequestMetadata } from "../auth/request-metadata";
 import {
   ExternalService,
@@ -46,7 +58,10 @@ function optionalIdempotencyKey(value: string | undefined): string | null {
 export function externalActorContext(request: Request): ExternalActorContext {
   const current = request.auth?.current;
   if (current === undefined) {
-    throw new DomainError(ERROR_CODES.AUTH_REQUIRED, "Authentication is required");
+    throw new DomainError(
+      ERROR_CODES.AUTH_REQUIRED,
+      "Authentication is required",
+    );
   }
   return {
     organizationId: current.organization.id,
@@ -64,7 +79,9 @@ export class ExternalController {
 
   @Get()
   @RequirePermissions(PERMISSIONS.EXTERNAL_VIEW)
-  @ApiOperation({ summary: "List recorded external money-service transactions" })
+  @ApiOperation({
+    summary: "List recorded external money-service transactions",
+  })
   list(
     @Req() request: Request,
     @Query(new ZodValidationPipe(ExternalTransactionListQuerySchema))
@@ -79,7 +96,8 @@ export class ExternalController {
   @Get("balances")
   @RequirePermissions(PERMISSIONS.EXTERNAL_VIEW)
   @ApiOperation({
-    summary: "Per-provider service balances derived for the current business date",
+    summary:
+      "Per-provider service balances derived for the current business date",
   })
   balances(@Req() request: Request): Promise<ExternalBalancesResult> {
     return this.external.balances(externalActorContext(request));
@@ -88,24 +106,32 @@ export class ExternalController {
   @Get("commission")
   @RequirePermissions(PERMISSIONS.EXTERNAL_VIEW)
   @ApiOperation({
-    summary: "Commission totals for a business-date period, overall and grouped",
+    summary:
+      "Commission totals for a business-date period, overall and grouped",
   })
   commission(
     @Req() request: Request,
     @Query(new ZodValidationPipe(ExternalCommissionQuerySchema))
     query: ExternalCommissionQuery,
   ): Promise<ExternalCommissionResult> {
-    return this.external.commission(externalActorContext(request), query.period);
+    return this.external.commission(
+      externalActorContext(request),
+      query.period,
+    );
   }
 
   @Post()
   @RequirePermissions(PERMISSIONS.EXTERNAL_CREATE)
   @ApiHeader({ name: IDEMPOTENCY_KEY_HEADER, required: false })
-  @ApiOperation({ summary: "Record an external transaction with server-authoritative fee, profit and ledger" })
+  @ApiOperation({
+    summary:
+      "Record an external transaction with server-authoritative fee, profit and ledger",
+  })
   create(
     @Req() request: Request,
     @Headers(IDEMPOTENCY_KEY_HEADER) idempotencyKey: string | undefined,
-    @Body(zodBody(CreateExternalTransactionInputSchema)) input: CreateExternalTransactionData,
+    @Body(zodBody(CreateExternalTransactionInputSchema))
+    input: CreateExternalTransactionData,
   ): Promise<ExternalTransaction> {
     return this.external.record(
       externalActorContext(request),

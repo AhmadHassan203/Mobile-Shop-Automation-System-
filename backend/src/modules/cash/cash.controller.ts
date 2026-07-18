@@ -16,7 +16,10 @@ import {
 import type { Request } from "express";
 import { z } from "zod";
 import { RequirePermissions } from "../../common/auth/require-permissions.decorator";
-import { ZodValidationPipe, zodBody } from "../../common/pipes/zod-validation.pipe";
+import {
+  ZodValidationPipe,
+  zodBody,
+} from "../../common/pipes/zod-validation.pipe";
 import { authRequestMetadata } from "../auth/request-metadata";
 import { CashService, type CashActorContext } from "./cash.service";
 
@@ -25,7 +28,10 @@ const uuidParam = new ZodValidationPipe(z.uuid());
 export function cashActorContext(request: Request): CashActorContext {
   const current = request.auth?.current;
   if (current === undefined) {
-    throw new DomainError(ERROR_CODES.AUTH_REQUIRED, "Authentication is required");
+    throw new DomainError(
+      ERROR_CODES.AUTH_REQUIRED,
+      "Authentication is required",
+    );
   }
   return {
     organizationId: current.organization.id,
@@ -53,7 +59,9 @@ export class CashController {
   // Declared before any ":id" route so the literal segment is matched first.
   @Get("current")
   @RequirePermissions(PERMISSIONS.CASH_SESSION_VIEW)
-  @ApiOperation({ summary: "Read the branch's currently open cash session, if any" })
+  @ApiOperation({
+    summary: "Read the branch's currently open cash session, if any",
+  })
   current(@Req() request: Request): Promise<CashSession | null> {
     return this.cash.current(cashActorContext(request));
   }
@@ -63,14 +71,17 @@ export class CashController {
   @ApiOperation({ summary: "List cash sessions for the current branch" })
   list(
     @Req() request: Request,
-    @Query(new ZodValidationPipe(CashSessionListQuerySchema)) query: CashSessionListQuery,
+    @Query(new ZodValidationPipe(CashSessionListQuerySchema))
+    query: CashSessionListQuery,
   ): Promise<CashSessionPage> {
     return this.cash.list(cashActorContext(request), query);
   }
 
   @Post(":id/close")
   @RequirePermissions(PERMISSIONS.CASH_SESSION_MANAGE)
-  @ApiOperation({ summary: "Close a cash session and reconcile counted against expected cash" })
+  @ApiOperation({
+    summary: "Close a cash session and reconcile counted against expected cash",
+  })
   close(
     @Req() request: Request,
     @Param("id", uuidParam) id: string,

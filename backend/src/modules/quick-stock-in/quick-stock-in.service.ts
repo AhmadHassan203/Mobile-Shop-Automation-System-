@@ -559,7 +559,12 @@ export class QuickStockInService {
         organizationId: context.organizationId,
         branchId: context.branchId,
       },
-      select: { id: true, number: true, purchaseOrderId: true, supplierId: true },
+      select: {
+        id: true,
+        number: true,
+        purchaseOrderId: true,
+        supplierId: true,
+      },
     });
     if (receipt === null) throw notFound("goods receipt");
 

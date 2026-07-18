@@ -28,7 +28,10 @@ const BASE_CUSTOMER: CustomerSummary = {
   updatedAt: "2026-07-16T08:00:00.000Z",
 };
 
-function page(items: readonly CustomerSummary[], total = items.length): CustomerPage {
+function page(
+  items: readonly CustomerSummary[],
+  total = items.length,
+): CustomerPage {
   return {
     items: [...items],
     page: 1,
@@ -139,7 +142,9 @@ describe("customer workspace state", () => {
       lifetimeSpendMinor: 80_000,
       receivableBalanceMinor: 0,
     };
-    expect(customerKpis(page([BASE_CUSTOMER, second]), page([BASE_CUSTOMER]))).toEqual({
+    expect(
+      customerKpis(page([BASE_CUSTOMER, second]), page([BASE_CUSTOMER])),
+    ).toEqual({
       totalCustomers: 2,
       repeatBuyers: 1,
       lifetimeSpendMinor: 200_000,
@@ -148,7 +153,9 @@ describe("customer workspace state", () => {
       populationComplete: true,
       creditPopulationComplete: true,
     });
-    expect(customerKpis(page([BASE_CUSTOMER], 101), page([BASE_CUSTOMER], 101))).toEqual({
+    expect(
+      customerKpis(page([BASE_CUSTOMER], 101), page([BASE_CUSTOMER], 101)),
+    ).toEqual({
       totalCustomers: 101,
       repeatBuyers: null,
       lifetimeSpendMinor: null,

@@ -211,7 +211,9 @@ function RecentTransactions({
           void query.refetch();
         }}
         title="Recent transactions could not be loaded"
-        {...(error.requestId === undefined ? {} : { requestId: error.requestId })}
+        {...(error.requestId === undefined
+          ? {}
+          : { requestId: error.requestId })}
       />
     );
   }
@@ -445,10 +447,7 @@ export function DigitalNewTransactionPage(): JSX.Element {
                 <select
                   className={inputClass}
                   onChange={(event) =>
-                    update(
-                      "paymentMethod",
-                      event.target.value as PaymentMethod,
-                    )
+                    update("paymentMethod", event.target.value as PaymentMethod)
                   }
                   value={values.paymentMethod}
                 >
@@ -534,7 +533,9 @@ export function DigitalNewTransactionPage(): JSX.Element {
               <PreviewRow
                 emphasis
                 label="Fee charged (revenue)"
-                value={preview.feeMinor === null ? "—" : money(preview.feeMinor)}
+                value={
+                  preview.feeMinor === null ? "—" : money(preview.feeMinor)
+                }
               />
               <PreviewRow
                 label="Provider charge"
@@ -551,10 +552,10 @@ export function DigitalNewTransactionPage(): JSX.Element {
               />
               <div className="mt-3 flex items-start gap-2 rounded-control bg-warning-soft p-3 text-xs text-warning">
                 <ShieldCheckIcon className="mt-0.5 size-4 shrink-0" />
-                The principal is the customer&apos;s money passing through — it is
-                not revenue or profit. Only the fee is revenue; service profit is
-                the fee less the provider charge. The server recomputes every
-                figure on save.
+                The principal is the customer&apos;s money passing through — it
+                is not revenue or profit. Only the fee is revenue; service
+                profit is the fee less the provider charge. The server
+                recomputes every figure on save.
               </div>
             </div>
           </Card>
@@ -605,7 +606,10 @@ export function DigitalNewTransactionPage(): JSX.Element {
       <section className="mt-4">
         <Card title="Recent external transactions">
           <div className="p-[1.125rem]">
-            <RecentTransactions canView={capabilities.canView} currency={currency} />
+            <RecentTransactions
+              canView={capabilities.canView}
+              currency={currency}
+            />
           </div>
         </Card>
       </section>

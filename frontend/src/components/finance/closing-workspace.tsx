@@ -120,7 +120,9 @@ function CloseResultSummary({
           </dd>
         </div>
         <div className="bg-surface p-5">
-          <dt className="text-xs text-ink-muted">Variance (counted − expected)</dt>
+          <dt className="text-xs text-ink-muted">
+            Variance (counted − expected)
+          </dt>
           <dd className={`mt-1 font-mono text-lg font-bold ${varianceTone}`}>
             {session.varianceMinor === null
               ? "—"
@@ -290,7 +292,8 @@ function CloseSessionPanel({
               onChange={(event) => setAttested(event.target.checked)}
               type="checkbox"
             />
-            I have physically counted the drawer and the amount above is correct.
+            I have physically counted the drawer and the amount above is
+            correct.
           </label>
           {canManage ? (
             <button
@@ -413,7 +416,9 @@ export function ClosingWorkspace(): JSX.Element {
           void session.refetch();
         }}
         title="Cash session could not be loaded"
-        {...(error.requestId === undefined ? {} : { requestId: error.requestId })}
+        {...(error.requestId === undefined
+          ? {}
+          : { requestId: error.requestId })}
       />
     );
   } else if (session.data === null) {

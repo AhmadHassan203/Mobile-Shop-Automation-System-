@@ -94,7 +94,9 @@ export function DigitalCommissionPage(): JSX.Element {
           void query.refetch();
         }}
         title="Commission report could not be loaded"
-        {...(error.requestId === undefined ? {} : { requestId: error.requestId })}
+        {...(error.requestId === undefined
+          ? {}
+          : { requestId: error.requestId })}
       />
     );
   } else if (rows.length === 0) {
@@ -229,7 +231,9 @@ export function DigitalCommissionPage(): JSX.Element {
       ) : null}
 
       <Card
-        hint={groupBy === "provider" ? "Grouped by provider" : "Grouped by type"}
+        hint={
+          groupBy === "provider" ? "Grouped by provider" : "Grouped by type"
+        }
         title="Grouped commission"
       >
         {body}

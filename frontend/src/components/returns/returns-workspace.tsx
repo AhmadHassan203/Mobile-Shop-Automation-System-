@@ -517,8 +517,8 @@ function NewReturnDrawer({
                 </button>
               </div>
               <span className="mt-1 block font-normal leading-5 text-ink-muted">
-                Eligibility reads the real posted sale, its return window and any
-                quantity already returned.
+                Eligibility reads the real posted sale, its return window and
+                any quantity already returned.
               </span>
             </Field>
 
@@ -788,8 +788,7 @@ function ProcessingDrawer({
   const idempotencyKey = useRef(globalThis.crypto.randomUUID());
 
   const [refundEnabled, setRefundEnabled] = useState(false);
-  const [refundMethod, setRefundMethod] =
-    useState<ReturnRefundMethod>("cash");
+  const [refundMethod, setRefundMethod] = useState<ReturnRefundMethod>("cash");
   const [refundReference, setRefundReference] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
 
@@ -804,14 +803,11 @@ function ProcessingDrawer({
   const needsOverride =
     data !== undefined && data.policy.expired && !data.policy.overridden;
   const refundReferenceRequired = refundEnabled && refundMethod !== "cash";
-  const refundValid = !refundReferenceRequired || refundReference.trim().length > 0;
+  const refundValid =
+    !refundReferenceRequired || refundReference.trim().length > 0;
   const overrideValid = !needsOverride || overrideReason.trim().length > 0;
   const canPost =
-    canApprove &&
-    isDraft &&
-    refundValid &&
-    overrideValid &&
-    !post.isPending;
+    canApprove && isDraft && refundValid && overrideValid && !post.isPending;
 
   const submit = (): void => {
     if (data === undefined || !canPost) return;
@@ -820,8 +816,7 @@ function ProcessingDrawer({
       refund: refundEnabled
         ? {
             method: refundMethod,
-            reference:
-              refundMethod === "cash" ? null : refundReference.trim(),
+            reference: refundMethod === "cash" ? null : refundReference.trim(),
           }
         : null,
       policyOverrideReason: needsOverride ? overrideReason.trim() : null,
@@ -997,7 +992,9 @@ function ProcessingDrawer({
                       checked={refundEnabled}
                       className="size-4"
                       disabled={!canApprove}
-                      onChange={(event) => setRefundEnabled(event.target.checked)}
+                      onChange={(event) =>
+                        setRefundEnabled(event.target.checked)
+                      }
                       type="checkbox"
                     />
                     Issue a refund now (otherwise the amount is credited to the
@@ -1491,8 +1488,8 @@ function WarrantyPanel(): JSX.Element {
       </span>
       <h3 className="mt-3 font-bold text-ink">Warranty claims unavailable</h3>
       <p className="mx-auto mt-1 max-w-xl text-sm leading-6 text-ink-muted">
-        The Warranty module and claims contract are deferred. No open-claim count
-        or case row is inferred.
+        The Warranty module and claims contract are deferred. No open-claim
+        count or case row is inferred.
       </p>
     </div>
   );
@@ -1633,8 +1630,8 @@ export function ReturnsWorkspace(): JSX.Element {
       <section className="flex items-start gap-3 rounded-card border border-info/25 bg-info-soft p-4 text-sm leading-6 text-info">
         <ShieldCheckIcon className="mt-0.5 size-5 shrink-0" />
         <p>
-          A returned unit never goes <strong>straight back to Available</strong>.
-          It is verified against the original sale, inspected, then either
+          A returned unit never goes <strong>straight back to Available</strong>
+          . It is verified against the original sale, inspected, then either
           restocked, quarantined, claimed on warranty, or written off — with a
           full audit trail.
         </p>

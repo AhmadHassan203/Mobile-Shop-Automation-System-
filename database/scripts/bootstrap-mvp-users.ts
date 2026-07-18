@@ -201,7 +201,12 @@ async function bootstrap(): Promise<void> {
                 roleId,
               },
             },
-            create: { organizationId, userId: user.id, roleId, assignedBy: user.id },
+            create: {
+              organizationId,
+              userId: user.id,
+              roleId,
+              assignedBy: user.id,
+            },
             update: {},
           });
 

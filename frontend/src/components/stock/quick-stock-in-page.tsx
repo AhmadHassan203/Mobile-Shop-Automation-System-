@@ -58,10 +58,7 @@ const REFERENCE_PARAMETERS = {
  * the contract's `digital_wallet` method with the matching `walletProvider`.
  */
 export type QuickStockInPaymentTender =
-  | "cash"
-  | "bank_transfer"
-  | "jazzcash"
-  | "easypaisa";
+  "cash" | "bank_transfer" | "jazzcash" | "easypaisa";
 
 export type QuickStockInPaymentStatus = "paid_full" | "partial" | "credit";
 
@@ -145,7 +142,9 @@ export function toMinorField(value: string): MinorField {
   }
 }
 
-function buildProduct(form: QuickStockInFormState): QuickStockInInput["product"] {
+function buildProduct(
+  form: QuickStockInFormState,
+): QuickStockInInput["product"] {
   if (form.productMode === "existing") {
     return { mode: "existing", productVariantId: form.productVariantId };
   }
@@ -187,7 +186,9 @@ interface ResolvedTender {
 }
 
 /** Map the UI tender choice onto the contract's method + wallet provider. */
-export function resolveTender(tender: QuickStockInPaymentTender): ResolvedTender {
+export function resolveTender(
+  tender: QuickStockInPaymentTender,
+): ResolvedTender {
   switch (tender) {
     case "cash":
       return { method: "cash" };
@@ -526,10 +527,7 @@ export function QuickStockInSuccess({
             label="Purchase order"
             value={result.purchaseOrderNumber}
           />
-          <SummaryRow
-            label="Goods receipt"
-            value={result.goodsReceiptNumber}
-          />
+          <SummaryRow label="Goods receipt" value={result.goodsReceiptNumber} />
         </dl>
       </section>
 
@@ -572,8 +570,8 @@ function Header(): JSX.Element {
             </h1>
             <p className="mt-1 max-w-3xl text-sm text-ink-muted">
               Receive quantity-tracked stock in one screen. The shop sees a
-              single action; the server still records the full purchase, receipt,
-              stock movement and supplier payable together.
+              single action; the server still records the full purchase,
+              receipt, stock movement and supplier payable together.
             </p>
           </div>
         </div>
@@ -914,7 +912,11 @@ function QuickStockInWorkspace({
       {/* Supplier ----------------------------------------------------------- */}
       <section className={sectionClass}>
         <h2 className={sectionTitleClass}>Supplier</h2>
-        <div className="mt-3 flex gap-2" role="group" aria-label="Supplier mode">
+        <div
+          className="mt-3 flex gap-2"
+          role="group"
+          aria-label="Supplier mode"
+        >
           <button
             aria-pressed={form.supplierMode === "existing"}
             className={`${toggleBase} ${
@@ -976,7 +978,9 @@ function QuickStockInWorkspace({
               <input
                 className={controlClass}
                 inputMode="tel"
-                onChange={(event) => update("supplierPhone", event.target.value)}
+                onChange={(event) =>
+                  update("supplierPhone", event.target.value)
+                }
                 placeholder="e.g. 0300 1234567"
                 value={form.supplierPhone}
               />

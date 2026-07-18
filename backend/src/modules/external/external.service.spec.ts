@@ -28,8 +28,16 @@ const ACCOUNTS = [
   { id: "acc-cash", code: "CASH", accountSubtype: "physical_cash" },
   { id: "acc-bank", code: "BANK", accountSubtype: "bank" },
   { id: "acc-digital", code: "DIGITAL", accountSubtype: "provider_float" },
-  { id: "acc-service-rev", code: "SERVICE-REVENUE", accountSubtype: "service_revenue" },
-  { id: "acc-service-float", code: "SERVICE-FLOAT", accountSubtype: "service_float" },
+  {
+    id: "acc-service-rev",
+    code: "SERVICE-REVENUE",
+    accountSubtype: "service_revenue",
+  },
+  {
+    id: "acc-service-float",
+    code: "SERVICE-FLOAT",
+    accountSubtype: "service_float",
+  },
   { id: "acc-service-cost", code: "SERVICE-COST", accountSubtype: "expense" },
 ];
 
@@ -72,7 +80,13 @@ function baseTransaction(settings: readonly unknown[] = []) {
       const sql = strings.join(" ");
       if (sql.includes("number_sequences")) {
         return Promise.resolve([
-          { id: IDS.sequence, prefix: "EXT-", nextValue: 1, padding: 6, periodKey: "2026" },
+          {
+            id: IDS.sequence,
+            prefix: "EXT-",
+            nextValue: 1,
+            padding: 6,
+            periodKey: "2026",
+          },
         ]);
       }
       if (sql.includes("cash_sessions")) {
@@ -86,7 +100,8 @@ function baseTransaction(settings: readonly unknown[] = []) {
 function serviceFor(tx: ReturnType<typeof baseTransaction>) {
   const client = {
     $transaction: vi.fn(
-      async (operation: (transaction: typeof tx) => Promise<unknown>) => operation(tx),
+      async (operation: (transaction: typeof tx) => Promise<unknown>) =>
+        operation(tx),
     ),
   };
   return new ExternalService({ client } as unknown as PrismaService);
@@ -109,7 +124,10 @@ describe("ExternalService", () => {
       service.record(
         CONTEXT,
         null,
-        externalInput({ feeChargedMinor: 5_000, feeOverrideReason: "Loyal customer" }),
+        externalInput({
+          feeChargedMinor: 5_000,
+          feeOverrideReason: "Loyal customer",
+        }),
       ),
     ).rejects.toMatchObject({ code: ERROR_CODES.FORBIDDEN_PERMISSION });
     expect(tx.externalTransaction.create).not.toHaveBeenCalled();
@@ -123,7 +141,10 @@ describe("ExternalService", () => {
     const response = await service.record(
       context,
       null,
-      externalInput({ feeChargedMinor: 5_000, feeOverrideReason: "Loyal customer" }),
+      externalInput({
+        feeChargedMinor: 5_000,
+        feeOverrideReason: "Loyal customer",
+      }),
     );
 
     const created = tx.externalTransaction.create.mock.calls[0]?.[0]?.data as {
@@ -141,7 +162,11 @@ describe("ExternalService", () => {
   it("applies the per-started-block fee from application settings, ceiling each partial block", async () => {
     // Owner-edited rate: PKR 5 per started PKR 1,000 block.
     const tx = baseTransaction([
-      { branchId: null, key: EXTERNAL_FEE_CONFIG_KEYS.amountBlockMinor, value: 100_000 },
+      {
+        branchId: null,
+        key: EXTERNAL_FEE_CONFIG_KEYS.amountBlockMinor,
+        value: 100_000,
+      },
       { branchId: null, key: EXTERNAL_FEE_CONFIG_KEYS.money_send, value: 500 },
     ]);
     const service = serviceFor(tx);
@@ -150,7 +175,10 @@ describe("ExternalService", () => {
     const response = await service.record(
       CONTEXT,
       null,
-      externalInput({ principalMinor: 250_000, paymentMethod: "bank_transfer" }),
+      externalInput({
+        principalMinor: 250_000,
+        paymentMethod: "bank_transfer",
+      }),
     );
 
     const created = tx.externalTransaction.create.mock.calls[0]?.[0]?.data as {
@@ -179,15 +207,24 @@ describe("ExternalService", () => {
 
     const legs = ledgerData(tx);
     // Revenue is credited the FULL fee (1,000), never the 700 net profit.
-    const revenueLeg = legs.find((leg) => leg.financialAccountId === "acc-service-rev");
-    expect(revenueLeg).toMatchObject({ direction: "credit", amountMinor: 1_000n });
+    const revenueLeg = legs.find(
+      (leg) => leg.financialAccountId === "acc-service-rev",
+    );
+    expect(revenueLeg).toMatchObject({
+      direction: "credit",
+      amountMinor: 1_000n,
+    });
     // The provider charge is a dedicated debit to the service-cost account.
-    const costLeg = legs.find((leg) => leg.financialAccountId === "acc-service-cost");
+    const costLeg = legs.find(
+      (leg) => leg.financialAccountId === "acc-service-cost",
+    );
     expect(costLeg).toMatchObject({ direction: "debit", amountMinor: 300n });
     // The principal is never revenue: no revenue leg carries the principal.
     expect(
       legs.some(
-        (leg) => leg.financialAccountId === "acc-service-rev" && leg.amountMinor === 100_000n,
+        (leg) =>
+          leg.financialAccountId === "acc-service-rev" &&
+          leg.amountMinor === 100_000n,
       ),
     ).toBe(false);
 
@@ -218,15 +255,24 @@ describe("ExternalService", () => {
 
     const legs = ledgerData(tx);
     // Revenue is NEVER debited: the full fee is credited even at a loss.
-    const revenueLeg = legs.find((leg) => leg.financialAccountId === "acc-service-rev");
-    expect(revenueLeg).toMatchObject({ direction: "credit", amountMinor: 1_000n });
+    const revenueLeg = legs.find(
+      (leg) => leg.financialAccountId === "acc-service-rev",
+    );
+    expect(revenueLeg).toMatchObject({
+      direction: "credit",
+      amountMinor: 1_000n,
+    });
     expect(
       legs.some(
-        (leg) => leg.financialAccountId === "acc-service-rev" && leg.direction === "debit",
+        (leg) =>
+          leg.financialAccountId === "acc-service-rev" &&
+          leg.direction === "debit",
       ),
     ).toBe(false);
     // The provider charge posts to service cost as a debit for the full 1,500.
-    const costLeg = legs.find((leg) => leg.financialAccountId === "acc-service-cost");
+    const costLeg = legs.find(
+      (leg) => leg.financialAccountId === "acc-service-cost",
+    );
     expect(costLeg).toMatchObject({ direction: "debit", amountMinor: 1_500n });
     expect(legs.every((leg) => BigInt(leg.amountMinor) >= 1n)).toBe(true);
 
@@ -256,10 +302,17 @@ describe("ExternalService", () => {
     expect(response.serviceProfitMinor).toBe(1_000);
 
     const legs = ledgerData(tx);
-    const revenueLeg = legs.find((leg) => leg.financialAccountId === "acc-service-rev");
-    expect(revenueLeg).toMatchObject({ direction: "credit", amountMinor: 1_000n });
+    const revenueLeg = legs.find(
+      (leg) => leg.financialAccountId === "acc-service-rev",
+    );
+    expect(revenueLeg).toMatchObject({
+      direction: "credit",
+      amountMinor: 1_000n,
+    });
     // No service-cost leg at all when the provider charge is zero.
-    expect(legs.some((leg) => leg.financialAccountId === "acc-service-cost")).toBe(false);
+    expect(
+      legs.some((leg) => leg.financialAccountId === "acc-service-cost"),
+    ).toBe(false);
     expect(legs.every((leg) => BigInt(leg.amountMinor) >= 1n)).toBe(true);
 
     const debit = legs
@@ -279,7 +332,13 @@ describe("ExternalService", () => {
       const sql = strings.join(" ");
       if (sql.includes("number_sequences")) {
         return Promise.resolve([
-          { id: IDS.sequence, prefix: "EXT-", nextValue: 1, padding: 6, periodKey: "2026" },
+          {
+            id: IDS.sequence,
+            prefix: "EXT-",
+            nextValue: 1,
+            padding: 6,
+            periodKey: "2026",
+          },
         ]);
       }
       return Promise.resolve([]); // no open cash session

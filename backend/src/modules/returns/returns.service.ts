@@ -81,7 +81,9 @@ const returnInclude = {
   },
 } satisfies Prisma.SaleReturnInclude;
 
-type ReturnRecord = Prisma.SaleReturnGetPayload<{ include: typeof returnInclude }>;
+type ReturnRecord = Prisma.SaleReturnGetPayload<{
+  include: typeof returnInclude;
+}>;
 
 const saleLineSelect = {
   id: true,
@@ -117,21 +119,32 @@ const REFUND_ACCOUNT_BY_METHOD = Object.freeze({
   digital_wallet: { code: "DIGITAL", subtype: "provider_float" },
 } as const);
 
-function safeInteger(value: bigint | number, label: string, minimum?: number): number {
+function safeInteger(
+  value: bigint | number,
+  label: string,
+  minimum?: number,
+): number {
   const result = Number(value);
-  if (!Number.isSafeInteger(result) || (minimum !== undefined && result < minimum)) {
+  if (
+    !Number.isSafeInteger(result) ||
+    (minimum !== undefined && result < minimum)
+  ) {
     throw new Error(`${label} is outside the safe-integer range.`);
   }
   return result;
 }
 
 function iso(value: Date): string {
-  if (!Number.isFinite(value.getTime())) throw new Error("Invalid database timestamp.");
+  if (!Number.isFinite(value.getTime()))
+    throw new Error("Invalid database timestamp.");
   return value.toISOString();
 }
 
 function notFound(label = "return"): DomainError {
-  return new DomainError(ERROR_CODES.NOT_FOUND, `This ${label} no longer exists.`);
+  return new DomainError(
+    ERROR_CODES.NOT_FOUND,
+    `This ${label} no longer exists.`,
+  );
 }
 
 function optimistic(label = "return"): DomainError {
@@ -178,7 +191,8 @@ function proportionalRefundMinor(
   alreadyReturnedQty: number,
   thisQty: number,
 ): number {
-  if (soldQty <= 0) throw new Error("A sale line must have a positive quantity.");
+  if (soldQty <= 0)
+    throw new Error("A sale line must have a positive quantity.");
   const denominator = BigInt(soldQty);
   const previousCumulative =
     (lineTotalMinor * BigInt(alreadyReturnedQty)) / denominator;
@@ -249,7 +263,9 @@ function policyReference(record: ReturnRecord) {
             fullName: record.policyOverriddenBy.fullName,
           },
     overriddenAt:
-      record.policyOverriddenAt === null ? null : iso(record.policyOverriddenAt),
+      record.policyOverriddenAt === null
+        ? null
+        : iso(record.policyOverriddenAt),
   };
 }
 
@@ -306,11 +322,19 @@ function returnLineResponse(
       },
     };
   }
-  return { ...common, trackingType: "quantity" as const, quantity: line.quantity };
+  return {
+    ...common,
+    trackingType: "quantity" as const,
+    quantity: line.quantity,
+  };
 }
 
 function returnTotals(record: ReturnRecord, canViewProfit: boolean) {
-  const refundMinor = safeInteger(record.totalRefundMinor, "return refund total", 0);
+  const refundMinor = safeInteger(
+    record.totalRefundMinor,
+    "return refund total",
+    0,
+  );
   const cogsReversalMinor = safeInteger(
     record.totalCogsReversalMinor,
     "return cost reversal total",
@@ -323,7 +347,11 @@ function returnTotals(record: ReturnRecord, canViewProfit: boolean) {
       "return receivable credit",
       0,
     ),
-    refundedMinor: safeInteger(record.refundedMinor, "return refunded amount", 0),
+    refundedMinor: safeInteger(
+      record.refundedMinor,
+      "return refunded amount",
+      0,
+    ),
     profit: returnProfit(canViewProfit, cogsReversalMinor, refundMinor),
   };
 }
@@ -367,7 +395,11 @@ function summaryResponse(record: ReturnRecord, context: ReturnsActorContext) {
     reason: record.reason,
     lineCount: record.lines.length,
     unitCount: record.lines.reduce((sum, line) => sum + line.quantity, 0),
-    totalRefundMinor: safeInteger(record.totalRefundMinor, "return refund total", 0),
+    totalRefundMinor: safeInteger(
+      record.totalRefundMinor,
+      "return refund total",
+      0,
+    ),
     policyExpired: record.policyExpired,
     postedAt: record.postedAt === null ? null : iso(record.postedAt),
     createdAt: iso(record.createdAt),
@@ -379,7 +411,10 @@ function summaryResponse(record: ReturnRecord, context: ReturnsActorContext) {
 export class ReturnsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(context: ReturnsActorContext, query: ReturnListQuery): Promise<ReturnPage> {
+  async list(
+    context: ReturnsActorContext,
+    query: ReturnListQuery,
+  ): Promise<ReturnPage> {
     const additionalFilters: Prisma.SaleReturnWhereInput[] = [];
     if (query.q !== undefined) {
       additionalFilters.push({
@@ -393,14 +428,23 @@ export class ReturnsService {
           {
             sale: {
               is: {
-                customerNameSnapshot: { contains: query.q, mode: "insensitive" },
+                customerNameSnapshot: {
+                  contains: query.q,
+                  mode: "insensitive",
+                },
               },
             },
           },
-          { lines: { some: { skuSnapshot: { contains: query.q, mode: "insensitive" } } } },
           {
             lines: {
-              some: { identifierSnapshot: { contains: query.q, mode: "insensitive" } },
+              some: { skuSnapshot: { contains: query.q, mode: "insensitive" } },
+            },
+          },
+          {
+            lines: {
+              some: {
+                identifierSnapshot: { contains: query.q, mode: "insensitive" },
+              },
             },
           },
         ],
@@ -411,12 +455,16 @@ export class ReturnsService {
       branchId: context.branchId,
       ...(query.status === undefined ? {} : { status: query.status }),
       ...(query.saleId === undefined ? {} : { saleId: query.saleId }),
-      ...(query.customerId === undefined ? {} : { customerId: query.customerId }),
+      ...(query.customerId === undefined
+        ? {}
+        : { customerId: query.customerId }),
       ...(context.allowedLocationIds === null
         ? {}
         : {
             lines: {
-              every: { stockLocationId: { in: [...context.allowedLocationIds] } },
+              every: {
+                stockLocationId: { in: [...context.allowedLocationIds] },
+              },
             },
           }),
       ...(query.from === undefined && query.to === undefined
@@ -659,7 +707,9 @@ export class ReturnsService {
 
       const lineData: Omit<Prisma.ReturnLineCreateManyInput, "returnId">[] = [];
       for (const inputLine of input.lines) {
-        const saleLine = sale.lines.find((line) => line.id === inputLine.saleLineId);
+        const saleLine = sale.lines.find(
+          (line) => line.id === inputLine.saleLineId,
+        );
         if (saleLine === undefined) throw notFound("sale line");
         this.assertLocation(context, saleLine.stockLocationId);
         const returned = alreadyReturned.get(saleLine.id) ?? 0;
@@ -686,7 +736,8 @@ export class ReturnsService {
           if (unit.state !== "sold") throw unitMismatch();
           if (remaining <= 0) throw quantityExceeded();
         } else {
-          if (saleLine.trackingTypeSnapshot !== "quantity") throw unitMismatch();
+          if (saleLine.trackingTypeSnapshot !== "quantity")
+            throw unitMismatch();
           if (remaining <= 0 || inputLine.quantity > remaining) {
             throw quantityExceeded();
           }
@@ -706,7 +757,9 @@ export class ReturnsService {
           productNameSnapshot: saleLine.productNameSnapshot,
           skuSnapshot: saleLine.skuSnapshot,
           identifierSnapshot:
-            inputLine.trackingType === "serialized" ? saleLine.imeiSnapshot : null,
+            inputLine.trackingType === "serialized"
+              ? saleLine.imeiSnapshot
+              : null,
           quantity:
             inputLine.trackingType === "serialized" ? 1 : inputLine.quantity,
           // Draft carries the customer's claim only. Every amount is computed
@@ -748,8 +801,14 @@ export class ReturnsService {
     return detailResponse(record, context);
   }
 
-  async detail(context: ReturnsActorContext, id: string): Promise<ReturnDetail> {
-    return detailResponse(await this.load(this.prisma.client, context, id), context);
+  async detail(
+    context: ReturnsActorContext,
+    id: string,
+  ): Promise<ReturnDetail> {
+    return detailResponse(
+      await this.load(this.prisma.client, context, id),
+      context,
+    );
   }
 
   async exchange(
@@ -762,7 +821,10 @@ export class ReturnsService {
     // The endpoint is intentionally stable, but a safe exchange must post a new
     // sale and this return inside one atomic boundary that is not yet available.
     // Never partially post: refuse outright rather than settle a half-exchange.
-    throw new DomainError(ERROR_CODES.CONFLICT, RETURN_EXCHANGE_UNAVAILABLE_REASON);
+    throw new DomainError(
+      ERROR_CODES.CONFLICT,
+      RETURN_EXCHANGE_UNAVAILABLE_REASON,
+    );
   }
 
   async post(
@@ -850,7 +912,10 @@ export class ReturnsService {
             ),
           );
           for (const line of lockOrder) {
-            if (line.trackingTypeSnapshot === "serialized" && line.serializedUnitId !== null) {
+            if (
+              line.trackingTypeSnapshot === "serialized" &&
+              line.serializedUnitId !== null
+            ) {
               await tx.$queryRaw`SELECT id FROM serialized_units WHERE id = ${line.serializedUnitId}::uuid AND organization_id = ${context.organizationId}::uuid AND branch_id = ${context.branchId}::uuid FOR UPDATE`;
             } else {
               await tx.$queryRaw`SELECT id FROM stock_batches WHERE organization_id = ${context.organizationId}::uuid AND branch_id = ${context.branchId}::uuid AND product_variant_id = ${line.productVariantId}::uuid AND stock_location_id = ${line.stockLocationId}::uuid FOR UPDATE`;
@@ -876,11 +941,14 @@ export class ReturnsService {
             sale.id,
           );
           const computed = record.lines.map((line) => {
-            const saleLine = sale.lines.find((candidate) => candidate.id === line.saleLineId);
+            const saleLine = sale.lines.find(
+              (candidate) => candidate.id === line.saleLineId,
+            );
             if (saleLine === undefined) throw unitMismatch();
             const returned = alreadyReturned.get(line.saleLineId) ?? 0;
             const remaining = saleLine.quantity - returned;
-            if (remaining <= 0 || line.quantity > remaining) throw quantityExceeded();
+            if (remaining <= 0 || line.quantity > remaining)
+              throw quantityExceeded();
             const refundMinor = proportionalRefundMinor(
               saleLine.lineTotalMinor,
               saleLine.quantity,
@@ -895,7 +963,10 @@ export class ReturnsService {
             return { line, saleLine, refundMinor, cogsReversalMinor };
           });
           const totalRefundMinor = safeInteger(
-            computed.reduce((sum, entry) => sum + BigInt(entry.refundMinor), 0n),
+            computed.reduce(
+              (sum, entry) => sum + BigInt(entry.refundMinor),
+              0n,
+            ),
             "return refund total",
             0,
           );
@@ -931,12 +1002,18 @@ export class ReturnsService {
                 organizationId: context.organizationId,
                 branchId: context.branchId,
               },
-              select: { id: true, balanceMinor: true, status: true, version: true },
+              select: {
+                id: true,
+                balanceMinor: true,
+                status: true,
+                version: true,
+              },
             });
           }
           const openReceivable =
             receivable !== null &&
-            (receivable.status === "open" || receivable.status === "partially_paid")
+            (receivable.status === "open" ||
+              receivable.status === "partially_paid")
               ? receivable
               : null;
           const receivableBalanceMinor = openReceivable
@@ -1002,7 +1079,10 @@ export class ReturnsService {
                   version: unit.version,
                   state: "sold",
                 },
-                data: { state: "returned_inspection", version: { increment: 1 } },
+                data: {
+                  state: "returned_inspection",
+                  version: { increment: 1 },
+                },
               });
               if (updated.count !== 1) throw unitMismatch();
               await tx.inventoryMovement.create({
@@ -1078,7 +1158,10 @@ export class ReturnsService {
 
           const returnNumber = await allocateDocumentNumber(
             tx,
-            { organizationId: context.organizationId, branchId: context.branchId },
+            {
+              organizationId: context.organizationId,
+              branchId: context.branchId,
+            },
             { key: SEQUENCE_KEYS.RETURN, defaultPrefix: "RTN-", periodKey },
           );
 
@@ -1087,7 +1170,17 @@ export class ReturnsService {
               organizationId: context.organizationId,
               branchId: context.branchId,
               isActive: true,
-              code: { in: ["CASH", "BANK", "DIGITAL", "AR", "SALES", "COGS", "INVENTORY"] },
+              code: {
+                in: [
+                  "CASH",
+                  "BANK",
+                  "DIGITAL",
+                  "AR",
+                  "SALES",
+                  "COGS",
+                  "INVENTORY",
+                ],
+              },
             },
             orderBy: [{ code: "asc" }, { id: "asc" }],
           });
@@ -1148,7 +1241,10 @@ export class ReturnsService {
             }
             refundNumber = await allocateDocumentNumber(
               tx,
-              { organizationId: context.organizationId, branchId: context.branchId },
+              {
+                organizationId: context.organizationId,
+                branchId: context.branchId,
+              },
               { key: "refund", defaultPrefix: "REF-", periodKey },
             );
             const refund = await tx.refund.create({
@@ -1193,7 +1289,11 @@ export class ReturnsService {
               description: `Return ${returnNumber} revenue reversal`,
             });
           }
-          if (refundedMinor > 0 && refundId !== null && refundAccountId !== null) {
+          if (
+            refundedMinor > 0 &&
+            refundId !== null &&
+            refundAccountId !== null
+          ) {
             entries.push({
               ...entryBase,
               sourceType: "refund",
@@ -1224,7 +1324,8 @@ export class ReturnsService {
                 sourceType: "return",
                 sourceId: id,
                 sourceKey: `return:${id}:inventory_restock`,
-                financialAccountId: accountFor("INVENTORY", "inventory_asset").id,
+                financialAccountId: accountFor("INVENTORY", "inventory_asset")
+                  .id,
                 direction: "debit",
                 amountMinor: BigInt(totalCogsReversalMinor),
                 description: `Return ${returnNumber} inventory restock`,
@@ -1258,7 +1359,8 @@ export class ReturnsService {
           }
 
           if (receivableCreditMinor > 0 && openReceivable !== null) {
-            const newBalanceMinor = receivableBalanceMinor - receivableCreditMinor;
+            const newBalanceMinor =
+              receivableBalanceMinor - receivableCreditMinor;
             const nextStatus = newBalanceMinor <= 0 ? "paid" : "partially_paid";
             const updatedReceivable = await tx.receivable.updateMany({
               where: {
@@ -1283,13 +1385,17 @@ export class ReturnsService {
           for (const entry of computed) {
             returnedAfter.set(
               entry.line.saleLineId,
-              (returnedAfter.get(entry.line.saleLineId) ?? 0) + entry.line.quantity,
+              (returnedAfter.get(entry.line.saleLineId) ?? 0) +
+                entry.line.quantity,
             );
           }
           const fullyReturned = sale.lines.every(
-            (saleLine) => (returnedAfter.get(saleLine.id) ?? 0) >= saleLine.quantity,
+            (saleLine) =>
+              (returnedAfter.get(saleLine.id) ?? 0) >= saleLine.quantity,
           );
-          const nextSaleStatus = fullyReturned ? "returned" : "partially_returned";
+          const nextSaleStatus = fullyReturned
+            ? "returned"
+            : "partially_returned";
           const saleUpdated = await tx.sale.updateMany({
             where: {
               id: sale.id,
@@ -1333,7 +1439,9 @@ export class ReturnsService {
               policyCheckedAt: now,
               policyExpired: expired,
               policyOverridden: overridden,
-              policyOverrideReason: overridden ? input.policyOverrideReason : null,
+              policyOverrideReason: overridden
+                ? input.policyOverrideReason
+                : null,
               policyOverriddenByUserId: overridden ? context.actorUserId : null,
               policyOverriddenAt: overridden ? now : null,
               approvedByUserId: context.actorUserId,
@@ -1362,7 +1470,7 @@ export class ReturnsService {
               saleId: sale.id,
               saleStatusAfter: nextSaleStatus,
             },
-            overridden ? input.policyOverrideReason ?? undefined : undefined,
+            overridden ? (input.policyOverrideReason ?? undefined) : undefined,
           );
           return { record: await this.load(tx, context, id), replay: false };
         },
@@ -1411,12 +1519,17 @@ export class ReturnsService {
     });
   }
 
-  private assertLocation(context: ReturnsActorContext, locationId: string): void {
+  private assertLocation(
+    context: ReturnsActorContext,
+    locationId: string,
+  ): void {
     if (
       context.allowedLocationIds !== null &&
       !context.allowedLocationIds.includes(locationId)
     ) {
-      throw forbiddenScope("This stock location is outside your assigned scope.");
+      throw forbiddenScope(
+        "This stock location is outside your assigned scope.",
+      );
     }
   }
 
@@ -1435,7 +1548,10 @@ export class ReturnsService {
     });
     const returned = new Map<string, number>();
     for (const row of rows) {
-      returned.set(row.saleLineId, (returned.get(row.saleLineId) ?? 0) + row.quantity);
+      returned.set(
+        row.saleLineId,
+        (returned.get(row.saleLineId) ?? 0) + row.quantity,
+      );
     }
     return returned;
   }
@@ -1446,7 +1562,11 @@ export class ReturnsService {
     id: string,
   ): Promise<ReturnRecord> {
     const record = await client.saleReturn.findFirst({
-      where: { id, organizationId: context.organizationId, branchId: context.branchId },
+      where: {
+        id,
+        organizationId: context.organizationId,
+        branchId: context.branchId,
+      },
       include: returnInclude,
     });
     if (record === null) throw notFound();
@@ -1480,7 +1600,8 @@ export class ReturnsService {
         action,
         entityType: "return",
         entityId,
-        beforeSnapshot: beforeSnapshot === null ? Prisma.JsonNull : beforeSnapshot,
+        beforeSnapshot:
+          beforeSnapshot === null ? Prisma.JsonNull : beforeSnapshot,
         afterSnapshot,
         ...(reason === undefined ? {} : { reason }),
         requestId: context.metadata.requestId,

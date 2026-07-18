@@ -76,17 +76,15 @@ describe("BulkStockInInputSchema", () => {
   });
 
   it(`rejects more than ${BULK_STOCK_IN_LIMITS.MAX_ROWS} rows`, () => {
-    const rows = Array.from(
-      { length: BULK_STOCK_IN_LIMITS.MAX_ROWS + 1 },
-      () => row(),
+    const rows = Array.from({ length: BULK_STOCK_IN_LIMITS.MAX_ROWS + 1 }, () =>
+      row(),
     );
     expect(BulkStockInInputSchema.safeParse({ rows }).success).toBe(false);
   });
 
   it("accepts exactly the maximum number of rows", () => {
-    const rows = Array.from(
-      { length: BULK_STOCK_IN_LIMITS.MAX_ROWS },
-      () => row(),
+    const rows = Array.from({ length: BULK_STOCK_IN_LIMITS.MAX_ROWS }, () =>
+      row(),
     );
     expect(BulkStockInInputSchema.safeParse({ rows }).success).toBe(true);
   });
@@ -118,9 +116,7 @@ describe("BulkStockInInputSchema", () => {
   it("rejects a row with a smuggled actor id (strict row schema)", () => {
     expect(
       BulkStockInInputSchema.safeParse({
-        rows: [
-          row({ organizationId: "99999999-9999-4999-8999-999999999999" }),
-        ],
+        rows: [row({ organizationId: "99999999-9999-4999-8999-999999999999" })],
       }).success,
     ).toBe(false);
   });
@@ -142,7 +138,11 @@ describe("BulkStockInRowResultSchema", () => {
     const parsed = BulkStockInRowResultSchema.parse({
       index: 3,
       status: "failed",
-      error: { code: "VALIDATION_FAILED", message: "Bad row.", field: "product" },
+      error: {
+        code: "VALIDATION_FAILED",
+        message: "Bad row.",
+        field: "product",
+      },
     });
     if (parsed.status !== "failed") throw new Error("status");
     expect(parsed.error.field).toBe("product");

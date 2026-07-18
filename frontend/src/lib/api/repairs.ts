@@ -1,9 +1,5 @@
 export type RepairApiSurface =
-  | "authorization"
-  | "queue"
-  | "booking"
-  | "workflow"
-  | "notification";
+  "authorization" | "queue" | "booking" | "workflow" | "notification";
 
 export interface RepairApiGap {
   readonly surface: RepairApiSurface;
@@ -53,7 +49,8 @@ export const REPAIR_API_GAPS: readonly RepairApiGap[] = [
   {
     surface: "notification",
     label: "Pickup, Finance & notification",
-    requiredContract: "Repair completion · Finance posting · Notifications adapter",
+    requiredContract:
+      "Repair completion · Finance posting · Notifications adapter",
     status: "not_implemented",
     safeBehaviour:
       "No customer message, charge, revenue posting, warranty link or pickup completion is claimed.",
@@ -62,6 +59,7 @@ export const REPAIR_API_GAPS: readonly RepairApiGap[] = [
 
 export function repairApiGap(surface: RepairApiSurface): RepairApiGap {
   const gap = REPAIR_API_GAPS.find((entry) => entry.surface === surface);
-  if (gap === undefined) throw new Error(`Unknown repair API surface: ${surface}`);
+  if (gap === undefined)
+    throw new Error(`Unknown repair API surface: ${surface}`);
   return gap;
 }

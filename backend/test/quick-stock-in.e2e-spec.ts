@@ -237,7 +237,9 @@ describe("Quick Stock In (real PostgreSQL HTTP)", () => {
       if (property === "session") return sessionDelegate;
       const transaction = currentTransaction;
       if (transaction === undefined) {
-        throw new Error("A Quick Stock In request escaped its test transaction");
+        throw new Error(
+          "A Quick Stock In request escaped its test transaction",
+        );
       }
       if (property === "$transaction") {
         return async (argument: unknown): Promise<unknown> => {
@@ -251,13 +253,17 @@ describe("Quick Stock In (real PostgreSQL HTTP)", () => {
             const result = await (
               argument as (tx: PrismaClient) => Promise<unknown>
             )(clientProxy);
-            await transaction.$executeRawUnsafe(`RELEASE SAVEPOINT ${savepoint}`);
+            await transaction.$executeRawUnsafe(
+              `RELEASE SAVEPOINT ${savepoint}`,
+            );
             return result;
           } catch (error) {
             await transaction.$executeRawUnsafe(
               `ROLLBACK TO SAVEPOINT ${savepoint}`,
             );
-            await transaction.$executeRawUnsafe(`RELEASE SAVEPOINT ${savepoint}`);
+            await transaction.$executeRawUnsafe(
+              `RELEASE SAVEPOINT ${savepoint}`,
+            );
             throw error;
           }
         };
@@ -267,7 +273,10 @@ describe("Quick Stock In (real PostgreSQL HTTP)", () => {
       ];
       return typeof value === "function"
         ? (...args: unknown[]): unknown =>
-            (value as (...values: unknown[]) => unknown).apply(transaction, args)
+            (value as (...values: unknown[]) => unknown).apply(
+              transaction,
+              args,
+            )
         : value;
     },
   });
@@ -454,10 +463,7 @@ describe("Quick Stock In (real PostgreSQL HTTP)", () => {
     return fixture;
   }
 
-  function post(
-    body: Record<string, unknown>,
-    idempotencyKey = randomUUID(),
-  ) {
+  function post(body: Record<string, unknown>, idempotencyKey = randomUUID()) {
     return request(app.getHttpServer())
       .post("/api/v1/inventory/quick-stock-in")
       .set("Cookie", signedCookie(REAL_TOKEN))
@@ -470,7 +476,10 @@ describe("Quick Stock In (real PostgreSQL HTTP)", () => {
     overrides: Record<string, unknown> = {},
   ) {
     return {
-      product: { mode: "existing", productVariantId: fixture.quantityVariantId },
+      product: {
+        mode: "existing",
+        productVariantId: fixture.quantityVariantId,
+      },
       supplier: { mode: "existing", supplierId: fixture.supplierId },
       stockLocationId: fixture.locationId,
       quantity: 5,
@@ -572,7 +581,11 @@ describe("Quick Stock In (real PostgreSQL HTTP)", () => {
           categoryId: fixture.categoryId,
           brandId: fixture.brandId,
         },
-        supplier: { mode: "new", name: "Local Market Trader", paymentTermsDays: 0 },
+        supplier: {
+          mode: "new",
+          name: "Local Market Trader",
+          paymentTermsDays: 0,
+        },
         stockLocationId: fixture.locationId,
         quantity: 3,
         unitCostMinor: 4_200_000,

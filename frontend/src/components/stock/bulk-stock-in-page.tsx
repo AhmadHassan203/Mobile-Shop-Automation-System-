@@ -153,7 +153,8 @@ export function rowToQuickStockInForm(
     ...initialQuickStockInForm(),
     productMode: "new",
     productName: row.productName,
-    variantName: row.variantName.trim().length > 0 ? row.variantName : row.productName,
+    variantName:
+      row.variantName.trim().length > 0 ? row.variantName : row.productName,
     categoryId: row.categoryId,
     brandId: row.brandId,
     sku: row.barcode,
@@ -189,7 +190,10 @@ export type BulkBuildResult =
 /** A short human label for a row, used to caption its server result. */
 function rowLabel(row: BulkRowState): string {
   return (
-    row.productName.trim() || row.variantName.trim() || row.barcode.trim() || "Row"
+    row.productName.trim() ||
+    row.variantName.trim() ||
+    row.barcode.trim() ||
+    "Row"
   );
 }
 
@@ -206,7 +210,11 @@ export function buildBulkStockInInput(
 ): BulkBuildResult {
   const active = rows.filter((row) => !isBulkRowBlank(row));
   if (active.length === 0) {
-    return { ok: false, rowErrors: [], formError: "Add at least one row to stock in." };
+    return {
+      ok: false,
+      rowErrors: [],
+      formError: "Add at least one row to stock in.",
+    };
   }
   if (batch.stockLocationId.trim() === "") {
     return {
@@ -261,9 +269,9 @@ export function parsePastedBulkRows(
 ): readonly BulkRowState[] {
   const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
   return lines.map((line, index) => {
-    const cells = (line.includes("\t") ? line.split("\t") : line.split(",")).map(
-      (cell) => cell.trim(),
-    );
+    const cells = (
+      line.includes("\t") ? line.split("\t") : line.split(",")
+    ).map((cell) => cell.trim());
     const at = (i: number): string => cells[i] ?? "";
     const brandId = brandsByName.get(at(1).toLowerCase()) ?? "";
     const categoryId = categoriesByName.get(at(2).toLowerCase()) ?? "";
@@ -322,7 +330,8 @@ function Header(): JSX.Element {
         </div>
         <div className="flex flex-col items-end gap-2">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-positive-soft px-3 py-1.5 text-xs font-bold text-positive">
-            <ShieldCheckIcon className="size-4" /> API-backed · permission scoped
+            <ShieldCheckIcon className="size-4" /> API-backed · permission
+            scoped
           </span>
           <Link
             className="text-xs font-semibold text-accent hover:underline"
@@ -371,8 +380,8 @@ function ResultView({
                 : `${result.okCount} received · ${result.failedCount} failed`}
             </h2>
             <p className="mt-0.5 text-sm text-ink-muted">
-              Received rows are committed. Failed rows changed nothing — fix them
-              and start a new batch.
+              Received rows are committed. Failed rows changed nothing — fix
+              them and start a new batch.
             </p>
           </div>
         </div>
@@ -465,9 +474,9 @@ function BulkStockInWorkspace(): JSX.Element {
     makeBulkRow("row-3"),
   ]);
   const [batch, setBatch] = useState<BulkBatchState>(initialBulkBatch);
-  const [rowErrors, setRowErrors] = useState<
-    ReadonlyMap<number, FieldErrors>
-  >(new Map());
+  const [rowErrors, setRowErrors] = useState<ReadonlyMap<number, FieldErrors>>(
+    new Map(),
+  );
   const [formError, setFormError] = useState<string | null>(null);
   const [requestError, setRequestError] = useState<ApiError | null>(null);
   const [result, setResult] = useState<BulkStockInResult | null>(null);
@@ -480,7 +489,9 @@ function BulkStockInWorkspace(): JSX.Element {
   const categories = useQuery(
     catalogCategoriesQueryOptions(REFERENCE_PARAMETERS, true),
   );
-  const brands = useQuery(catalogBrandsQueryOptions(REFERENCE_PARAMETERS, true));
+  const brands = useQuery(
+    catalogBrandsQueryOptions(REFERENCE_PARAMETERS, true),
+  );
   const locations = useQuery(
     stockLocationsQueryOptions(REFERENCE_PARAMETERS, true),
   );
@@ -543,16 +554,18 @@ function BulkStockInWorkspace(): JSX.Element {
       const source = previous[index];
       if (source === undefined) return previous;
       const copy = { ...source, key: nextRowKey() };
-      return [...previous.slice(0, index + 1), copy, ...previous.slice(index + 1)];
+      return [
+        ...previous.slice(0, index + 1),
+        copy,
+        ...previous.slice(index + 1),
+      ];
     });
   };
 
   const removeRow = (index: number): void => {
     dirtied();
     setRows((previous) =>
-      previous.length <= 1
-        ? previous
-        : previous.filter((_, i) => i !== index),
+      previous.length <= 1 ? previous : previous.filter((_, i) => i !== index),
     );
     setRowErrors(new Map());
   };
@@ -621,9 +634,7 @@ function BulkStockInWorkspace(): JSX.Element {
   };
 
   if (result !== null) {
-    return (
-      <ResultView labels={resultLabels} onReset={reset} result={result} />
-    );
+    return <ResultView labels={resultLabels} onReset={reset} result={result} />;
   }
 
   // Index bookkeeping is by the on-screen row order, matching how
@@ -657,8 +668,8 @@ function BulkStockInWorkspace(): JSX.Element {
       <section className={sectionClass}>
         <h2 className={sectionTitleClass}>Batch settings</h2>
         <p className="mt-1 text-xs text-ink-muted">
-          Applied to every row. A row may still name its own supplier to override
-          the default below.
+          Applied to every row. A row may still name its own supplier to
+          override the default below.
         </p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <label className={labelClass}>
@@ -703,7 +714,11 @@ function BulkStockInWorkspace(): JSX.Element {
           </label>
           <div>
             <span className={labelClass}>Payment</span>
-            <div className="mt-1.5 flex gap-2" role="group" aria-label="Payment">
+            <div
+              className="mt-1.5 flex gap-2"
+              role="group"
+              aria-label="Payment"
+            >
               <button
                 aria-pressed={batch.paymentStatus === "paid_full"}
                 className={`${toggleBase} ${
@@ -817,15 +832,17 @@ function BulkStockInWorkspace(): JSX.Element {
       <section className={sectionClass}>
         <h2 className={sectionTitleClass}>Paste rows</h2>
         <p className="mt-1 text-xs text-ink-muted">
-          One product per line, columns separated by tabs or commas: name, brand,
-          category, model, barcode, qty, purchase, selling, supplier, phone.
-          Brand and category are matched by name; unmatched ones are left for you
-          to pick.
+          One product per line, columns separated by tabs or commas: name,
+          brand, category, model, barcode, qty, purchase, selling, supplier,
+          phone. Brand and category are matched by name; unmatched ones are left
+          for you to pick.
         </p>
         <textarea
           className={`${controlClass} mt-3 min-h-24 font-mono`}
           onChange={(event) => setPasteText(event.target.value)}
-          placeholder={"Galaxy A15\tSamsung\tPhones\t8/256\t8901\t5\t28000\t33000\tAli Traders\t0300..."}
+          placeholder={
+            "Galaxy A15\tSamsung\tPhones\t8/256\t8901\t5\t28000\t33000\tAli Traders\t0300..."
+          }
           value={pasteText}
         />
         <button
@@ -889,8 +906,7 @@ function BulkRowInputs({
   readonly onRemove: () => void;
 }): JSX.Element {
   const cell = "pb-2 pr-2 align-top";
-  const errorList =
-    errors === undefined ? [] : Object.values(errors).flat();
+  const errorList = errors === undefined ? [] : Object.values(errors).flat();
   return (
     <>
       <tr>

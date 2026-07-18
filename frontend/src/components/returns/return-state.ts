@@ -331,9 +331,7 @@ export function buildCreateReturnInput(
   };
 }
 
-export function returnOutcomeImpact(
-  outcome: ReturnOutcome,
-): readonly string[] {
+export function returnOutcomeImpact(outcome: ReturnOutcome): readonly string[] {
   switch (outcome) {
     case "restock":
       return [

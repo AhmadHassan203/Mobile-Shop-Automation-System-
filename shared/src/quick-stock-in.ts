@@ -242,8 +242,12 @@ export const QuickStockInPaymentSchema = z.discriminatedUnion("status", [
     .superRefine(refineTender),
   z.object({ status: z.literal("credit") }).strict(),
 ]);
-export type QuickStockInPaymentInput = z.input<typeof QuickStockInPaymentSchema>;
-export type QuickStockInPaymentData = z.output<typeof QuickStockInPaymentSchema>;
+export type QuickStockInPaymentInput = z.input<
+  typeof QuickStockInPaymentSchema
+>;
+export type QuickStockInPaymentData = z.output<
+  typeof QuickStockInPaymentSchema
+>;
 
 // =============================================================================
 // Request
@@ -268,8 +272,7 @@ export const QuickStockInInputSchema = z
     // purchaseTotal = quantity × unitCost. A partial payment must be strictly
     // between zero and the total; paid-in-full and credit are exact by
     // construction and need no amount in the body.
-    const purchaseTotal =
-      BigInt(input.unitCostMinor) * BigInt(input.quantity);
+    const purchaseTotal = BigInt(input.unitCostMinor) * BigInt(input.quantity);
     if (input.payment.status === "partial") {
       const paid = BigInt(input.payment.amountPaidMinor);
       if (paid >= purchaseTotal) {
@@ -413,7 +416,10 @@ export const QuickStockInResultSchema = z
         path: ["paymentMethod"],
       });
     }
-    if (result.walletProvider !== null && result.paymentMethod !== "digital_wallet") {
+    if (
+      result.walletProvider !== null &&
+      result.paymentMethod !== "digital_wallet"
+    ) {
       ctx.addIssue({
         code: "custom",
         message: "A wallet provider only applies to a wallet payment.",

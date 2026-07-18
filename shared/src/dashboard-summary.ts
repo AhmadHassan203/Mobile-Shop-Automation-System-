@@ -11,8 +11,7 @@ import { z } from "zod";
  */
 
 export const FINANCIAL_SUMMARY_PERIODS = ["day", "week", "month"] as const;
-export type FinancialSummaryPeriod =
-  (typeof FINANCIAL_SUMMARY_PERIODS)[number];
+export type FinancialSummaryPeriod = (typeof FINANCIAL_SUMMARY_PERIODS)[number];
 
 const responseMoneySchema = z.number().int().safe().nonnegative();
 const signedResponseMoneySchema = z.number().int().safe();
@@ -72,7 +71,10 @@ export const DailyFinancialSummarySchema = z
         path: ["grossProfitMinor"],
       });
     }
-    if (summary.netSalesMinor !== summary.salesRevenueMinor - summary.returnsMinor) {
+    if (
+      summary.netSalesMinor !==
+      summary.salesRevenueMinor - summary.returnsMinor
+    ) {
       context.addIssue({
         code: "custom",
         message: "Net sales must equal sales revenue minus returns.",
@@ -93,6 +95,4 @@ export const DailyFinancialSummarySchema = z
       });
     }
   });
-export type DailyFinancialSummary = z.infer<
-  typeof DailyFinancialSummarySchema
->;
+export type DailyFinancialSummary = z.infer<typeof DailyFinancialSummarySchema>;

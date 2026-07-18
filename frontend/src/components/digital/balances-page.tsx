@@ -80,7 +80,9 @@ export function DigitalBalancesPage(): JSX.Element {
           void query.refetch();
         }}
         title="Service balances could not be loaded"
-        {...(error.requestId === undefined ? {} : { requestId: error.requestId })}
+        {...(error.requestId === undefined
+          ? {}
+          : { requestId: error.requestId })}
       />
     );
   } else if (providers.length === 0) {
@@ -114,7 +116,10 @@ export function DigitalBalancesPage(): JSX.Element {
           </thead>
           <tbody>
             {providers.map((provider) => (
-              <tr className="border-t border-line-subtle" key={provider.provider}>
+              <tr
+                className="border-t border-line-subtle"
+                key={provider.provider}
+              >
                 <td className="px-3.5 py-2.5 font-semibold text-ink">
                   {EXTERNAL_PROVIDER_LABELS[provider.provider]}
                 </td>
@@ -147,7 +152,9 @@ export function DigitalBalancesPage(): JSX.Element {
                 <td className="px-3.5 py-2.5 text-ink-muted">
                   {provider.lastTransactionAt === null
                     ? "—"
-                    : formatBusinessDateTime(new Date(provider.lastTransactionAt))}
+                    : formatBusinessDateTime(
+                        new Date(provider.lastTransactionAt),
+                      )}
                 </td>
               </tr>
             ))}
@@ -200,10 +207,10 @@ export function DigitalBalancesPage(): JSX.Element {
             Opening balances and low-balance thresholds are not configured
           </p>
           <p className="mt-1">
-            This system has no configured opening balance or threshold source, so
-            current balance and low-balance status are shown as “not configured”
-            rather than derived or invented. Sent, received, net movement and
-            counts are derived from recorded transactions.
+            This system has no configured opening balance or threshold source,
+            so current balance and low-balance status are shown as “not
+            configured” rather than derived or invented. Sent, received, net
+            movement and counts are derived from recorded transactions.
           </p>
         </div>
       </div>

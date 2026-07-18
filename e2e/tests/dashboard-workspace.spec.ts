@@ -37,11 +37,16 @@ test.describe("dashboard command centre (runtime)", () => {
     );
     await signIn(page);
     const snapshotResponse = await snapshot;
-    expect(snapshotResponse.status(), "dashboard snapshot GET is 200").toBe(200);
+    expect(snapshotResponse.status(), "dashboard snapshot GET is 200").toBe(
+      200,
+    );
 
     // The four financial KPI tiles render real money, not a placeholder.
     await expect(
-      page.getByRole("heading", { level: 1, name: /Good (morning|afternoon|evening|day)/ }),
+      page.getByRole("heading", {
+        level: 1,
+        name: /Good (morning|afternoon|evening|day)/,
+      }),
     ).toBeVisible();
     for (const label of [
       "Sales today",
@@ -51,12 +56,16 @@ test.describe("dashboard command centre (runtime)", () => {
       "Cash position",
       "Inventory value",
     ]) {
-      await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
+      await expect(
+        page.getByText(label, { exact: true }).first(),
+      ).toBeVisible();
     }
 
     // Recent sales shows a real posted invoice (seeded INV-2026-000002).
     await expect(page.getByText("Recent sales")).toBeVisible();
-    await expect(page.getByRole("link", { name: /INV-2026-/ }).first()).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /INV-2026-/ }).first(),
+    ).toBeVisible();
 
     // Digital services renders the corrected "Provider charges" label and money.
     const digitalCard = page
@@ -66,7 +75,9 @@ test.describe("dashboard command centre (runtime)", () => {
       .first();
     await expect(digitalCard).toBeVisible();
     await expect(digitalCard.getByText("Provider charges today")).toBeVisible();
-    await expect(digitalCard.getByText("Provider net commission")).toHaveCount(0);
+    await expect(digitalCard.getByText("Provider net commission")).toHaveCount(
+      0,
+    );
     // A wired section must never fall back to the coming-soon stub.
     await expect(digitalCard.getByText("Coming soon")).toHaveCount(0);
 

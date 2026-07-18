@@ -154,4 +154,3 @@ describe("returns contracts", () => {
     ).toBe(false);
   });
 });
-

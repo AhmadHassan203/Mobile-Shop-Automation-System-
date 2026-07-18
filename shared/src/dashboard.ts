@@ -16,8 +16,7 @@ export const DASHBOARD_MONEY_KPI_KEYS = [
   "cash_position",
   "inventory_value",
 ] as const;
-export type DashboardMoneyKpiKey =
-  (typeof DASHBOARD_MONEY_KPI_KEYS)[number];
+export type DashboardMoneyKpiKey = (typeof DASHBOARD_MONEY_KPI_KEYS)[number];
 
 export const DASHBOARD_UNAVAILABLE_REASONS = [
   "source_not_built",
@@ -122,43 +121,33 @@ const redactedValueSchema = z
   })
   .strict();
 
-export const DashboardMoneyValueSchema = z.discriminatedUnion(
-  "availability",
-  [
-    availableMoneyValueSchema,
-    partialMoneyValueSchema,
-    unavailableValueSchema,
-    redactedValueSchema,
-  ],
-);
-export type DashboardMoneyValue = z.infer<
-  typeof DashboardMoneyValueSchema
->;
+export const DashboardMoneyValueSchema = z.discriminatedUnion("availability", [
+  availableMoneyValueSchema,
+  partialMoneyValueSchema,
+  unavailableValueSchema,
+  redactedValueSchema,
+]);
+export type DashboardMoneyValue = z.infer<typeof DashboardMoneyValueSchema>;
 
-export const DashboardCountValueSchema = z.discriminatedUnion(
-  "availability",
-  [
-    z
-      .object({
-        availability: z.literal("available"),
-        value: nonnegativeCountSchema,
-        meta: shortTextSchema.optional(),
-      })
-      .strict(),
-    z
-      .object({
-        availability: z.literal("partial"),
-        value: nonnegativeCountSchema,
-        message: shortTextSchema,
-      })
-      .strict(),
-    unavailableValueSchema,
-    redactedValueSchema,
-  ],
-);
-export type DashboardCountValue = z.infer<
-  typeof DashboardCountValueSchema
->;
+export const DashboardCountValueSchema = z.discriminatedUnion("availability", [
+  z
+    .object({
+      availability: z.literal("available"),
+      value: nonnegativeCountSchema,
+      meta: shortTextSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      availability: z.literal("partial"),
+      value: nonnegativeCountSchema,
+      message: shortTextSchema,
+    })
+    .strict(),
+  unavailableValueSchema,
+  redactedValueSchema,
+]);
+export type DashboardCountValue = z.infer<typeof DashboardCountValueSchema>;
 
 function moneyKpiSchema(
   key: DashboardMoneyKpiKey,
@@ -237,16 +226,12 @@ export const DashboardRecentSaleSchema = z
     href: saleDetailLinkSchema,
   })
   .strict();
-export type DashboardRecentSale = z.infer<
-  typeof DashboardRecentSaleSchema
->;
+export type DashboardRecentSale = z.infer<typeof DashboardRecentSaleSchema>;
 
 export const DashboardRecentSalesSchema = collectionSectionSchema(
   DashboardRecentSaleSchema,
 );
-export type DashboardRecentSales = z.infer<
-  typeof DashboardRecentSalesSchema
->;
+export type DashboardRecentSales = z.infer<typeof DashboardRecentSalesSchema>;
 
 export const DashboardUnmetDemandItemSchema = z
   .object({
@@ -339,9 +324,7 @@ export const DashboardTaskItemSchema = z
 export const DashboardTodaysTasksSchema = collectionSectionSchema(
   DashboardTaskItemSchema,
 );
-export type DashboardTodaysTasks = z.infer<
-  typeof DashboardTodaysTasksSchema
->;
+export type DashboardTodaysTasks = z.infer<typeof DashboardTodaysTasksSchema>;
 
 const stockSummaryDataSchema = z
   .object({
@@ -355,8 +338,7 @@ const stockSummaryDataSchema = z
     message: "Reserved units cannot exceed on-hand units.",
   })
   .refine(
-    (value) =>
-      value.availableUnits + value.reservedUnits <= value.onHandUnits,
+    (value) => value.availableUnits + value.reservedUnits <= value.onHandUnits,
     {
       message:
         "Saleable and reserved units cannot exceed physically on-hand units.",
@@ -383,9 +365,7 @@ export const DashboardStockSummarySchema = z.discriminatedUnion(
     redactedValueSchema,
   ],
 );
-export type DashboardStockSummary = z.infer<
-  typeof DashboardStockSummarySchema
->;
+export type DashboardStockSummary = z.infer<typeof DashboardStockSummarySchema>;
 
 export const DashboardSnapshotSchema = z
   .object({

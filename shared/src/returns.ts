@@ -1,11 +1,7 @@
 import { z } from "zod";
 import { createPageEnvelopeSchema } from "./catalog";
 import { LIMITS, PAGINATION } from "./constants";
-import {
-  RETURN_OUTCOMES,
-  RETURN_STATUSES,
-  SALE_STATUSES,
-} from "./enums";
+import { RETURN_OUTCOMES, RETURN_STATUSES, SALE_STATUSES } from "./enums";
 import { DeviceIdentifierSchema } from "./inventory";
 import { PosStockLocationSchema } from "./pricing";
 
@@ -52,8 +48,7 @@ export const RETURN_ELIGIBILITY_STATES = [
   "fully_returned",
   "sale_not_returnable",
 ] as const;
-export type ReturnEligibilityState =
-  (typeof RETURN_ELIGIBILITY_STATES)[number];
+export type ReturnEligibilityState = (typeof RETURN_ELIGIBILITY_STATES)[number];
 
 export const RETURN_SORT_FIELDS = ["created_at", "posted_at", "total"] as const;
 export const RETURN_SORT_DIRECTIONS = ["asc", "desc"] as const;
@@ -295,7 +290,11 @@ export const ReturnListQuerySchema = z
   })
   .strict()
   .superRefine((query, context) => {
-    if (query.from !== undefined && query.to !== undefined && query.from > query.to) {
+    if (
+      query.from !== undefined &&
+      query.to !== undefined &&
+      query.from > query.to
+    ) {
       context.addIssue({
         code: "custom",
         message: "The start date must not be after the end date.",
@@ -323,9 +322,7 @@ export const ReturnCustomerContactSchema = z.discriminatedUnion(
   "availability",
   [availableContactSchema, redactedContactSchema],
 );
-export type ReturnCustomerContact = z.infer<
-  typeof ReturnCustomerContactSchema
->;
+export type ReturnCustomerContact = z.infer<typeof ReturnCustomerContactSchema>;
 
 const availableReturnProfitSchema = z
   .object({
@@ -455,9 +452,7 @@ export const ReturnEligibilityLineSchema = z.discriminatedUnion(
   "trackingType",
   [SerializedReturnEligibilityLineSchema, QuantityReturnEligibilityLineSchema],
 );
-export type ReturnEligibilityLine = z.infer<
-  typeof ReturnEligibilityLineSchema
->;
+export type ReturnEligibilityLine = z.infer<typeof ReturnEligibilityLineSchema>;
 
 export const ReturnEligibilitySchema = z
   .object({
@@ -466,7 +461,9 @@ export const ReturnEligibilitySchema = z
     requiresOverride: z.boolean(),
     sale: ReturnSaleReferenceSchema,
     policy: ReturnPolicySchema,
-    lines: z.array(ReturnEligibilityLineSchema).max(RETURN_CONTRACT_LIMITS.MAX_LINES),
+    lines: z
+      .array(ReturnEligibilityLineSchema)
+      .max(RETURN_CONTRACT_LIMITS.MAX_LINES),
     exchange: ReturnExchangeCapabilitySchema,
   })
   .strict()
@@ -538,7 +535,10 @@ export type ReturnLine = z.infer<typeof ReturnLineSchema>;
 export const ReturnRefundSchema = z
   .object({
     id: z.uuid(),
-    refundNumber: z.string().min(1).max(RETURN_CONTRACT_LIMITS.RETURN_NUMBER_LENGTH),
+    refundNumber: z
+      .string()
+      .min(1)
+      .max(RETURN_CONTRACT_LIMITS.RETURN_NUMBER_LENGTH),
     method: z.enum(RETURN_REFUND_METHODS),
     amountMinor: responseMoneySchema.positive(),
     reference: z
@@ -584,7 +584,11 @@ export const ReturnSummarySchema = z
     status: z.enum(RETURN_STATUSES),
     sale: ReturnSaleReferenceSchema,
     reason: z.string().min(1).max(RETURN_CONTRACT_LIMITS.REASON_LENGTH),
-    lineCount: z.number().int().positive().max(RETURN_CONTRACT_LIMITS.MAX_LINES),
+    lineCount: z
+      .number()
+      .int()
+      .positive()
+      .max(RETURN_CONTRACT_LIMITS.MAX_LINES),
     unitCount: z.number().int().positive(),
     totalRefundMinor: responseMoneySchema,
     policyExpired: z.boolean(),
@@ -608,7 +612,10 @@ export const ReturnDetailSchema = z
     reason: z.string().min(1).max(RETURN_CONTRACT_LIMITS.REASON_LENGTH),
     evidenceNote: z.string().min(1).max(RETURN_CONTRACT_LIMITS.EVIDENCE_LENGTH),
     currency: z.string().regex(/^[A-Z]{3}$/u),
-    lines: z.array(ReturnLineSchema).min(1).max(RETURN_CONTRACT_LIMITS.MAX_LINES),
+    lines: z
+      .array(ReturnLineSchema)
+      .min(1)
+      .max(RETURN_CONTRACT_LIMITS.MAX_LINES),
     totals: ReturnTotalsSchema,
     refund: ReturnRefundSchema.nullable(),
     policy: ReturnPolicySchema,
@@ -635,4 +642,3 @@ export type PostReturnResponse = z.infer<typeof PostReturnResponseSchema>;
 
 export const ReturnPageSchema = createPageEnvelopeSchema(ReturnSummarySchema);
 export type ReturnPage = z.infer<typeof ReturnPageSchema>;
-

@@ -7,11 +7,7 @@ import {
   type CustomerMarketingConsentStatus,
   type CustomerSummary,
 } from "@mobileshop/shared";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -89,7 +85,11 @@ const CREDIT_POPULATION_PARAMETERS: CustomerListParameters = {
   hasReceivable: true,
 };
 
-function CustomersIcon({ className = "size-5" }: { readonly className?: string }) {
+function CustomersIcon({
+  className = "size-5",
+}: {
+  readonly className?: string;
+}) {
   return (
     <svg
       aria-hidden="true"
@@ -110,12 +110,19 @@ function CustomersIcon({ className = "size-5" }: { readonly className?: string }
 
 function CustomersLoading(): JSX.Element {
   return (
-    <div aria-label="Loading customers workspace" className="space-y-4" role="status">
+    <div
+      aria-label="Loading customers workspace"
+      className="space-y-4"
+      role="status"
+    >
       <span className="sr-only">Loading customers workspace</span>
       <div className="h-28 animate-pulse rounded-card bg-line-subtle" />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }, (_, index) => (
-          <div className="h-28 animate-pulse rounded-card bg-line-subtle" key={index} />
+          <div
+            className="h-28 animate-pulse rounded-card bg-line-subtle"
+            key={index}
+          />
         ))}
       </div>
       <div className="h-72 animate-pulse rounded-card bg-line-subtle" />
@@ -123,7 +130,10 @@ function CustomersLoading(): JSX.Element {
   );
 }
 
-export function formatCustomerMoney(valueMinor: number, currency: string): string {
+export function formatCustomerMoney(
+  valueMinor: number,
+  currency: string,
+): string {
   return formatMoney(toMinor(valueMinor, "customer value"), currency);
 }
 
@@ -159,7 +169,11 @@ function consentLabel(status: CustomerMarketingConsentStatus): string {
   }
 }
 
-function ConsentBadge({ status }: { readonly status: CustomerMarketingConsentStatus }) {
+function ConsentBadge({
+  status,
+}: {
+  readonly status: CustomerMarketingConsentStatus;
+}) {
   const granted = status === "granted";
   const pending = status === "pending";
   const classes = granted
@@ -168,8 +182,11 @@ function ConsentBadge({ status }: { readonly status: CustomerMarketingConsentSta
       ? "bg-warning-soft text-warning"
       : "bg-surface-subtle text-ink-muted";
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${classes}`}>
-      {granted ? "✓ " : ""}{consentLabel(status)}
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${classes}`}
+    >
+      {granted ? "✓ " : ""}
+      {consentLabel(status)}
     </span>
   );
 }
@@ -190,7 +207,11 @@ function KpiCard({
       className={`rounded-card border bg-surface p-4 shadow-card ${accent ? "border-accent/30" : "border-line"}`}
     >
       <p className="text-xs font-semibold text-ink-muted">{label}</p>
-      <p className={`mt-2 text-2xl font-bold ${accent ? "text-accent" : "text-ink"}`}>{value}</p>
+      <p
+        className={`mt-2 text-2xl font-bold ${accent ? "text-accent" : "text-ink"}`}
+      >
+        {value}
+      </p>
       <p className="mt-1 text-xs leading-5 text-ink-muted">{meta}</p>
     </article>
   );
@@ -214,14 +235,19 @@ function CustomerError({
           ? "Your current permissions do not allow this customer request."
           : error.message;
   return (
-    <div className="rounded-control border border-negative/25 bg-negative-soft p-4 text-sm text-negative" role="alert">
+    <div
+      className="rounded-control border border-negative/25 bg-negative-soft p-4 text-sm text-negative"
+      role="alert"
+    >
       <div className="flex items-start gap-3">
         <AlertTriangleIcon className="mt-0.5 size-5 shrink-0" />
         <div>
           <p className="font-bold">{title}</p>
           <p className="mt-1 text-xs leading-5">{description}</p>
           {error.requestId === undefined ? null : (
-            <p className="mt-1 font-mono text-[0.6875rem]">Ref: {error.requestId}</p>
+            <p className="mt-1 font-mono text-[0.6875rem]">
+              Ref: {error.requestId}
+            </p>
           )}
           <button
             className="mt-3 inline-flex min-h-8 items-center gap-1.5 rounded-control border border-negative/30 bg-surface px-3 text-xs font-bold"
@@ -250,7 +276,9 @@ function Field({
       {label}
       {children}
       {error === undefined ? null : (
-        <span className="mt-1 block text-xs font-medium text-negative">{error}</span>
+        <span className="mt-1 block text-xs font-medium text-negative">
+          {error}
+        </span>
       )}
     </label>
   );
@@ -296,8 +324,16 @@ function AddCustomerDrawer({
   const mutationError = mutation.isError ? toApiError(mutation.error) : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-[#111827]/45" role="presentation">
-      <button aria-label="Close add customer drawer" className="absolute inset-0" onClick={onClose} type="button" />
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-[#111827]/45"
+      role="presentation"
+    >
+      <button
+        aria-label="Close add customer drawer"
+        className="absolute inset-0"
+        onClick={onClose}
+        type="button"
+      />
       <form
         aria-labelledby="add-customer-title"
         aria-modal="true"
@@ -310,8 +346,12 @@ function AddCustomerDrawer({
             <CustomersIcon />
           </span>
           <div>
-            <h2 className="font-bold text-ink" id="add-customer-title">Add customer</h2>
-            <p className="mt-0.5 text-xs text-ink-muted">Create the relationship profile and record contact consent.</p>
+            <h2 className="font-bold text-ink" id="add-customer-title">
+              Add customer
+            </h2>
+            <p className="mt-0.5 text-xs text-ink-muted">
+              Create the relationship profile and record contact consent.
+            </p>
           </div>
           <button
             aria-label="Close drawer"
@@ -325,10 +365,15 @@ function AddCustomerDrawer({
 
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
           {mutationError === null ? null : (
-            <div className="rounded-control border border-negative/25 bg-negative-soft p-3 text-xs leading-5 text-negative" role="alert">
+            <div
+              className="rounded-control border border-negative/25 bg-negative-soft p-3 text-xs leading-5 text-negative"
+              role="alert"
+            >
               <p className="font-bold">Customer could not be saved</p>
               <p>{mutationError.message}</p>
-              {mutationError.requestId === undefined ? null : <p className="font-mono">Ref: {mutationError.requestId}</p>}
+              {mutationError.requestId === undefined ? null : (
+                <p className="font-mono">Ref: {mutationError.requestId}</p>
+              )}
             </div>
           )}
           <Field error={submitted ? errors.name : undefined} label="Full name">
@@ -341,7 +386,10 @@ function AddCustomerDrawer({
               value={draft.name}
             />
           </Field>
-          <Field error={submitted ? errors.phone : undefined} label="Phone number">
+          <Field
+            error={submitted ? errors.phone : undefined}
+            label="Phone number"
+          >
             <input
               autoComplete="tel"
               className={controlClass}
@@ -351,9 +399,14 @@ function AddCustomerDrawer({
               placeholder="03xx-xxxxxxx"
               value={draft.phone}
             />
-            <span className="mt-1 block font-normal text-ink-muted">Used to link demand requests and restock alerts.</span>
+            <span className="mt-1 block font-normal text-ink-muted">
+              Used to link demand requests and restock alerts.
+            </span>
           </Field>
-          <Field error={submitted ? errors.email : undefined} label="Email (optional)">
+          <Field
+            error={submitted ? errors.email : undefined}
+            label="Email (optional)"
+          >
             <input
               autoComplete="email"
               className={controlClass}
@@ -365,7 +418,9 @@ function AddCustomerDrawer({
             />
           </Field>
           <fieldset disabled={mutation.isPending}>
-            <legend className="text-xs font-semibold text-ink-subtle">Marketing consent</legend>
+            <legend className="text-xs font-semibold text-ink-subtle">
+              Marketing consent
+            </legend>
             <div className="mt-1.5 inline-flex rounded-control border border-line bg-surface-subtle p-1">
               {(["granted", "pending"] as const).map((value) => (
                 <button
@@ -379,9 +434,14 @@ function AddCustomerDrawer({
                 </button>
               ))}
             </div>
-            <p className="mt-1 text-xs text-ink-muted">Consent controls promotional and restock contact eligibility.</p>
+            <p className="mt-1 text-xs text-ink-muted">
+              Consent controls promotional and restock contact eligibility.
+            </p>
           </fieldset>
-          <Field error={submitted ? errors.addressLine : undefined} label="Address (optional)">
+          <Field
+            error={submitted ? errors.addressLine : undefined}
+            label="Address (optional)"
+          >
             <textarea
               className={`${controlClass} min-h-20 resize-y`}
               disabled={mutation.isPending}
@@ -390,7 +450,10 @@ function AddCustomerDrawer({
               value={draft.addressLine}
             />
           </Field>
-          <Field error={submitted ? errors.notes : undefined} label="Relationship note (optional)">
+          <Field
+            error={submitted ? errors.notes : undefined}
+            label="Relationship note (optional)"
+          >
             <textarea
               className={`${controlClass} min-h-24 resize-y`}
               disabled={mutation.isPending}
@@ -401,12 +464,18 @@ function AddCustomerDrawer({
           </Field>
           <div className="flex items-start gap-2.5 rounded-control border border-info/20 bg-info-soft p-3 text-xs leading-5 text-info">
             <CheckCircleIcon className="mt-0.5 size-4 shrink-0" />
-            Recording a customer links verified purchases, receivables, consent and future demand records under one profile.
+            Recording a customer links verified purchases, receivables, consent
+            and future demand records under one profile.
           </div>
         </div>
 
         <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface-subtle px-5 py-3.5 sm:px-6">
-          <button className="min-h-10 rounded-control border border-line bg-surface px-4 text-sm font-semibold text-ink-subtle hover:bg-surface-subtle" disabled={mutation.isPending} onClick={onClose} type="button">
+          <button
+            className="min-h-10 rounded-control border border-line bg-surface px-4 text-sm font-semibold text-ink-subtle hover:bg-surface-subtle"
+            disabled={mutation.isPending}
+            onClick={onClose}
+            type="button"
+          >
             Cancel
           </button>
           <button
@@ -414,7 +483,8 @@ function AddCustomerDrawer({
             disabled={mutation.isPending}
             type="submit"
           >
-            <PlusIcon className="size-4" /> {mutation.isPending ? "Saving…" : "Save customer"}
+            <PlusIcon className="size-4" />{" "}
+            {mutation.isPending ? "Saving…" : "Save customer"}
           </button>
         </footer>
       </form>
@@ -433,7 +503,9 @@ function UnavailableHistory({
     <section>
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-bold text-ink">{label}</h3>
-        <span className="rounded-full bg-surface-subtle px-2 py-1 text-[0.625rem] font-bold uppercase tracking-wide text-ink-muted">Endpoint unavailable</span>
+        <span className="rounded-full bg-surface-subtle px-2 py-1 text-[0.625rem] font-bold uppercase tracking-wide text-ink-muted">
+          Endpoint unavailable
+        </span>
       </div>
       <div className="mt-2 rounded-control border border-dashed border-line bg-surface-subtle p-4 text-center text-xs leading-5 text-ink-muted">
         {description}
@@ -462,34 +534,66 @@ function CustomerProfileBody({
       void queryClient.invalidateQueries({ queryKey: queryKeys.customersRoot });
     },
   });
-  const transitionError = transition.isError ? toApiError(transition.error) : null;
+  const transitionError = transition.isError
+    ? toApiError(transition.error)
+    : null;
   const rows: readonly [string, ReactNode][] = [
-    ["Phone", <span className="font-mono" key="phone">{customerPhoneLabel(customer.phone)}</span>],
-    ["Consent", <ConsentBadge key="consent" status={customer.marketingConsent} />],
-    ["Purchases", `${customer.purchaseCount} ${customer.purchaseCount === 1 ? "order" : "orders"}`],
-    ["Lifetime spend", formatCustomerMoney(customer.lifetimeSpendMinor, currency)],
+    [
+      "Phone",
+      <span className="font-mono" key="phone">
+        {customerPhoneLabel(customer.phone)}
+      </span>,
+    ],
+    [
+      "Consent",
+      <ConsentBadge key="consent" status={customer.marketingConsent} />,
+    ],
+    [
+      "Purchases",
+      `${customer.purchaseCount} ${customer.purchaseCount === 1 ? "order" : "orders"}`,
+    ],
+    [
+      "Lifetime spend",
+      formatCustomerMoney(customer.lifetimeSpendMinor, currency),
+    ],
     ["Last visit", customerDateLabel(customer.lastVisitAt, timezone)],
-    ["Receivable", customer.receivableBalanceMinor > 0 ? formatCustomerMoney(customer.receivableBalanceMinor, currency) : "No dues"],
+    [
+      "Receivable",
+      customer.receivableBalanceMinor > 0
+        ? formatCustomerMoney(customer.receivableBalanceMinor, currency)
+        : "No dues",
+    ],
   ];
 
   return (
     <>
       {transitionError === null ? null : (
-        <div className="rounded-control border border-negative/25 bg-negative-soft p-3 text-xs text-negative" role="alert">
+        <div
+          className="rounded-control border border-negative/25 bg-negative-soft p-3 text-xs text-negative"
+          role="alert"
+        >
           <p className="font-bold">Status could not be changed</p>
           <p className="mt-1">{transitionError.message}</p>
         </div>
       )}
       {!customer.isActive ? (
         <div className="rounded-control border border-warning/25 bg-warning-soft p-3 text-xs leading-5 text-warning">
-          This customer is inactive. Existing history remains visible, but the profile is excluded from the active relationship list.
+          This customer is inactive. Existing history remains visible, but the
+          profile is excluded from the active relationship list.
         </div>
       ) : null}
       <section className="overflow-hidden rounded-card border border-line">
         {rows.map(([label, value]) => (
-          <div className="flex items-center justify-between gap-4 border-b border-line px-4 py-3 text-sm last:border-b-0" key={label}>
+          <div
+            className="flex items-center justify-between gap-4 border-b border-line px-4 py-3 text-sm last:border-b-0"
+            key={label}
+          >
             <span className="text-ink-muted">{label}</span>
-            <span className={`text-right font-semibold ${label === "Receivable" && customer.receivableBalanceMinor > 0 ? "text-negative" : "text-ink-subtle"}`}>{value}</span>
+            <span
+              className={`text-right font-semibold ${label === "Receivable" && customer.receivableBalanceMinor > 0 ? "text-negative" : "text-ink-subtle"}`}
+            >
+              {value}
+            </span>
           </div>
         ))}
       </section>
@@ -498,7 +602,12 @@ function CustomerProfileBody({
         <div className="flex items-start gap-2.5 rounded-control border border-warning/25 bg-warning-soft p-3 text-xs leading-5 text-warning">
           <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
           <p>
-            Customer credit of <strong>{formatCustomerMoney(customer.receivableBalanceMinor, currency)}</strong> is a <strong>receivable</strong> — money the shop is owed. It stays in Finance under receivables until settled.
+            Customer credit of{" "}
+            <strong>
+              {formatCustomerMoney(customer.receivableBalanceMinor, currency)}
+            </strong>{" "}
+            is a <strong>receivable</strong> — money the shop is owed. It stays
+            in Finance under receivables until settled.
           </p>
         </div>
       ) : null}
@@ -506,25 +615,58 @@ function CustomerProfileBody({
       <section className="rounded-card border border-line p-4">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-sm font-bold text-ink">Contact & profile</h3>
-          <span className={`rounded-full px-2 py-1 text-[0.625rem] font-bold uppercase tracking-wide ${customer.isActive ? "bg-positive-soft text-positive" : "bg-warning-soft text-warning"}`}>
+          <span
+            className={`rounded-full px-2 py-1 text-[0.625rem] font-bold uppercase tracking-wide ${customer.isActive ? "bg-positive-soft text-positive" : "bg-warning-soft text-warning"}`}
+          >
             {customer.isActive ? "Active" : "Inactive"}
           </span>
         </div>
         <dl className="mt-3 grid gap-3 text-xs sm:grid-cols-2">
-          <div><dt className="text-ink-muted">Email</dt><dd className="mt-1 break-words font-semibold text-ink-subtle">{customer.email ?? "Not recorded"}</dd></div>
-          <div><dt className="text-ink-muted">Address</dt><dd className="mt-1 font-semibold text-ink-subtle">{customer.addressLine ?? "Not recorded"}</dd></div>
-          <div className="sm:col-span-2"><dt className="text-ink-muted">Relationship note</dt><dd className="mt-1 whitespace-pre-wrap font-semibold text-ink-subtle">{customer.notes ?? "No note recorded"}</dd></div>
+          <div>
+            <dt className="text-ink-muted">Email</dt>
+            <dd className="mt-1 break-words font-semibold text-ink-subtle">
+              {customer.email ?? "Not recorded"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-ink-muted">Address</dt>
+            <dd className="mt-1 font-semibold text-ink-subtle">
+              {customer.addressLine ?? "Not recorded"}
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-ink-muted">Relationship note</dt>
+            <dd className="mt-1 whitespace-pre-wrap font-semibold text-ink-subtle">
+              {customer.notes ?? "No note recorded"}
+            </dd>
+          </div>
         </dl>
         {customer.sensitive.availability === "available" ? (
           <div className="mt-4 border-t border-line pt-3">
-            <p className="flex items-center gap-1.5 text-xs font-bold text-ink"><LockIcon className="size-3.5" /> Restricted references</p>
+            <p className="flex items-center gap-1.5 text-xs font-bold text-ink">
+              <LockIcon className="size-3.5" /> Restricted references
+            </p>
             <dl className="mt-2 grid gap-3 text-xs sm:grid-cols-2">
-              <div><dt className="text-ink-muted">Identity reference</dt><dd className="mt-1 font-mono font-semibold text-ink-subtle">{customer.sensitive.nationalIdentityReference ?? "Not recorded"}</dd></div>
-              <div><dt className="text-ink-muted">External reference</dt><dd className="mt-1 font-mono font-semibold text-ink-subtle">{customer.sensitive.externalReference ?? "Not recorded"}</dd></div>
+              <div>
+                <dt className="text-ink-muted">Identity reference</dt>
+                <dd className="mt-1 font-mono font-semibold text-ink-subtle">
+                  {customer.sensitive.nationalIdentityReference ??
+                    "Not recorded"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">External reference</dt>
+                <dd className="mt-1 font-mono font-semibold text-ink-subtle">
+                  {customer.sensitive.externalReference ?? "Not recorded"}
+                </dd>
+              </div>
             </dl>
           </div>
         ) : (
-          <p className="mt-4 flex items-center gap-1.5 border-t border-line pt-3 text-xs text-ink-muted"><LockIcon className="size-3.5" /> Sensitive references are restricted by permission.</p>
+          <p className="mt-4 flex items-center gap-1.5 border-t border-line pt-3 text-xs text-ink-muted">
+            <LockIcon className="size-3.5" /> Sensitive references are
+            restricted by permission.
+          </p>
         )}
         {canManage ? (
           <button
@@ -533,15 +675,21 @@ function CustomerProfileBody({
             onClick={() => transition.mutate()}
             type="button"
           >
-            {transition.isPending ? "Updating…" : customer.isActive ? "Deactivate customer" : "Reactivate customer"}
+            {transition.isPending
+              ? "Updating…"
+              : customer.isActive
+                ? "Deactivate customer"
+                : "Reactivate customer"}
           </button>
         ) : null}
       </section>
 
       <UnavailableHistory
-        description={customer.purchaseCount > 0
-          ? `${customer.purchaseCount} posted purchase${customer.purchaseCount === 1 ? " is" : "s are"} included in the verified aggregate above. Line-by-line history needs the customer sales-history endpoint.`
-          : "No posted purchases are included in this customer's verified aggregate. Line-by-line history needs the customer sales-history endpoint."}
+        description={
+          customer.purchaseCount > 0
+            ? `${customer.purchaseCount} posted purchase${customer.purchaseCount === 1 ? " is" : "s are"} included in the verified aggregate above. Line-by-line history needs the customer sales-history endpoint.`
+            : "No posted purchases are included in this customer's verified aggregate. Line-by-line history needs the customer sales-history endpoint."
+        }
         label="Purchase history"
       />
       <UnavailableHistory
@@ -551,14 +699,19 @@ function CustomerProfileBody({
       <section className="rounded-card border border-line p-4">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-sm font-bold text-ink">Follow-up</h3>
-          <span className="rounded-full bg-surface-subtle px-2 py-1 text-[0.625rem] font-bold uppercase tracking-wide text-ink-muted">Workflow unavailable</span>
+          <span className="rounded-full bg-surface-subtle px-2 py-1 text-[0.625rem] font-bold uppercase tracking-wide text-ink-muted">
+            Workflow unavailable
+          </span>
         </div>
         <p className="mt-2 text-xs leading-5 text-ink-muted">
           {customer.marketingConsent === "granted"
             ? "Marketing consent is granted, so this customer is eligible for a staff-created restock or promotional follow-up."
             : `Marketing consent is ${consentLabel(customer.marketingConsent).toLowerCase()}; promotional contact must not be assumed.`}
         </p>
-        <p className="mt-2 text-xs leading-5 text-ink-muted">No follow-up task or reminder is shown because the customer task-history endpoint is not available.</p>
+        <p className="mt-2 text-xs leading-5 text-ink-muted">
+          No follow-up task or reminder is shown because the customer
+          task-history endpoint is not available.
+        </p>
       </section>
     </>
   );
@@ -584,50 +737,118 @@ function CustomerProfileDrawer({
   const detail = useQuery(customerQueryOptions(customerId));
   const customer = detail.data;
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-[#111827]/45" role="presentation">
-      <button aria-label="Close customer profile drawer" className="absolute inset-0" onClick={onClose} type="button" />
-      <section aria-labelledby="customer-profile-title" aria-modal="true" className="relative flex h-full w-full max-w-xl flex-col bg-surface shadow-overlay" role="dialog">
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-[#111827]/45"
+      role="presentation"
+    >
+      <button
+        aria-label="Close customer profile drawer"
+        className="absolute inset-0"
+        onClick={onClose}
+        type="button"
+      />
+      <section
+        aria-labelledby="customer-profile-title"
+        aria-modal="true"
+        className="relative flex h-full w-full max-w-xl flex-col bg-surface shadow-overlay"
+        role="dialog"
+      >
         <header className="flex items-start gap-3 border-b border-line px-5 py-4 sm:px-6">
           <span className="grid size-11 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-bold text-accent">
             {customer === undefined ? "…" : customerInitials(customer.name)}
           </span>
           <div className="min-w-0">
-            <h2 className="truncate font-bold text-ink" id="customer-profile-title">{customer?.name ?? "Customer profile"}</h2>
+            <h2
+              className="truncate font-bold text-ink"
+              id="customer-profile-title"
+            >
+              {customer?.name ?? "Customer profile"}
+            </h2>
             <p className="mt-0.5 truncate font-mono text-xs text-ink-muted">
-              {customer === undefined ? "Loading verified profile…" : `${customerPhoneLabel(customer.phone)} · ${customer.id}`}
+              {customer === undefined
+                ? "Loading verified profile…"
+                : `${customerPhoneLabel(customer.phone)} · ${customer.id}`}
             </p>
-            {customer === undefined ? null : customer.receivableBalanceMinor > 0 ? (
-              <span className="mt-2 inline-flex rounded-full bg-negative-soft px-2 py-1 text-[0.6875rem] font-bold text-negative">{formatCustomerMoney(customer.receivableBalanceMinor, currency)} owed</span>
+            {customer === undefined ? null : customer.receivableBalanceMinor >
+              0 ? (
+              <span className="mt-2 inline-flex rounded-full bg-negative-soft px-2 py-1 text-[0.6875rem] font-bold text-negative">
+                {formatCustomerMoney(customer.receivableBalanceMinor, currency)}{" "}
+                owed
+              </span>
             ) : (
-              <span className="mt-2 inline-flex rounded-full bg-positive-soft px-2 py-1 text-[0.6875rem] font-bold text-positive">✓ No dues</span>
+              <span className="mt-2 inline-flex rounded-full bg-positive-soft px-2 py-1 text-[0.6875rem] font-bold text-positive">
+                ✓ No dues
+              </span>
             )}
           </div>
-          <button aria-label="Close drawer" className="ml-auto grid size-9 shrink-0 place-items-center rounded-control text-ink-muted hover:bg-surface-subtle hover:text-ink" onClick={onClose} type="button">
+          <button
+            aria-label="Close drawer"
+            className="ml-auto grid size-9 shrink-0 place-items-center rounded-control text-ink-muted hover:bg-surface-subtle hover:text-ink"
+            onClick={onClose}
+            type="button"
+          >
             <CloseIcon className="size-5" />
           </button>
         </header>
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5 sm:px-6">
           {detail.isPending ? (
-            <div aria-label="Loading customer profile" className="space-y-3" role="status">
+            <div
+              aria-label="Loading customer profile"
+              className="space-y-3"
+              role="status"
+            >
               <div className="h-56 animate-pulse rounded-card bg-line-subtle" />
               <div className="h-28 animate-pulse rounded-card bg-line-subtle" />
             </div>
           ) : detail.isError || customer === undefined ? (
-            <CustomerError error={toApiError(detail.error)} retry={() => void detail.refetch()} title="Customer profile could not be loaded" />
+            <CustomerError
+              error={toApiError(detail.error)}
+              retry={() => void detail.refetch()}
+              title="Customer profile could not be loaded"
+            />
           ) : (
-            <CustomerProfileBody canManage={canManage} currency={currency} customer={customer} timezone={timezone} />
+            <CustomerProfileBody
+              canManage={canManage}
+              currency={currency}
+              customer={customer}
+              timezone={timezone}
+            />
           )}
         </div>
         <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface-subtle px-5 py-3.5 sm:px-6">
           {canCreateDemand ? (
-            <Link className="min-h-10 rounded-control border border-line bg-surface px-4 py-2.5 text-sm font-semibold text-ink-subtle hover:bg-surface-subtle" href={`/demand?customerId=${encodeURIComponent(customerId)}`}>Record demand</Link>
+            <Link
+              className="min-h-10 rounded-control border border-line bg-surface px-4 py-2.5 text-sm font-semibold text-ink-subtle hover:bg-surface-subtle"
+              href={`/demand?customerId=${encodeURIComponent(customerId)}`}
+            >
+              Record demand
+            </Link>
           ) : (
-            <button className="min-h-10 rounded-control border border-line bg-surface px-4 text-sm font-semibold text-ink-subtle opacity-55" disabled title="demand.create permission required" type="button">Record demand</button>
+            <button
+              className="min-h-10 rounded-control border border-line bg-surface px-4 text-sm font-semibold text-ink-subtle opacity-55"
+              disabled
+              title="demand.create permission required"
+              type="button"
+            >
+              Record demand
+            </button>
           )}
           {canCreateSales ? (
-            <Link className="min-h-10 rounded-control bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:bg-accent-strong" href={`/sell?customerId=${encodeURIComponent(customerId)}`}>New sale</Link>
+            <Link
+              className="min-h-10 rounded-control bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:bg-accent-strong"
+              href={`/sell?customerId=${encodeURIComponent(customerId)}`}
+            >
+              New sale
+            </Link>
           ) : (
-            <button className="min-h-10 rounded-control bg-accent px-4 text-sm font-semibold text-white opacity-55" disabled title="sales.create permission required" type="button">New sale</button>
+            <button
+              className="min-h-10 rounded-control bg-accent px-4 text-sm font-semibold text-white opacity-55"
+              disabled
+              title="sales.create permission required"
+              type="button"
+            >
+              New sale
+            </button>
           )}
         </footer>
       </section>
@@ -641,7 +862,9 @@ function CustomerTableSkeleton(): JSX.Element {
       {Array.from({ length: 5 }, (_, index) => (
         <tr className="border-b border-line last:border-b-0" key={index}>
           {Array.from({ length: 7 }, (_, cell) => (
-            <td className="px-4 py-4" key={cell}><div className="h-4 animate-pulse rounded bg-line-subtle" /></td>
+            <td className="px-4 py-4" key={cell}>
+              <div className="h-4 animate-pulse rounded bg-line-subtle" />
+            </td>
           ))}
         </tr>
       ))}
@@ -663,24 +886,51 @@ function CustomerRows({
   return (
     <tbody className="divide-y divide-line">
       {items.map((customer) => (
-        <tr className="transition-colors hover:bg-surface-subtle" key={customer.id}>
+        <tr
+          className="transition-colors hover:bg-surface-subtle"
+          key={customer.id}
+        >
           <td className="px-4 py-3.5">
-            <button className="flex min-w-0 items-center gap-3 text-left" onClick={() => onSelect(customer.id)} type="button">
-              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-bold text-accent">{customerInitials(customer.name)}</span>
+            <button
+              className="flex min-w-0 items-center gap-3 text-left"
+              onClick={() => onSelect(customer.id)}
+              type="button"
+            >
+              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-bold text-accent">
+                {customerInitials(customer.name)}
+              </span>
               <span className="min-w-0">
-                <span className="block truncate text-sm font-bold text-ink">{customer.name}</span>
-                <span className="block truncate font-mono text-[0.625rem] text-ink-muted">{customer.id}</span>
+                <span className="block truncate text-sm font-bold text-ink">
+                  {customer.name}
+                </span>
+                <span className="block truncate font-mono text-[0.625rem] text-ink-muted">
+                  {customer.id}
+                </span>
               </span>
             </button>
           </td>
-          <td className="px-4 py-3.5 font-mono text-xs text-ink-subtle">{customerPhoneLabel(customer.phone)}</td>
-          <td className="px-4 py-3.5 text-right text-sm text-ink-subtle">{customer.purchaseCount}</td>
-          <td className="px-4 py-3.5 text-right text-sm font-bold text-ink">{formatCustomerMoney(customer.lifetimeSpendMinor, currency)}</td>
-          <td className="px-4 py-3.5 text-xs text-ink-muted">{customerDateLabel(customer.lastVisitAt, timezone)}</td>
-          <td className={`px-4 py-3.5 text-right text-sm font-bold ${customer.receivableBalanceMinor > 0 ? "text-negative" : "text-ink-muted"}`}>
-            {customer.receivableBalanceMinor > 0 ? formatCustomerMoney(customer.receivableBalanceMinor, currency) : "—"}
+          <td className="px-4 py-3.5 font-mono text-xs text-ink-subtle">
+            {customerPhoneLabel(customer.phone)}
           </td>
-          <td className="px-4 py-3.5"><ConsentBadge status={customer.marketingConsent} /></td>
+          <td className="px-4 py-3.5 text-right text-sm text-ink-subtle">
+            {customer.purchaseCount}
+          </td>
+          <td className="px-4 py-3.5 text-right text-sm font-bold text-ink">
+            {formatCustomerMoney(customer.lifetimeSpendMinor, currency)}
+          </td>
+          <td className="px-4 py-3.5 text-xs text-ink-muted">
+            {customerDateLabel(customer.lastVisitAt, timezone)}
+          </td>
+          <td
+            className={`px-4 py-3.5 text-right text-sm font-bold ${customer.receivableBalanceMinor > 0 ? "text-negative" : "text-ink-muted"}`}
+          >
+            {customer.receivableBalanceMinor > 0
+              ? formatCustomerMoney(customer.receivableBalanceMinor, currency)
+              : "—"}
+          </td>
+          <td className="px-4 py-3.5">
+            <ConsentBadge status={customer.marketingConsent} />
+          </td>
         </tr>
       ))}
     </tbody>
@@ -738,9 +988,11 @@ export function CustomersWorkspace(): JSX.Element {
     [filter, isLocalFilter, page, population.data, search],
   );
   const visiblePage: CustomerVisiblePage | undefined = isLocalFilter
-    ? localPage ?? undefined
+    ? (localPage ?? undefined)
     : serverList.data;
-  const listPending = isLocalFilter ? population.isPending : serverList.isPending;
+  const listPending = isLocalFilter
+    ? population.isPending
+    : serverList.isPending;
   const listError = isLocalFilter ? population.error : serverList.error;
   const unsupportedLocalFilter =
     isLocalFilter && population.data !== undefined && localPage === null;
@@ -813,9 +1065,15 @@ export function CustomersWorkspace(): JSX.Element {
               <CustomersIcon />
             </span>
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.09em] text-accent">Customers · Relationships</p>
-              <h1 className="mt-1 text-xl font-bold text-ink sm:text-2xl">Customers</h1>
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-ink-muted">{subtitle}</p>
+              <p className="text-xs font-bold uppercase tracking-[0.09em] text-accent">
+                Customers · Relationships
+              </p>
+              <h1 className="mt-1 text-xl font-bold text-ink sm:text-2xl">
+                Customers
+              </h1>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-ink-muted">
+                {subtitle}
+              </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -823,7 +1081,11 @@ export function CustomersWorkspace(): JSX.Element {
               <ShieldCheckIcon className="size-4" /> Live customer records
             </span>
             {capabilities.canManage ? (
-              <button className="inline-flex min-h-10 items-center gap-2 rounded-control bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-strong" onClick={() => setAddOpen(true)} type="button">
+              <button
+                className="inline-flex min-h-10 items-center gap-2 rounded-control bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-strong"
+                onClick={() => setAddOpen(true)}
+                type="button"
+              >
                 <PlusIcon className="size-4" /> Add customer
               </button>
             ) : null}
@@ -832,35 +1094,72 @@ export function CustomersWorkspace(): JSX.Element {
       </header>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Total customers" meta={kpis === null ? "Loading active relationships…" : `${kpis.totalCustomers} active relationships`} value={kpis === null ? "—" : String(kpis.totalCustomers)} />
+        <KpiCard
+          label="Total customers"
+          meta={
+            kpis === null
+              ? "Loading active relationships…"
+              : `${kpis.totalCustomers} active relationships`
+          }
+          value={kpis === null ? "—" : String(kpis.totalCustomers)}
+        />
         <KpiCard
           accent
           label="With outstanding credit"
-          meta={kpis === null
-            ? "Loading Finance receivables…"
-            : kpis.receivableBalanceMinor === null
-              ? "Count is exact · full balance aggregate unavailable"
-              : `${formatCustomerMoney(kpis.receivableBalanceMinor, currency)} total receivable`}
+          meta={
+            kpis === null
+              ? "Loading Finance receivables…"
+              : kpis.receivableBalanceMinor === null
+                ? "Count is exact · full balance aggregate unavailable"
+                : `${formatCustomerMoney(kpis.receivableBalanceMinor, currency)} total receivable`
+          }
           value={kpis === null ? "—" : String(kpis.creditCustomers)}
         />
-        <KpiCard label="Repeat buyers" meta={kpis?.repeatBuyers === null || kpis === null ? "Full-population aggregate unavailable" : "Bought more than once"} value={kpis?.repeatBuyers === null || kpis === null ? "—" : String(kpis.repeatBuyers)} />
+        <KpiCard
+          label="Repeat buyers"
+          meta={
+            kpis?.repeatBuyers === null || kpis === null
+              ? "Full-population aggregate unavailable"
+              : "Bought more than once"
+          }
+          value={
+            kpis?.repeatBuyers === null || kpis === null
+              ? "—"
+              : String(kpis.repeatBuyers)
+          }
+        />
         <KpiCard
           label="Lifetime spend"
-          meta={kpis?.lifetimeSpendMinor === null || kpis === null ? "Full-population aggregate unavailable" : `Across ${kpis.totalCustomers} active customers`}
-          value={kpis?.lifetimeSpendMinor === null || kpis === null ? "—" : formatCustomerMoney(kpis.lifetimeSpendMinor, currency)}
+          meta={
+            kpis?.lifetimeSpendMinor === null || kpis === null
+              ? "Full-population aggregate unavailable"
+              : `Across ${kpis.totalCustomers} active customers`
+          }
+          value={
+            kpis?.lifetimeSpendMinor === null || kpis === null
+              ? "—"
+              : formatCustomerMoney(kpis.lifetimeSpendMinor, currency)
+          }
         />
       </div>
 
       {population.isError || creditPopulation.isError ? (
         <CustomerError
           error={toApiError(population.error ?? creditPopulation.error)}
-          retry={() => void Promise.all([population.refetch(), creditPopulation.refetch()])}
+          retry={() =>
+            void Promise.all([population.refetch(), creditPopulation.refetch()])
+          }
           title="Customer totals could not be loaded"
         />
-      ) : kpis !== null && (!kpis.populationComplete || !kpis.creditPopulationComplete) ? (
+      ) : kpis !== null &&
+        (!kpis.populationComplete || !kpis.creditPopulationComplete) ? (
         <div className="flex items-start gap-3 rounded-card border border-info/25 bg-info-soft px-4 py-3.5 text-sm text-info">
           <ShieldCheckIcon className="mt-0.5 size-5 shrink-0" />
-          <p className="leading-5">Counts come from the server and remain exact. Spend, repeat-buyer and receivable sums are deliberately withheld when the full active population exceeds the current aggregate window.</p>
+          <p className="leading-5">
+            Counts come from the server and remain exact. Spend, repeat-buyer
+            and receivable sums are deliberately withheld when the full active
+            population exceeds the current aggregate window.
+          </p>
         </div>
       ) : null}
 
@@ -868,7 +1167,9 @@ export function CustomersWorkspace(): JSX.Element {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-5">
           <div>
             <h2 className="font-bold text-ink">All customers</h2>
-            <p className="mt-0.5 text-xs text-ink-muted">Select a customer to open the full relationship profile.</p>
+            <p className="mt-0.5 text-xs text-ink-muted">
+              Select a customer to open the full relationship profile.
+            </p>
           </div>
           <div className="relative w-full sm:w-72">
             <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted" />
@@ -883,7 +1184,11 @@ export function CustomersWorkspace(): JSX.Element {
         </div>
 
         <div className="overflow-x-auto border-b border-line bg-surface-subtle px-3 py-2.5">
-          <div className="flex min-w-max gap-1" role="group" aria-label="Customer filters">
+          <div
+            className="flex min-w-max gap-1"
+            role="group"
+            aria-label="Customer filters"
+          >
             {CUSTOMER_FILTERS.map((item) => (
               <button
                 aria-pressed={filter === item.id}
@@ -892,20 +1197,36 @@ export function CustomersWorkspace(): JSX.Element {
                 onClick={() => navigateFilter(item.id)}
                 type="button"
               >
-                {item.label} <span className="opacity-70">{filterCounts[item.id] ?? "—"}</span>
+                {item.label}{" "}
+                <span className="opacity-70">
+                  {filterCounts[item.id] ?? "—"}
+                </span>
               </button>
             ))}
           </div>
         </div>
 
         {unsupportedLocalFilter ? (
-          <div className="border-b border-warning/25 bg-warning-soft px-4 py-3 text-xs leading-5 text-warning" role="status">
-            This filter needs a server-side aggregate once there are more than {AGGREGATE_PAGE_SIZE} active customers. No partial result is being presented as complete.
+          <div
+            className="border-b border-warning/25 bg-warning-soft px-4 py-3 text-xs leading-5 text-warning"
+            role="status"
+          >
+            This filter needs a server-side aggregate once there are more than{" "}
+            {AGGREGATE_PAGE_SIZE} active customers. No partial result is being
+            presented as complete.
           </div>
         ) : null}
         {listError === null ? null : (
           <div className="p-4">
-            <CustomerError error={toApiError(listError)} retry={() => void (isLocalFilter ? population.refetch() : serverList.refetch())} title="Customer list could not be loaded" />
+            <CustomerError
+              error={toApiError(listError)}
+              retry={() =>
+                void (isLocalFilter
+                  ? population.refetch()
+                  : serverList.refetch())
+              }
+              title="Customer list could not be loaded"
+            />
           </div>
         )}
 
@@ -925,13 +1246,24 @@ export function CustomersWorkspace(): JSX.Element {
             {listPending ? (
               <CustomerTableSkeleton />
             ) : visiblePage !== undefined && visiblePage.items.length > 0 ? (
-              <CustomerRows currency={currency} items={visiblePage.items} onSelect={selectCustomer} timezone={timezone} />
+              <CustomerRows
+                currency={currency}
+                items={visiblePage.items}
+                onSelect={selectCustomer}
+                timezone={timezone}
+              />
             ) : (
               <tbody>
                 <tr>
                   <td className="px-5 py-12 text-center" colSpan={7}>
-                    <span className="mx-auto grid size-12 place-items-center rounded-full bg-accent-soft text-accent"><CustomersIcon className="size-6" /></span>
-                    <h3 className="mt-3 font-bold text-ink">{search.length > 0 || filter !== "all" ? "No matching customers" : "No active customers yet"}</h3>
+                    <span className="mx-auto grid size-12 place-items-center rounded-full bg-accent-soft text-accent">
+                      <CustomersIcon className="size-6" />
+                    </span>
+                    <h3 className="mt-3 font-bold text-ink">
+                      {search.length > 0 || filter !== "all"
+                        ? "No matching customers"
+                        : "No active customers yet"}
+                    </h3>
                     <p className="mx-auto mt-1 max-w-lg text-sm leading-6 text-ink-muted">
                       {unsupportedLocalFilter
                         ? "This result is unavailable until the filter is supported by the server."
@@ -940,9 +1272,21 @@ export function CustomersWorkspace(): JSX.Element {
                           : "Add the first customer to begin linking purchases, receivables and demand."}
                     </p>
                     {search.length > 0 || filter !== "all" ? (
-                      <button className="mt-4 min-h-9 rounded-control border border-line px-3.5 text-xs font-semibold text-ink-subtle hover:bg-surface-subtle" onClick={() => replace({ filter: "all", q: "" })} type="button">Clear filters</button>
+                      <button
+                        className="mt-4 min-h-9 rounded-control border border-line px-3.5 text-xs font-semibold text-ink-subtle hover:bg-surface-subtle"
+                        onClick={() => replace({ filter: "all", q: "" })}
+                        type="button"
+                      >
+                        Clear filters
+                      </button>
                     ) : capabilities.canManage ? (
-                      <button className="mt-4 inline-flex min-h-9 items-center gap-2 rounded-control border border-line px-3.5 text-xs font-semibold text-ink-subtle hover:bg-surface-subtle" onClick={() => setAddOpen(true)} type="button"><PlusIcon className="size-4" /> Add customer</button>
+                      <button
+                        className="mt-4 inline-flex min-h-9 items-center gap-2 rounded-control border border-line px-3.5 text-xs font-semibold text-ink-subtle hover:bg-surface-subtle"
+                        onClick={() => setAddOpen(true)}
+                        type="button"
+                      >
+                        <PlusIcon className="size-4" /> Add customer
+                      </button>
                     ) : null}
                   </td>
                 </tr>
@@ -953,10 +1297,32 @@ export function CustomersWorkspace(): JSX.Element {
 
         {visiblePage === undefined ? null : (
           <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface-subtle px-4 py-3 text-xs text-ink-muted sm:px-5">
-            <span>{visiblePage.total} {visiblePage.total === 1 ? "customer" : "customers"} · Page {visiblePage.totalPages === 0 ? 1 : visiblePage.page} of {Math.max(visiblePage.totalPages, 1)}</span>
+            <span>
+              {visiblePage.total}{" "}
+              {visiblePage.total === 1 ? "customer" : "customers"} · Page{" "}
+              {visiblePage.totalPages === 0 ? 1 : visiblePage.page} of{" "}
+              {Math.max(visiblePage.totalPages, 1)}
+            </span>
             <div className="flex gap-2">
-              <button className="min-h-8 rounded-control border border-line bg-surface px-3 font-semibold text-ink-subtle disabled:opacity-45" disabled={visiblePage.page <= 1} onClick={() => replace({ page: visiblePage.page - 1 })} type="button">Previous</button>
-              <button className="min-h-8 rounded-control border border-line bg-surface px-3 font-semibold text-ink-subtle disabled:opacity-45" disabled={visiblePage.totalPages === 0 || visiblePage.page >= visiblePage.totalPages} onClick={() => replace({ page: visiblePage.page + 1 })} type="button">Next</button>
+              <button
+                className="min-h-8 rounded-control border border-line bg-surface px-3 font-semibold text-ink-subtle disabled:opacity-45"
+                disabled={visiblePage.page <= 1}
+                onClick={() => replace({ page: visiblePage.page - 1 })}
+                type="button"
+              >
+                Previous
+              </button>
+              <button
+                className="min-h-8 rounded-control border border-line bg-surface px-3 font-semibold text-ink-subtle disabled:opacity-45"
+                disabled={
+                  visiblePage.totalPages === 0 ||
+                  visiblePage.page >= visiblePage.totalPages
+                }
+                onClick={() => replace({ page: visiblePage.page + 1 })}
+                type="button"
+              >
+                Next
+              </button>
             </div>
           </footer>
         )}

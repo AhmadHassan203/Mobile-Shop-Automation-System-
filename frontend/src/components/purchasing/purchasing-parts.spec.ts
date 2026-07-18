@@ -11,11 +11,7 @@ import {
 describe("purchasing validation accessibility", () => {
   it("links invalid controls to their stable field-error region", () => {
     expect(
-      fieldErrorControlProps(
-        "supplier-name-error",
-        undefined,
-        "Supplier name",
-      ),
+      fieldErrorControlProps("supplier-name-error", undefined, "Supplier name"),
     ).toEqual({
       "aria-invalid": false,
       "aria-label": "Supplier name",

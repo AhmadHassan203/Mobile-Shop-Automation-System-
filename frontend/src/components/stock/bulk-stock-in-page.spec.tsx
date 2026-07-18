@@ -46,7 +46,9 @@ describe("isBulkRowBlank", () => {
 
   it("is not blank once any meaningful field is filled", () => {
     expect(isBulkRowBlank(makeBulkRow("k"))).toBe(true);
-    expect(isBulkRowBlank({ ...makeBulkRow("k"), productName: "X" })).toBe(false);
+    expect(isBulkRowBlank({ ...makeBulkRow("k"), productName: "X" })).toBe(
+      false,
+    );
     expect(isBulkRowBlank({ ...makeBulkRow("k"), barcode: "890" })).toBe(false);
   });
 });
@@ -107,14 +109,20 @@ describe("buildBulkStockInInput", () => {
   });
 
   it("requires a stock location", () => {
-    const result = buildBulkStockInInput([row()], batch({ stockLocationId: "" }));
+    const result = buildBulkStockInInput(
+      [row()],
+      batch({ stockLocationId: "" }),
+    );
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.formError).toMatch(/stock location/i);
   });
 
   it("requires a default supplier only when a row omits its own", () => {
-    const noDefault = buildBulkStockInInput([row()], batch({ supplierName: "" }));
+    const noDefault = buildBulkStockInInput(
+      [row()],
+      batch({ supplierName: "" }),
+    );
     expect(noDefault.ok).toBe(false);
     if (!noDefault.ok) {
       expect(noDefault.formError).toMatch(/default supplier/i);

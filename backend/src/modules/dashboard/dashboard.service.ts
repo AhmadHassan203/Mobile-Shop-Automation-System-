@@ -140,9 +140,7 @@ export type ReorderConfidence = "high" | "medium" | "low";
  * empty result collapsing into one indistinguishable blank screen.
  */
 export type ReorderSignal =
-  | "recommendations"
-  | "no_reorder_needed"
-  | "insufficient_data";
+  "recommendations" | "no_reorder_needed" | "insufficient_data";
 
 /** Coverage counts that explain, honestly, how much evidence the engine had. */
 export interface ReorderAnalysis {
@@ -1394,7 +1392,10 @@ export class DashboardService {
         name: row.name,
         sku: row.sku,
         unitsSold,
-        revenueMinor: safeNonnegativeInteger(row.revenueMinor, "recent revenue"),
+        revenueMinor: safeNonnegativeInteger(
+          row.revenueMinor,
+          "recent revenue",
+        ),
         grossProfitMinor: safeSignedInteger(
           row.grossProfitMinor,
           "recent gross profit",

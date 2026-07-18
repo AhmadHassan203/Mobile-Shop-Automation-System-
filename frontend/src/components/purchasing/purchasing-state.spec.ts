@@ -2,6 +2,7 @@ import { PERMISSIONS } from "@mobileshop/shared";
 import { describe, expect, it } from "vitest";
 import {
   PURCHASING_PAGE_SIZE,
+  PURCHASING_TABS,
   applyPurchasingUpdates,
   nextPurchasingTabIndex,
   orderParametersFrom,
@@ -17,10 +18,10 @@ import {
 const SUPPLIER_ID = "11111111-1111-4111-8111-111111111111";
 
 describe("purchasing URL state", () => {
-  it("defaults unknown tabs to orders and preserves filters while switching", () => {
-    expect(purchasingTabFrom(new URLSearchParams(""))).toBe("orders");
+  it("defaults unknown tabs to add stock and preserves filters while switching", () => {
+    expect(purchasingTabFrom(new URLSearchParams(""))).toBe("add-stock");
     expect(purchasingTabFrom(new URLSearchParams("tab=unknown"))).toBe(
-      "orders",
+      "add-stock",
     );
     expect(purchasingTabFrom(new URLSearchParams("tab=receipts"))).toBe(
       "receipts",
@@ -34,9 +35,20 @@ describe("purchasing URL state", () => {
     expect(next.get("tab")).toBe("receipts");
     expect(next.get("oq")).toBe("phone");
     expect(next.get("opage")).toBe("3");
+    // Add stock is the default tab, so switching to it drops the query parameter.
     expect(
-      new URLSearchParams(purchasingTabQuery(next, "orders")).has("tab"),
+      new URLSearchParams(purchasingTabQuery(next, "add-stock")).has("tab"),
     ).toBe(false);
+  });
+
+  it("lists Add stock first as the default purchasing tab", () => {
+    expect(PURCHASING_TABS.map((tab) => tab.id)).toEqual([
+      "add-stock",
+      "orders",
+      "suppliers",
+      "receipts",
+    ]);
+    expect(PURCHASING_TABS[0]).toEqual({ id: "add-stock", label: "Add stock" });
   });
 
   it("uses the APG wrapping keyboard model", () => {

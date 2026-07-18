@@ -11,6 +11,7 @@ import {
   CatalogForbiddenState,
   CatalogTableSkeleton,
 } from "@/components/catalog/catalog-states";
+import { QuickStockInPage } from "@/components/stock/quick-stock-in-page";
 import { LayersIcon, ShieldCheckIcon } from "@/components/ui/icons";
 import { currentAuthQueryOptions } from "@/lib/query/auth-query";
 import { PurchaseOrdersTab } from "./purchase-orders-tab";
@@ -50,11 +51,13 @@ export function PurchasingWorkspace(): JSX.Element {
   if (auth.data === undefined) return <PurchasingRouteFallback />;
 
   const capabilities = purchasingCapabilities(auth.data.permissions);
-  const allowedTabs = PURCHASING_TABS.filter((tab) =>
-    tab.id === "suppliers"
-      ? capabilities.canViewSuppliers
-      : capabilities.canViewPurchases,
-  );
+  const allowedTabs = PURCHASING_TABS.filter((tab) => {
+    // Add stock reuses Quick Stock In, which needs the receive grant; suppliers
+    // needs suppliers.view; the order/receipt lists need purchases.view.
+    if (tab.id === "add-stock") return capabilities.canReceivePurchases;
+    if (tab.id === "suppliers") return capabilities.canViewSuppliers;
+    return capabilities.canViewPurchases;
+  });
   const requestedTab = purchasingTabFrom(
     new URLSearchParams(searchParams.toString()),
   );
@@ -139,7 +142,9 @@ export function PurchasingWorkspace(): JSX.Element {
         id={`purchasing-panel-${activeTab}`}
         role="tabpanel"
       >
-        {activeTab === "orders" ? (
+        {activeTab === "add-stock" ? (
+          <QuickStockInPage embedded />
+        ) : activeTab === "orders" ? (
           <PurchaseOrdersTab canViewSuppliers={capabilities.canViewSuppliers} />
         ) : activeTab === "suppliers" ? (
           <SuppliersTab />

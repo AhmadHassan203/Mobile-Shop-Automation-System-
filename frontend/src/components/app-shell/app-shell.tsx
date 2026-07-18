@@ -3,7 +3,7 @@
 import { PERMISSIONS } from "@mobileshop/shared";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { SessionStatus } from "@/components/auth/session-status";
 import {
@@ -47,6 +47,11 @@ interface ModuleNavigationItem {
   readonly icon: ComponentType<{ readonly className?: string }>;
   readonly status: ModuleStatus;
   readonly permissions?: readonly string[];
+  /**
+   * Temporarily hidden for the MVP release; the entry (and its route/backend)
+   * is retained for future activation — flip this off to restore it.
+   */
+  readonly hidden?: boolean;
 }
 
 interface ModuleNavigationGroup {
@@ -54,7 +59,7 @@ interface ModuleNavigationGroup {
   readonly items: readonly ModuleNavigationItem[];
 }
 
-const MODULE_NAVIGATION: readonly ModuleNavigationGroup[] = [
+export const MODULE_NAVIGATION: readonly ModuleNavigationGroup[] = [
   {
     label: "Overview",
     items: [
@@ -77,6 +82,13 @@ const MODULE_NAVIGATION: readonly ModuleNavigationGroup[] = [
         permissions: [PERMISSIONS.SALES_VIEW, PERMISSIONS.SALES_CREATE],
       },
       {
+        label: "Sale records",
+        href: "/sales",
+        icon: ChartIcon,
+        status: "ready",
+        permissions: [PERMISSIONS.SALES_VIEW],
+      },
+      {
         label: "Demand",
         href: "/demand",
         icon: MessageIcon,
@@ -84,30 +96,29 @@ const MODULE_NAVIGATION: readonly ModuleNavigationGroup[] = [
         permissions: [PERMISSIONS.DEMAND_VIEW, PERMISSIONS.DEMAND_CREATE],
       },
       {
+        // Temporarily hidden for MVP release; feature retained for future activation.
         label: "Customers",
         href: "/customers",
         icon: UsersIcon,
         status: "ready",
         permissions: [PERMISSIONS.CUSTOMERS_VIEW],
+        hidden: true,
       },
     ],
   },
   {
     label: "Stock",
     items: [
+      // STOCK is deliberately three entries: Product Catalog (identity + barcode),
+      // Purchasing (all receiving + supplier + goods-receipt workflows as tabs),
+      // and Stocks (current balances/movements/locations). Every stock-in flow
+      // now lives inside Purchasing → Add Stock or Product Catalog.
       {
         label: "Product catalog",
         href: "/inventory",
         icon: BoxIcon,
         status: "ready",
         permissions: [PERMISSIONS.CATALOG_VIEW],
-      },
-      {
-        label: "Stock inventory",
-        href: "/stock",
-        icon: LayersIcon,
-        status: "ready",
-        permissions: [PERMISSIONS.INVENTORY_VIEW],
       },
       {
         label: "Purchasing",
@@ -117,18 +128,56 @@ const MODULE_NAVIGATION: readonly ModuleNavigationGroup[] = [
         permissions: [PERMISSIONS.PURCHASES_VIEW],
       },
       {
+        label: "Stocks",
+        href: "/stock",
+        icon: LayersIcon,
+        status: "ready",
+        permissions: [PERMISSIONS.INVENTORY_VIEW],
+      },
+      // Temporarily hidden for MVP release; consolidated into Purchasing → Add
+      // Stock (Quick/Bulk stock-in) and Product Catalog (barcode). Routes now
+      // redirect; the components/backends are retained for future activation.
+      {
+        label: "Quick Stock In",
+        href: "/stock/quick-stock-in",
+        icon: LayersIcon,
+        status: "ready",
+        permissions: [PERMISSIONS.PURCHASES_RECEIVE],
+        hidden: true,
+      },
+      {
+        label: "Bulk Stock In",
+        href: "/stock/bulk-stock-in",
+        icon: BoxIcon,
+        status: "ready",
+        permissions: [PERMISSIONS.PURCHASES_RECEIVE],
+        hidden: true,
+      },
+      {
+        label: "Barcode Stock In",
+        href: "/stock/barcode-stock-in",
+        icon: PhoneCheckIcon,
+        status: "ready",
+        permissions: [PERMISSIONS.PURCHASES_RECEIVE],
+        hidden: true,
+      },
+      {
+        // Consolidated into Purchasing → Suppliers tab. Retained for future activation.
         label: "Suppliers",
         href: "/purchases?tab=suppliers",
         icon: TruckIcon,
         status: "ready",
         permissions: [PERMISSIONS.SUPPLIERS_VIEW],
+        hidden: true,
       },
       {
+        // Consolidated into Purchasing → Receipts tab. Retained for future activation.
         label: "Goods receipts",
         href: "/purchases?tab=receipts",
         icon: TruckIcon,
         status: "ready",
         permissions: [PERMISSIONS.PURCHASES_VIEW],
+        hidden: true,
       },
     ],
   },
@@ -143,16 +192,20 @@ const MODULE_NAVIGATION: readonly ModuleNavigationGroup[] = [
         permissions: [PERMISSIONS.RETURNS_VIEW],
       },
       {
+        // Temporarily hidden for MVP release; retained for possible future activation.
         label: "Repairs",
         href: "/repairs",
         icon: WrenchIcon,
         status: "building",
+        hidden: true,
       },
       {
+        // Temporarily hidden for MVP release; retained for possible future activation.
         label: "Used intake",
         href: "/used-intake",
         icon: PhoneCheckIcon,
         status: "building",
+        hidden: true,
       },
     ],
   },
@@ -205,18 +258,22 @@ const MODULE_NAVIGATION: readonly ModuleNavigationGroup[] = [
         permissions: [PERMISSIONS.EXTERNAL_SERVICES_VIEW],
       },
       {
+        // Temporarily hidden for MVP release; feature retained for future activation.
         label: "Commission report",
         href: "/digital/commission",
         icon: ChartIcon,
         status: "ready",
         permissions: [PERMISSIONS.EXTERNAL_SERVICES_VIEW],
+        hidden: true,
       },
       {
+        // Temporarily hidden for MVP release; retained for possible future activation.
         label: "Reconciliation",
         href: "/digital/reconciliation",
         icon: CalendarCheckIcon,
         status: "building",
         permissions: [PERMISSIONS.EXTERNAL_SERVICES_VIEW],
+        hidden: true,
       },
     ],
   },
@@ -238,10 +295,12 @@ const MODULE_NAVIGATION: readonly ModuleNavigationGroup[] = [
         permissions: [PERMISSIONS.REPORTS_VIEW],
       },
       {
+        // Temporarily hidden for MVP release; feature retained for future activation.
         label: "Tasks",
         href: "/tasks",
         icon: TasksIcon,
         status: "building",
+        hidden: true,
       },
     ],
   },
@@ -249,17 +308,21 @@ const MODULE_NAVIGATION: readonly ModuleNavigationGroup[] = [
     label: "System",
     items: [
       {
+        // Temporarily hidden for MVP release; retained for possible future activation.
         label: "Settings",
         href: "/settings",
         icon: SettingsIcon,
         status: "building",
         permissions: [PERMISSIONS.SETTINGS_VIEW],
+        hidden: true,
       },
       {
+        // Temporarily hidden for MVP release; feature retained for future activation.
         label: "System status",
         href: "/status",
         icon: ActivityIcon,
         status: "ready",
+        hidden: true,
       },
     ],
   },
@@ -273,7 +336,6 @@ const STATUS_LABELS: Readonly<Record<ModuleStatus, string>> = {
 
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const auth = useQuery(currentAuthQueryOptions);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const grantedPermissions = auth.data?.permissions ?? [];
@@ -285,24 +347,24 @@ export function AppShell({ children }: AppShellProps) {
         : "text-sidebar-ink hover:bg-sidebar-hover hover:text-white"
     }`;
 
-  const isVisible = (item: ModuleNavigationItem): boolean =>
-    item.permissions === undefined ||
-    item.permissions.some((permission) =>
-      grantedPermissions.includes(permission),
+  const isVisible = (item: ModuleNavigationItem): boolean => {
+    // Temporarily hidden for MVP release; feature retained for future activation.
+    if (item.hidden === true) return false;
+    return (
+      item.permissions === undefined ||
+      item.permissions.some((permission) =>
+        grantedPermissions.includes(permission),
+      )
     );
+  };
 
   const isActive = (item: ModuleNavigationItem): boolean => {
     if (item.href === undefined) return false;
-    const [route, query = ""] = item.href.split("?");
-    if (
-      route === undefined ||
-      (pathname !== route && !pathname.startsWith(`${route}/`))
-    ) {
-      return false;
-    }
-    if (route !== "/purchases") return true;
-    const expectedTab = new URLSearchParams(query).get("tab") ?? "orders";
-    return (searchParams.get("tab") ?? "orders") === expectedTab;
+    // Purchasing is now a single consolidated entry whose tabs live in the query
+    // string, so it highlights for any /purchases tab rather than one specific tab.
+    const [route] = item.href.split("?");
+    if (route === undefined) return false;
+    return pathname === route || pathname.startsWith(`${route}/`);
   };
 
   useEffect(() => {

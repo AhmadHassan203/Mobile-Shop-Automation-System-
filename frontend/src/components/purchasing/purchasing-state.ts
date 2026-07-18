@@ -22,6 +22,7 @@ import { ApiError, toApiError } from "@/lib/api/client";
 export const PURCHASING_PAGE_SIZE = PAGINATION.DEFAULT_PAGE_SIZE;
 
 export const PURCHASING_TABS = [
+  { id: "add-stock", label: "Add stock" },
   { id: "orders", label: "Purchase orders" },
   { id: "suppliers", label: "Suppliers" },
   { id: "receipts", label: "Receipts" },
@@ -72,7 +73,7 @@ export function purchasingTabFrom(
   const value = searchParams.get("tab");
   return PURCHASING_TABS.some((tab) => tab.id === value)
     ? (value as PurchasingTabId)
-    : "orders";
+    : "add-stock";
 }
 
 export function purchasingTabQuery(
@@ -80,7 +81,8 @@ export function purchasingTabQuery(
   tab: PurchasingTabId,
 ): string {
   const next = new URLSearchParams(searchParams.toString());
-  if (tab === "orders") next.delete("tab");
+  // Add stock is the default tab, so it carries no query parameter.
+  if (tab === "add-stock") next.delete("tab");
   else next.set("tab", tab);
   return next.toString();
 }

@@ -143,6 +143,8 @@ beforeEach(() => {
 
 describe("purchasing workspace permissions and routing", () => {
   it("renders real order data, all permitted tabs, and create controls", () => {
+    // Add stock is the default tab; this case asserts the Purchase orders tab.
+    navigation.search = "tab=orders";
     const client = newClient();
     seedAuth(client, [
       PERMISSIONS.PURCHASES_VIEW,
@@ -161,6 +163,7 @@ describe("purchasing workspace permissions and routing", () => {
     const html = render(client, createElement(PurchasingWorkspace));
 
     expect(html).toContain('role="tablist"');
+    expect(html).toContain("Add stock");
     expect(html).toContain("Purchase orders");
     expect(html).toContain("Suppliers");
     expect(html).toContain("Receipts");
@@ -168,6 +171,24 @@ describe("purchasing workspace permissions and routing", () => {
     expect(html).toContain("Lahore Mobile Distribution");
     expect(html).toContain("New purchase order");
     expect(html).toContain("PKR 4,500.00");
+  });
+
+  it("shows Add stock as the default tab and embeds Quick Stock In (no duplicate header)", () => {
+    navigation.search = "";
+    const client = newClient();
+    seedAuth(client, [
+      PERMISSIONS.PURCHASES_VIEW,
+      PERMISSIONS.SUPPLIERS_VIEW,
+      PERMISSIONS.PURCHASES_RECEIVE,
+    ]);
+
+    const html = render(client, createElement(PurchasingWorkspace));
+
+    // The Add-stock panel is active by default and renders the reused Quick
+    // Stock In form, without its own standalone page header.
+    expect(html).toContain('id="purchasing-panel-add-stock"');
+    expect(html).toContain("Save Purchase &amp; Add Stock");
+    expect(html).not.toContain("Inventory · Quick Stock In");
   });
 
   it("hides draft forms when a creator cannot read every reference API", () => {

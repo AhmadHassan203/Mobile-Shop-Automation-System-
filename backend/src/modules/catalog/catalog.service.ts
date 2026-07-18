@@ -728,45 +728,53 @@ export class CatalogService {
     context: CatalogActorContext,
     input: CreateProductModelData,
   ): Promise<ProductModelReference> {
-    try {
-      return await this.prisma.client.$transaction(async (tx) => {
-        const [brand, category] = await this.resolveModelParents(
-          tx,
-          context.organizationId,
-          input.brandId,
-          input.categoryId,
-        );
+    return this.prisma.client.$transaction((tx) =>
+      this.createProductModelInTransaction(tx, context, input),
+    );
+  }
 
-        const model = await tx.productModel.create({
-          data: {
-            organizationId: context.organizationId,
-            brandId: brand.id,
-            categoryId: category.id,
-            name: input.name,
-            canonicalName: canonicalizeCatalogAlias(input.name),
-          },
-        });
-        await this.writeAudit(tx, context, {
-          action: "catalog.product_model_created",
-          entityType: "product_model",
-          entityId: model.id,
-          after: {
-            name: model.name,
-            brandId: model.brandId,
-            categoryId: model.categoryId,
-            isActive: model.isActive,
-          },
-        });
-        return catalogResponse(ProductModelReferenceSchema, {
-          id: model.id,
+  async createProductModelInTransaction(
+    tx: Prisma.TransactionClient,
+    context: CatalogActorContext,
+    input: CreateProductModelData,
+  ): Promise<ProductModelReference> {
+    try {
+      const [brand, category] = await this.resolveModelParents(
+        tx,
+        context.organizationId,
+        input.brandId,
+        input.categoryId,
+      );
+
+      const model = await tx.productModel.create({
+        data: {
+          organizationId: context.organizationId,
+          brandId: brand.id,
+          categoryId: category.id,
+          name: input.name,
+          canonicalName: canonicalizeCatalogAlias(input.name),
+        },
+      });
+      await this.writeAudit(tx, context, {
+        action: "catalog.product_model_created",
+        entityType: "product_model",
+        entityId: model.id,
+        after: {
           name: model.name,
           brandId: model.brandId,
-          brandName: brand.name,
           categoryId: model.categoryId,
-          categoryName: category.name,
           isActive: model.isActive,
-          version: model.version,
-        });
+        },
+      });
+      return catalogResponse(ProductModelReferenceSchema, {
+        id: model.id,
+        name: model.name,
+        brandId: model.brandId,
+        brandName: brand.name,
+        categoryId: model.categoryId,
+        categoryName: category.name,
+        isActive: model.isActive,
+        version: model.version,
       });
     } catch (error) {
       this.rethrowReferenceDuplicate(error, "product model");
@@ -1033,62 +1041,70 @@ export class CatalogService {
     context: CatalogActorContext,
     input: CreateProductData,
   ): Promise<ProductSummary> {
+    return this.prisma.client.$transaction((tx) =>
+      this.createProductInTransaction(tx, context, input),
+    );
+  }
+
+  async createProductInTransaction(
+    tx: Prisma.TransactionClient,
+    context: CatalogActorContext,
+    input: CreateProductData,
+  ): Promise<ProductSummary> {
     try {
-      return await this.prisma.client.$transaction(async (tx) => {
-        const productModel = await this.resolveProductModel(
-          tx,
-          context.organizationId,
-          input.productModelId,
-        );
+      const productModel = await this.resolveProductModel(
+        tx,
+        context.organizationId,
+        input.productModelId,
+      );
 
-        const product = await tx.productVariant.create({
-          data: {
-            organizationId: context.organizationId,
-            productModelId: productModel.id,
-            sku: input.sku,
-            name: input.name,
-            trackingType: input.trackingType,
-            condition: input.condition,
-            ptaStatus: input.ptaStatus,
-            ram: input.ram ?? null,
-            storage: input.storage ?? null,
-            color: input.color ?? null,
-            region: input.region ?? null,
-            warrantyType: input.warrantyType,
-            warrantyMonths: input.warrantyMonths ?? null,
-          },
-          select: productSummarySelect,
-        });
-
-        if (input.aliases.length > 0) {
-          await tx.productAlias.createMany({
-            data: input.aliases.map((alias) => ({
-              organizationId: context.organizationId,
-              productVariantId: product.id,
-              alias,
-              normalizedAlias: canonicalizeCatalogAlias(alias),
-            })),
-          });
-        }
-        if (input.barcodes.length > 0) {
-          await tx.productBarcode.createMany({
-            data: input.barcodes.map((barcode, index) => ({
-              organizationId: context.organizationId,
-              productVariantId: product.id,
-              barcode,
-              isPrimary: index === 0,
-            })),
-          });
-        }
-
-        await this.writeAudit(tx, context, {
-          action: "catalog.product_created",
-          entityType: "product_variant",
-          entityId: product.id,
-          after: productSnapshot(product, input.aliases, input.barcodes),
-        });
-        return this.toProductSummary(product);
+      const product = await tx.productVariant.create({
+        data: {
+          organizationId: context.organizationId,
+          productModelId: productModel.id,
+          sku: input.sku,
+          name: input.name,
+          trackingType: input.trackingType,
+          condition: input.condition,
+          ptaStatus: input.ptaStatus,
+          ram: input.ram ?? null,
+          storage: input.storage ?? null,
+          color: input.color ?? null,
+          region: input.region ?? null,
+          warrantyType: input.warrantyType,
+          warrantyMonths: input.warrantyMonths ?? null,
+        },
+        select: productSummarySelect,
       });
+
+      if (input.aliases.length > 0) {
+        await tx.productAlias.createMany({
+          data: input.aliases.map((alias) => ({
+            organizationId: context.organizationId,
+            productVariantId: product.id,
+            alias,
+            normalizedAlias: canonicalizeCatalogAlias(alias),
+          })),
+        });
+      }
+      if (input.barcodes.length > 0) {
+        await tx.productBarcode.createMany({
+          data: input.barcodes.map((barcode, index) => ({
+            organizationId: context.organizationId,
+            productVariantId: product.id,
+            barcode,
+            isPrimary: index === 0,
+          })),
+        });
+      }
+
+      await this.writeAudit(tx, context, {
+        action: "catalog.product_created",
+        entityType: "product_variant",
+        entityId: product.id,
+        after: productSnapshot(product, input.aliases, input.barcodes),
+      });
+      return this.toProductSummary(product);
     } catch (error) {
       this.rethrowProductDuplicate(error);
     }

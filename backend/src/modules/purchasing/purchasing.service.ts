@@ -494,42 +494,57 @@ export class PurchasingService {
     return this.toSupplierDetail(supplier);
   }
 
-  async createSupplier(
+  createSupplier(
+    context: PurchasingActorContext,
+    input: CreateSupplierData,
+  ): Promise<SupplierDetail> {
+    return this.prisma.client.$transaction((tx) =>
+      this.createSupplierInTransaction(tx, context, input),
+    );
+  }
+
+  /**
+   * Transaction-aware supplier creation reused by the public `createSupplier`
+   * and by cross-domain orchestrators (Quick Stock In) that must create a
+   * supplier inside their own single transaction. Not exposed via any
+   * controller. The duplicate-code mapping lives here so both callers surface
+   * the same domain error rather than a raw P2002.
+   */
+  async createSupplierInTransaction(
+    tx: Prisma.TransactionClient,
     context: PurchasingActorContext,
     input: CreateSupplierData,
   ): Promise<SupplierDetail> {
     try {
-      return await this.prisma.client.$transaction(async (tx) => {
-        const supplier = await tx.supplier.create({
-          data: {
-            organizationId: context.organizationId,
-            code: input.code,
-            name: input.name,
-            paymentTermsDays: input.paymentTermsDays,
-            leadTimeDays: input.leadTimeDays,
-            addressLine: input.addressLine ?? null,
-            city: input.city ?? null,
-            notes: input.notes ?? null,
-            contacts: {
-              create: input.contacts.map((contact) => ({
-                name: contact.name,
-                role: contact.role ?? null,
-                phone: contact.phone ?? null,
-                email: contact.email ?? null,
-                isPrimary: contact.isPrimary,
-              })),
-            },
+      const supplier = await tx.supplier.create({
+        data: {
+          organizationId: context.organizationId,
+          code: input.code,
+          name: input.name,
+          paymentTermsDays: input.paymentTermsDays,
+          leadTimeDays: input.leadTimeDays,
+          addressLine: input.addressLine ?? null,
+          city: input.city ?? null,
+          notes: input.notes ?? null,
+          contacts: {
+            create: input.contacts.map((contact) => ({
+              name: contact.name,
+              role: contact.role ?? null,
+              phone: contact.phone ?? null,
+              email: contact.email ?? null,
+              isPrimary: contact.isPrimary,
+            })),
           },
-          select: supplierDetailSelect,
-        });
-        await this.writeAudit(tx, context, {
-          action: "purchasing.supplier_created",
-          entityType: "supplier",
-          entityId: supplier.id,
-          after: this.supplierSnapshot(supplier),
-        });
-        return this.toSupplierDetail(supplier);
+        },
+        select: supplierDetailSelect,
       });
+      await this.writeAudit(tx, context, {
+        action: "purchasing.supplier_created",
+        entityType: "supplier",
+        entityId: supplier.id,
+        after: this.supplierSnapshot(supplier),
+      });
+      return this.toSupplierDetail(supplier);
     } catch (error) {
       this.rethrowSupplierDuplicate(error);
     }
@@ -740,11 +755,27 @@ export class PurchasingService {
     return this.toPurchaseOrderDetail(order);
   }
 
-  async createPurchaseOrder(
+  createPurchaseOrder(
     context: PurchasingActorContext,
     input: CreatePurchaseOrderData,
   ): Promise<PurchaseOrderDetail> {
-    return this.prisma.client.$transaction(async (tx) => {
+    return this.prisma.client.$transaction((tx) =>
+      this.createPurchaseOrderInTransaction(tx, context, input),
+    );
+  }
+
+  /**
+   * Transaction-aware purchase-order creation reused by the public
+   * `createPurchaseOrder` and by cross-domain orchestrators (Quick Stock In).
+   * Not exposed via any controller. The created order is `draft`; callers that
+   * need it receivable use `transitionPurchaseOrderInTransaction`.
+   */
+  async createPurchaseOrderInTransaction(
+    tx: Prisma.TransactionClient,
+    context: PurchasingActorContext,
+    input: CreatePurchaseOrderData,
+  ): Promise<PurchaseOrderDetail> {
+    {
       const orderDate = toBusinessDate(new Date());
       if (
         input.expectedOn !== undefined &&
@@ -806,7 +837,7 @@ export class PurchasingService {
         after: this.purchaseOrderSnapshot(order),
       });
       return this.toPurchaseOrderDetail(order);
-    });
+    }
   }
 
   async updatePurchaseOrder(
@@ -923,13 +954,31 @@ export class PurchasingService {
     return this.transitionPurchaseOrder(context, id, input, "cancelled");
   }
 
-  private async transitionPurchaseOrder(
+  private transitionPurchaseOrder(
     context: PurchasingActorContext,
     id: string,
     input: PurchaseOrderTransitionData | CancelPurchaseOrderData,
     target: "approved" | "ordered" | "closed" | "cancelled",
   ): Promise<PurchaseOrderDetail> {
-    return this.prisma.client.$transaction(async (tx) => {
+    return this.prisma.client.$transaction((tx) =>
+      this.transitionPurchaseOrderInTransaction(tx, context, id, input, target),
+    );
+  }
+
+  /**
+   * Transaction-aware purchase-order transition reused by the public transition
+   * endpoints and by cross-domain orchestrators (Quick Stock In moves a fresh
+   * draft order to `approved` so it can be received). Not exposed via any
+   * controller.
+   */
+  async transitionPurchaseOrderInTransaction(
+    tx: Prisma.TransactionClient,
+    context: PurchasingActorContext,
+    id: string,
+    input: PurchaseOrderTransitionData | CancelPurchaseOrderData,
+    target: "approved" | "ordered" | "closed" | "cancelled",
+  ): Promise<PurchaseOrderDetail> {
+    {
       const before = await this.loadPurchaseOrder(tx, context, id);
       if (!isPurchaseOrderTransitionAllowed(before.status, target)) {
         throw invalidPurchaseStatus(before.status, target);
@@ -974,7 +1023,7 @@ export class PurchasingService {
         reason: input.reason ?? null,
       });
       return this.toPurchaseOrderDetail(after);
-    });
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -1094,19 +1143,43 @@ export class PurchasingService {
     });
   }
 
-  async createGoodsReceipt(
+  createGoodsReceipt(
     context: PurchasingActorContext,
     input: CreateGoodsReceiptData,
     idempotencyKey: string,
   ): Promise<GoodsReceiptDetail> {
+    return this.prisma.client.$transaction((tx) =>
+      this.createGoodsReceiptInTransaction(tx, context, input, idempotencyKey),
+    );
+  }
+
+  /**
+   * Transaction-aware goods-receipt posting — the single source of truth for
+   * turning an approved purchase order into stock: it locks the order, posts the
+   * stock batch / serialized units, writes the `purchase_receive` inventory
+   * movements, advances the order status, creates the supplier payable and the
+   * audit trail. Reused verbatim by the public `createGoodsReceipt` endpoint and
+   * by the Quick Stock In orchestrator so both paths share identical receiving,
+   * costing and idempotency logic. `requestHashOverride` lets an orchestrator
+   * anchor idempotency on its own (wider) request payload. Not exposed via any
+   * controller.
+   */
+  async createGoodsReceiptInTransaction(
+    tx: Prisma.TransactionClient,
+    context: PurchasingActorContext,
+    input: CreateGoodsReceiptData,
+    idempotencyKey: string,
+    requestHashOverride?: string,
+  ): Promise<GoodsReceiptDetail> {
     try {
-      return await this.prisma.client.$transaction(async (tx) => {
+      {
         // Contract parsing only normalizes and length-checks. The business
         // transaction owns the actual Luhn/repeated-digit decision so no invalid
         // identity can race past validation into stock.
         this.validateReceiptImeis(input);
 
-        const requestHash = goodsReceiptRequestHash(input);
+        const requestHash =
+          requestHashOverride ?? goodsReceiptRequestHash(input);
         await this.lockGoodsReceiptIdempotency(tx, context, idempotencyKey);
         const replay = await tx.goodsReceipt.findFirst({
           where: {
@@ -1378,10 +1451,34 @@ export class PurchasingService {
           after: this.goodsReceiptSnapshot(response),
         });
         return response;
-      });
+      }
     } catch (error) {
       this.rethrowReceivingFailure(error, input);
     }
+  }
+
+  /**
+   * Acquire the goods-receipt idempotency advisory lock (same scope as the
+   * receiving transaction) and return any receipt already posted under this
+   * key. A cross-domain orchestrator (Quick Stock In) calls this at the START of
+   * its own transaction so a replayed request blocks until the original commits,
+   * then returns the original result instead of duplicating upstream work
+   * (supplier/product/purchase order). Not exposed via any controller.
+   */
+  async findReplayGoodsReceipt(
+    tx: Prisma.TransactionClient,
+    context: PurchasingActorContext,
+    idempotencyKey: string,
+  ): Promise<{ readonly id: string; readonly requestHash: string | null } | null> {
+    await this.lockGoodsReceiptIdempotency(tx, context, idempotencyKey);
+    return tx.goodsReceipt.findFirst({
+      where: {
+        organizationId: context.organizationId,
+        branchId: context.branchId,
+        idempotencyKey,
+      },
+      select: { id: true, requestHash: true },
+    });
   }
 
   private async lockGoodsReceiptIdempotency(

@@ -166,79 +166,95 @@ export class PricingService {
     productVariantId: string,
     input: SetVariantDefaultPriceInput,
   ): Promise<VariantDefaultPriceResponse> {
-    return this.prisma.client.$transaction(async (tx) => {
-      const current = await tx.productVariant.findFirst({
-        where: {
-          id: productVariantId,
-          organizationId: context.organizationId,
-        },
-        select: variantDefaultPriceSelect,
-      });
-      if (current === null) throw notFound("product");
-
-      const update = await tx.productVariant.updateMany({
-        where: {
-          id: productVariantId,
-          organizationId: context.organizationId,
-          version: input.productVersion,
-        },
-        data: {
-          defaultPriceMinor: BigInt(input.unitPriceMinor),
-          minPriceMinor: BigInt(input.minimumUnitPriceMinor),
-          version: { increment: 1 },
-        },
-      });
-      if (update.count === 0) throw optimisticLockError("product");
-
-      const updated = await tx.productVariant.findFirst({
-        where: {
-          id: productVariantId,
-          organizationId: context.organizationId,
-        },
-        select: variantDefaultPriceSelect,
-      });
-      if (updated === null) throw notFound("product");
-      if (
-        updated.defaultPriceMinor === null ||
-        updated.minPriceMinor === null
-      ) {
-        throw new Error("The saved default price could not be read back.");
-      }
-
-      await tx.auditEvent.create({
-        data: {
-          organizationId: context.organizationId,
-          branchId: context.branchId,
-          actorUserId: context.actorUserId,
-          action: "pricing.variant_default_price_set",
-          entityType: "product_variant",
-          entityId: productVariantId,
-          beforeSnapshot: defaultPriceSnapshot(current),
-          afterSnapshot: defaultPriceSnapshot(updated),
-          requestId: context.metadata.requestId,
-          ipAddress: context.metadata.ipAddress,
-          userAgent: context.metadata.userAgent,
-        },
-      });
-
-      return variantDefaultPriceResponse({
+    return this.prisma.client.$transaction((tx) =>
+      this.setVariantDefaultPriceInTransaction(
+        tx,
+        context,
         productVariantId,
-        effectivePrice: {
-          currency: context.currency,
-          unitPriceMinor: safeInteger(
-            updated.defaultPriceMinor,
-            "default unit price",
-          ),
-          minimumUnitPriceMinor: safeInteger(
-            updated.minPriceMinor,
-            "minimum unit price",
-          ),
-          source: "variant_default",
-          sourceId: null,
-          version: safeInteger(updated.version, "product version", 1),
-          effectiveAt: isoDate(updated.updatedAt, "default price update date"),
-        },
-      });
+        input,
+      ),
+    );
+  }
+
+  /**
+   * Transaction-scoped variant of {@link setVariantDefaultPrice}. An
+   * orchestration service (e.g. Quick Stock In) can call this inside its own
+   * single transaction so the price change commits atomically with its work.
+   */
+  async setVariantDefaultPriceInTransaction(
+    tx: Prisma.TransactionClient,
+    context: PricingActorContext,
+    productVariantId: string,
+    input: SetVariantDefaultPriceInput,
+  ): Promise<VariantDefaultPriceResponse> {
+    const current = await tx.productVariant.findFirst({
+      where: {
+        id: productVariantId,
+        organizationId: context.organizationId,
+      },
+      select: variantDefaultPriceSelect,
+    });
+    if (current === null) throw notFound("product");
+
+    const update = await tx.productVariant.updateMany({
+      where: {
+        id: productVariantId,
+        organizationId: context.organizationId,
+        version: input.productVersion,
+      },
+      data: {
+        defaultPriceMinor: BigInt(input.unitPriceMinor),
+        minPriceMinor: BigInt(input.minimumUnitPriceMinor),
+        version: { increment: 1 },
+      },
+    });
+    if (update.count === 0) throw optimisticLockError("product");
+
+    const updated = await tx.productVariant.findFirst({
+      where: {
+        id: productVariantId,
+        organizationId: context.organizationId,
+      },
+      select: variantDefaultPriceSelect,
+    });
+    if (updated === null) throw notFound("product");
+    if (updated.defaultPriceMinor === null || updated.minPriceMinor === null) {
+      throw new Error("The saved default price could not be read back.");
+    }
+
+    await tx.auditEvent.create({
+      data: {
+        organizationId: context.organizationId,
+        branchId: context.branchId,
+        actorUserId: context.actorUserId,
+        action: "pricing.variant_default_price_set",
+        entityType: "product_variant",
+        entityId: productVariantId,
+        beforeSnapshot: defaultPriceSnapshot(current),
+        afterSnapshot: defaultPriceSnapshot(updated),
+        requestId: context.metadata.requestId,
+        ipAddress: context.metadata.ipAddress,
+        userAgent: context.metadata.userAgent,
+      },
+    });
+
+    return variantDefaultPriceResponse({
+      productVariantId,
+      effectivePrice: {
+        currency: context.currency,
+        unitPriceMinor: safeInteger(
+          updated.defaultPriceMinor,
+          "default unit price",
+        ),
+        minimumUnitPriceMinor: safeInteger(
+          updated.minPriceMinor,
+          "minimum unit price",
+        ),
+        source: "variant_default",
+        sourceId: null,
+        version: safeInteger(updated.version, "product version", 1),
+        effectiveAt: isoDate(updated.updatedAt, "default price update date"),
+      },
     });
   }
 

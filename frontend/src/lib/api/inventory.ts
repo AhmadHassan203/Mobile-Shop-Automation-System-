@@ -1,7 +1,12 @@
 import {
   AdjustStockInputSchema,
+  BulkStockInInputSchema,
+  BulkStockInResultSchema,
+  IDEMPOTENCY_KEY_HEADER,
   InventoryMovementListQuerySchema,
   InventoryMovementPageSchema,
+  QuickStockInInputSchema,
+  QuickStockInResultSchema,
   ReleaseStockInputSchema,
   ReserveStockInputSchema,
   SerializedUnitDetailSchema,
@@ -16,8 +21,12 @@ import {
   TransferStockInputSchema,
   TransitionSerializedUnitInputSchema,
   type AdjustStockInput,
+  type BulkStockInInput,
+  type BulkStockInResult,
   type InventoryMovementListQuery,
   type InventoryMovementPage,
+  type QuickStockInInput,
+  type QuickStockInResult,
   type ReleaseStockInput,
   type ReserveStockInput,
   type SerializedUnitDetail,
@@ -34,6 +43,11 @@ import {
 } from "@mobileshop/shared";
 import type { ApiClient } from "./client";
 import { apiClient } from "./health";
+
+export const quickStockInInputSchema = QuickStockInInputSchema;
+export const quickStockInResultSchema = QuickStockInResultSchema;
+export const bulkStockInInputSchema = BulkStockInInputSchema;
+export const bulkStockInResultSchema = BulkStockInResultSchema;
 
 export const stockBalancePageSchema = StockBalancePageSchema;
 export const inventoryMovementPageSchema = InventoryMovementPageSchema;
@@ -202,6 +216,40 @@ export function getStockLocations(
     method: "GET",
     schema: stockLocationPageSchema,
     ...(signal === undefined ? {} : { signal }),
+  });
+}
+
+export function quickStockIn(
+  input: QuickStockInInput,
+  idempotencyKey: string,
+  client: ApiClient = apiClient,
+): Promise<QuickStockInResult> {
+  const body = QuickStockInInputSchema.parse(input);
+  return client.request("/inventory/quick-stock-in", {
+    method: "POST",
+    schema: QuickStockInResultSchema,
+    json: body,
+    headers: { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey },
+  });
+}
+
+/**
+ * Post a whole batch of Quick Stock In rows in one request. The batch key is the
+ * request-level idempotency lock; the server derives a stable per-row key from
+ * it, so retrying the same batch replays each row's original result rather than
+ * double-posting. The response is a per-row report (batch-level partial success).
+ */
+export function bulkStockIn(
+  input: BulkStockInInput,
+  idempotencyKey: string,
+  client: ApiClient = apiClient,
+): Promise<BulkStockInResult> {
+  const body = BulkStockInInputSchema.parse(input);
+  return client.request("/inventory/bulk-stock-in", {
+    method: "POST",
+    schema: BulkStockInResultSchema,
+    json: body,
+    headers: { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey },
   });
 }
 

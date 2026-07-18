@@ -44,6 +44,7 @@ import {
 import {
   activateCatalogProduct,
   deactivateCatalogProduct,
+  getCatalogProducts,
   type CatalogProduct,
   type ProductListParameters,
 } from "@/lib/api/catalog";
@@ -195,6 +196,31 @@ export function productStatusChangeMessage(
   return `This product could not be ${action}. Try again.`;
 }
 
+export type ScanResolution =
+  | { readonly kind: "existing"; readonly productId: string }
+  | { readonly kind: "new"; readonly barcode: string };
+
+/**
+ * Decide what a scanned barcode means from a catalog search. The catalog list's
+ * `q` already matches barcode, SKU, alias, model, brand and category, so any hit
+ * is treated as the existing product (exact SKU preferred); an empty result is a
+ * new product carrying the scanned barcode. A scan never creates a duplicate:
+ * a known barcode always resolves to the existing product.
+ */
+export function resolveScannedProduct(
+  items: readonly { readonly id: string; readonly sku: string }[],
+  barcode: string,
+): ScanResolution {
+  const code = barcode.trim();
+  const exact = items.find(
+    (item) => item.sku.toLowerCase() === code.toLowerCase(),
+  );
+  const found = exact ?? items[0];
+  return found === undefined
+    ? { kind: "new", barcode: code }
+    : { kind: "existing", productId: found.id };
+}
+
 function CatalogSkeleton(): JSX.Element {
   return (
     <div
@@ -315,6 +341,11 @@ function ProductsTab({
   const [statusError, setStatusError] = useState<ApiError | null>(null);
   const [statusWasActive, setStatusWasActive] = useState(true);
   const [busyRowId, setBusyRowId] = useState<string | null>(null);
+  const [scan, setScan] = useState("");
+  const [createBarcode, setCreateBarcode] = useState<string | null>(null);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanNotice, setScanNotice] = useState<string | null>(null);
+  const scanRef = useRef<HTMLInputElement | null>(null);
 
   const parameters = parametersFrom(
     new URLSearchParams(searchParams.toString()),
@@ -399,6 +430,34 @@ function ProductsTab({
     }
   };
 
+  // A hardware scanner types the barcode then presses Enter. A known code opens
+  // the existing product; an unknown one opens the create form pre-filled with
+  // the barcode. The field is refocused after each scan for rapid entry.
+  const resolveScan = async (raw: string): Promise<void> => {
+    const code = raw.trim();
+    if (code === "" || scanBusy) return;
+    setScanBusy(true);
+    setScanNotice(null);
+    try {
+      const page = await getCatalogProducts({ page: 1, pageSize: 5, q: code });
+      const resolution = resolveScannedProduct(page.items, code);
+      setScan("");
+      if (resolution.kind === "existing") {
+        setDetailId(resolution.productId);
+        setScanNotice("Existing product found and opened.");
+      } else {
+        setCreateBarcode(code);
+        setCreateOpen(true);
+        setScanNotice("Not in the catalog — starting a new product with this barcode.");
+      }
+    } catch {
+      setScanNotice("Barcode lookup failed. Try scanning again.");
+    } finally {
+      setScanBusy(false);
+      scanRef.current?.focus();
+    }
+  };
+
   const productsError =
     products.error === null || products.data !== undefined
       ? null
@@ -406,12 +465,41 @@ function ProductsTab({
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        {canCreate ? (
+          <div className="flex min-w-0 flex-1 flex-col gap-1 sm:max-w-md">
+            <input
+              aria-label="Scan a barcode to find or add a product"
+              className="min-h-10 w-full rounded-control border border-line bg-surface-subtle px-3 py-2 font-mono text-sm text-ink outline-none placeholder:text-ink-muted/75 focus:border-accent focus:bg-surface disabled:opacity-60"
+              disabled={scanBusy}
+              inputMode="numeric"
+              onChange={(event) => setScan(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void resolveScan(scan);
+                }
+              }}
+              placeholder="Scan a barcode, then Enter"
+              ref={scanRef}
+              value={scan}
+            />
+            <span className="text-xs text-ink-muted">
+              {scanNotice ??
+                "Scan to find an existing product, or start a new one with its barcode."}
+            </span>
+          </div>
+        ) : (
+          <span />
+        )}
         {canCreate ? (
           <button
             aria-haspopup="dialog"
             className="inline-flex min-h-10 items-center gap-2 rounded-control bg-accent px-4 text-sm font-semibold text-white shadow-sm hover:bg-accent-strong"
-            onClick={() => setCreateOpen(true)}
+            onClick={() => {
+              setCreateBarcode(null);
+              setCreateOpen(true);
+            }}
             type="button"
           >
             <PlusIcon className="size-4" /> Add product
@@ -859,9 +947,16 @@ function ProductsTab({
         <ProductFormDrawer
           canCreateReferences={canCreate}
           mode="create"
-          onClose={() => setCreateOpen(false)}
+          {...(createBarcode === null
+            ? {}
+            : { initialBarcode: createBarcode })}
+          onClose={() => {
+            setCreateOpen(false);
+            setCreateBarcode(null);
+          }}
           onSaved={(product) => {
             setCreateOpen(false);
+            setCreateBarcode(null);
             setSavedProduct(product.name);
             invalidateProducts();
           }}

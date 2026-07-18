@@ -305,6 +305,8 @@ interface ProductFormBodyProps {
   readonly product: CatalogProductDetail | null;
   readonly references: CatalogReferences;
   readonly canCreateReferences: boolean;
+  /** A scanned barcode to seed the (empty) create form's first barcode field. */
+  readonly initialBarcode?: string;
   readonly onClose: () => void;
   readonly onSaved: (product: CatalogProductDetail) => void;
 }
@@ -314,6 +316,7 @@ function ProductFormBody({
   product,
   references,
   canCreateReferences,
+  initialBarcode,
   onClose,
   onSaved,
 }: ProductFormBodyProps): JSX.Element {
@@ -347,7 +350,15 @@ function ProductFormBody({
   } = useForm<ProductFormValues>({
     defaultValues:
       product === null
-        ? EMPTY_FORM_VALUES
+        ? {
+            ...EMPTY_FORM_VALUES,
+            // A scanned unknown barcode is carried into the form as the primary
+            // barcode so the shopkeeper does not retype what they just scanned.
+            barcodes:
+              initialBarcode !== undefined && initialBarcode.trim().length > 0
+                ? [{ value: initialBarcode.trim() }]
+                : [],
+          }
         : productFormValuesFromDetail(product),
   });
   const aliases = useFieldArray({ control, name: "aliases" });
@@ -1078,7 +1089,7 @@ export type ProductFormDrawerProps = {
   readonly onClose: () => void;
   readonly onSaved: (product: CatalogProductDetail) => void;
 } & (
-  | { readonly mode: "create" }
+  | { readonly mode: "create"; readonly initialBarcode?: string }
   | { readonly mode: "edit"; readonly productId: string }
 );
 
@@ -1105,6 +1116,9 @@ export function ProductFormDrawer(props: ProductFormDrawerProps): JSX.Element {
         onSaved={onSaved}
         product={null}
         references={references}
+        {...(props.initialBarcode === undefined
+          ? {}
+          : { initialBarcode: props.initialBarcode })}
       />
     );
   }

@@ -28,6 +28,8 @@ import { DemandModule } from "./modules/demand/demand.module";
 import { ExternalModule } from "./modules/external/external.module";
 import { CashModule } from "./modules/cash/cash.module";
 import { ExpensesModule } from "./modules/expenses/expenses.module";
+import { QuickStockInModule } from "./modules/quick-stock-in/quick-stock-in.module";
+import { BulkStockInModule } from "./modules/bulk-stock-in/bulk-stock-in.module";
 
 /**
  * Application root.
@@ -124,6 +126,8 @@ import { ExpensesModule } from "./modules/expenses/expenses.module";
     ExternalModule,
     CashModule,
     ExpensesModule,
+    QuickStockInModule,
+    BulkStockInModule,
   ],
   providers: [
     // Registered globally so no thrown error can escape to the client unshaped.

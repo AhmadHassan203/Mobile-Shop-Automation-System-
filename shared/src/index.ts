@@ -31,3 +31,9 @@ export * from "./external";
 export * from "./expenses";
 export * from "./cash";
 export * from "./dashboard-summary";
+export * from "./quick-stock-in";
+export * from "./bulk-stock-in";
+// `normalizeSupplierCode` is defined identically in both purchasing and
+// quick-stock-in; re-export it explicitly so the two `export *` above do not
+// collide (TS2308). Purchasing is the canonical owner of supplier codes.
+export { normalizeSupplierCode } from "./purchasing";

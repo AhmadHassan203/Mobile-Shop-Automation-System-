@@ -73,10 +73,29 @@ const reorderSuggestionSchema = z.object({
   score: z.number().int(),
 });
 
+export const REORDER_SIGNALS = [
+  "recommendations",
+  "no_reorder_needed",
+  "insufficient_data",
+] as const;
+export type ReorderSignal = (typeof REORDER_SIGNALS)[number];
+
+const reorderAnalysisSchema = z.object({
+  analyzedVariants: z.number().int(),
+  variantsWithSales: z.number().int(),
+  variantsWithStock: z.number().int(),
+  variantsWithDemand: z.number().int(),
+  windowUnitsSold: z.number().int(),
+});
+
 export const reorderReportSchema = z.object({
   windowDays: z.number().int(),
   generatedAt: z.string(),
   businessDate: z.string(),
+  // Explicit engine state so an empty list is never mistaken for "no data".
+  signal: z.enum(REORDER_SIGNALS),
+  earlySignal: z.boolean(),
+  analysis: reorderAnalysisSchema,
   totalEstCostMinor: z.number().int(),
   totalExpProfitMinor: z.number().int(),
   costCoverage: z.object({
@@ -87,7 +106,63 @@ export const reorderReportSchema = z.object({
 });
 
 export type ReorderSuggestion = z.infer<typeof reorderSuggestionSchema>;
+export type ReorderAnalysis = z.infer<typeof reorderAnalysisSchema>;
 export type ReorderReport = z.infer<typeof reorderReportSchema>;
+
+// Trending products — ranked by recent momentum, growth vs the prior window.
+const trendingProductRowSchema = z.object({
+  productVariantId: z.string(),
+  name: z.string(),
+  sku: z.string(),
+  unitsSold: z.number().int(),
+  revenueMinor: z.number().int(),
+  grossProfitMinor: z.number().int(),
+  salesCount: z.number().int(),
+  demandOpenCount: z.number().int(),
+  previousUnitsSold: z.number().int(),
+  growthBasisPoints: z.number().int().nullable(),
+  isNew: z.boolean(),
+  trendScore: z.number().int(),
+});
+
+export const trendingProductsReportSchema = z.object({
+  windowDays: z.number().int(),
+  from: z.string(),
+  to: z.string(),
+  previousFrom: z.string(),
+  previousTo: z.string(),
+  rankingBasis: z.string(),
+  earlySignal: z.boolean(),
+  items: z.array(trendingProductRowSchema),
+});
+
+export type TrendingProductRow = z.infer<typeof trendingProductRowSchema>;
+export type TrendingProductsReport = z.infer<
+  typeof trendingProductsReportSchema
+>;
+
+// Top brands — ranked by real posted-sales performance for the period.
+const topBrandRowSchema = z.object({
+  brandId: z.string(),
+  brandName: z.string(),
+  unitsSold: z.number().int(),
+  revenueMinor: z.number().int(),
+  grossProfitMinor: z.number().int(),
+  salesCount: z.number().int(),
+  productCount: z.number().int(),
+});
+
+export const topBrandsReportSchema = z.object({
+  period: z.enum(TOP_PRODUCTS_PERIODS),
+  from: z.string(),
+  to: z.string(),
+  rankingBasis: z.string(),
+  earlySignal: z.boolean(),
+  items: z.array(topBrandRowSchema),
+});
+
+export type TopBrandRow = z.infer<typeof topBrandRowSchema>;
+export type TopBrandsReport = z.infer<typeof topBrandsReportSchema>;
 
 export interface SalesTrendParameters {
   readonly days?: number;
@@ -160,6 +235,60 @@ export function getReorderSuggestions(
     {
       method: "GET",
       schema: reorderReportSchema,
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
+}
+
+export interface TrendingProductsParameters {
+  readonly windowDays?: number;
+  readonly limit?: number;
+}
+
+export function getTrendingProducts(
+  parameters: TrendingProductsParameters = {},
+  signal?: AbortSignal,
+  client: ApiClient = apiClient,
+): Promise<TrendingProductsReport> {
+  const query = new URLSearchParams();
+  if (parameters.windowDays !== undefined) {
+    query.set("windowDays", String(parameters.windowDays));
+  }
+  if (parameters.limit !== undefined) {
+    query.set("limit", String(parameters.limit));
+  }
+  const suffix = query.toString();
+  return client.request(
+    `/reports/dashboard/trending-products${suffix.length === 0 ? "" : `?${suffix}`}`,
+    {
+      method: "GET",
+      schema: trendingProductsReportSchema,
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
+}
+
+export interface TopBrandsParameters {
+  readonly period?: TopProductsPeriod;
+  readonly limit?: number;
+}
+
+export function getTopBrands(
+  parameters: TopBrandsParameters = {},
+  signal?: AbortSignal,
+  client: ApiClient = apiClient,
+): Promise<TopBrandsReport> {
+  const query = new URLSearchParams();
+  if (parameters.period !== undefined) query.set("period", parameters.period);
+  if (parameters.limit !== undefined) {
+    query.set("limit", String(parameters.limit));
+  }
+  const suffix = query.toString();
+  return client.request(
+    `/reports/dashboard/top-brands${suffix.length === 0 ? "" : `?${suffix}`}`,
+    {
+      method: "GET",
+      schema: topBrandsReportSchema,
       ...(signal === undefined ? {} : { signal }),
     },
   );

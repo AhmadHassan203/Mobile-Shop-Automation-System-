@@ -21,7 +21,9 @@ import {
   type DashboardActorContext,
   type ReorderReport,
   type SalesTrendReport,
+  type TopBrandsReport,
   type TopProductsReport,
+  type TrendingProductsReport,
 } from "./dashboard.service";
 
 /** Read-only query contracts for the reporting aggregations. Backend-local: the
@@ -46,6 +48,22 @@ const ReorderSuggestionsQuerySchema = z
   })
   .strict();
 type ReorderSuggestionsQuery = z.output<typeof ReorderSuggestionsQuerySchema>;
+
+const TrendingProductsQuerySchema = z
+  .object({
+    windowDays: z.coerce.number().int().min(1).max(90).default(30),
+    limit: z.coerce.number().int().min(1).max(50).default(10),
+  })
+  .strict();
+type TrendingProductsQuery = z.output<typeof TrendingProductsQuerySchema>;
+
+const TopBrandsQuerySchema = z
+  .object({
+    period: z.enum(FINANCIAL_SUMMARY_PERIODS).default("month"),
+    limit: z.coerce.number().int().min(1).max(20).default(5),
+  })
+  .strict();
+type TopBrandsQuery = z.output<typeof TopBrandsQuerySchema>;
 
 export function dashboardActorContext(request: Request): DashboardActorContext {
   const current = request.auth?.current;
@@ -132,7 +150,10 @@ export class DashboardController {
     @Req() request: Request,
     @Query(new ZodValidationPipe(SalesTrendQuerySchema)) query: SalesTrendQuery,
   ): Promise<SalesTrendReport> {
-    return this.dashboard.salesTrend(dashboardActorContext(request), query.days);
+    return this.dashboard.salesTrend(
+      dashboardActorContext(request),
+      query.days,
+    );
   }
 
   /** Products ranked by posted revenue for a day, week or month. */
@@ -160,7 +181,8 @@ export class DashboardController {
   @Get("reorder-suggestions")
   @RequirePermissions(PERMISSIONS.RECOMMENDATIONS_VIEW)
   @ApiOperation({
-    summary: "Read deterministic reorder suggestions with cost and profit basis",
+    summary:
+      "Read deterministic reorder suggestions with cost and profit basis",
   })
   reorderSuggestions(
     @Req() request: Request,
@@ -170,6 +192,46 @@ export class DashboardController {
     return this.dashboard.reorderSuggestions(
       dashboardActorContext(request),
       query.windowDays,
+      query.limit,
+    );
+  }
+
+  /**
+   * Products ranked by recent trading momentum (units, frequency, open demand and
+   * growth vs the previous window). Exposes revenue/profit, so it shares the
+   * financial-reporting grant and the tenant/branch scope of the other rankings.
+   */
+  @Get("trending-products")
+  @RequirePermissions(PERMISSIONS.REPORTS_VIEW_FINANCIAL)
+  @ApiOperation({
+    summary: "Read products ranked by recent trading momentum and growth",
+  })
+  trendingProducts(
+    @Req() request: Request,
+    @Query(new ZodValidationPipe(TrendingProductsQuerySchema))
+    query: TrendingProductsQuery,
+  ): Promise<TrendingProductsReport> {
+    return this.dashboard.trendingProducts(
+      dashboardActorContext(request),
+      query.windowDays,
+      query.limit,
+    );
+  }
+
+  /** Brands ranked by real posted-sales performance for a day, week or month. */
+  @Get("top-brands")
+  @RequirePermissions(PERMISSIONS.REPORTS_VIEW_FINANCIAL)
+  @ApiOperation({
+    summary: "Read brands ranked by posted-sales revenue for a period",
+  })
+  topBrands(
+    @Req() request: Request,
+    @Query(new ZodValidationPipe(TopBrandsQuerySchema))
+    query: TopBrandsQuery,
+  ): Promise<TopBrandsReport> {
+    return this.dashboard.topBrands(
+      dashboardActorContext(request),
+      query.period,
       query.limit,
     );
   }

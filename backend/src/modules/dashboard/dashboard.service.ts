@@ -26,7 +26,10 @@ import {
 import { PrismaService } from "../../database/prisma.service";
 import type { AuthRequestMetadata } from "../auth/request-metadata";
 import { CashService, type CashActorContext } from "../cash/cash.service";
-import { DemandService, type DemandActorContext } from "../demand/demand.service";
+import {
+  DemandService,
+  type DemandActorContext,
+} from "../demand/demand.service";
 import {
   ExternalService,
   type ExternalActorContext,
@@ -130,6 +133,26 @@ interface TopProductRawRow {
 
 export type ReorderConfidence = "high" | "medium" | "low";
 
+/**
+ * Why the reorder engine returned the result it did. This is what lets the UI
+ * distinguish an empty-but-healthy shop ("nothing needs reordering") from a
+ * brand-new shop with no signal at all ("insufficient data") — instead of every
+ * empty result collapsing into one indistinguishable blank screen.
+ */
+export type ReorderSignal =
+  | "recommendations"
+  | "no_reorder_needed"
+  | "insufficient_data";
+
+/** Coverage counts that explain, honestly, how much evidence the engine had. */
+export interface ReorderAnalysis {
+  readonly analyzedVariants: number;
+  readonly variantsWithSales: number;
+  readonly variantsWithStock: number;
+  readonly variantsWithDemand: number;
+  readonly windowUnitsSold: number;
+}
+
 export interface ReorderSuggestion {
   readonly productVariantId: string;
   readonly name: string;
@@ -155,6 +178,15 @@ export interface ReorderReport {
   readonly windowDays: number;
   readonly generatedAt: string;
   readonly businessDate: string;
+  /** Which explicit state the engine is in — never guessed from an empty list. */
+  readonly signal: ReorderSignal;
+  /**
+   * True when the recommendations rest on limited transaction history (a single
+   * sale / a handful of units). The UI surfaces this as an "Early signal" badge
+   * rather than hiding the output or pretending the numbers are settled.
+   */
+  readonly earlySignal: boolean;
+  readonly analysis: ReorderAnalysis;
   readonly totalEstCostMinor: number;
   readonly totalExpProfitMinor: number;
   readonly costCoverage: { readonly costed: number; readonly total: number };
@@ -175,14 +207,105 @@ interface ReorderRawRow {
   readonly windowUnitsSold: bigint;
   readonly windowRevenueMinor: bigint;
   readonly windowProfitMinor: bigint;
+  readonly demandOpenCount: bigint;
+}
+
+/** One product ranked by recent trading momentum. */
+export interface TrendingProductRow {
+  readonly productVariantId: string;
+  readonly name: string;
+  readonly sku: string;
+  readonly unitsSold: number;
+  readonly revenueMinor: number;
+  readonly grossProfitMinor: number;
+  readonly salesCount: number;
+  readonly demandOpenCount: number;
+  readonly previousUnitsSold: number;
+  /** Growth in units vs the previous equal-length window; null with no prior. */
+  readonly growthBasisPoints: number | null;
+  /** No sales in the previous window, but selling now — fresh momentum. */
+  readonly isNew: boolean;
+  readonly trendScore: number;
+}
+
+export interface TrendingProductsReport {
+  readonly windowDays: number;
+  readonly from: string;
+  readonly to: string;
+  readonly previousFrom: string;
+  readonly previousTo: string;
+  readonly rankingBasis: string;
+  readonly earlySignal: boolean;
+  readonly items: readonly TrendingProductRow[];
+}
+
+interface TrendingRawRow {
+  readonly productVariantId: string;
+  readonly name: string;
+  readonly sku: string;
+  readonly unitsSold: bigint;
+  readonly revenueMinor: bigint;
+  readonly grossProfitMinor: bigint;
+  readonly salesCount: bigint;
+  readonly previousUnitsSold: bigint;
+  readonly demandOpenCount: bigint;
+}
+
+/** One brand ranked by real posted-sales performance for the period. */
+export interface TopBrandRow {
+  readonly brandId: string;
+  readonly brandName: string;
+  readonly unitsSold: number;
+  readonly revenueMinor: number;
+  readonly grossProfitMinor: number;
+  readonly salesCount: number;
+  readonly productCount: number;
+}
+
+export interface TopBrandsReport {
+  readonly period: FinancialSummaryPeriod;
+  readonly from: string;
+  readonly to: string;
+  readonly rankingBasis: string;
+  readonly earlySignal: boolean;
+  readonly items: readonly TopBrandRow[];
+}
+
+interface TopBrandRawRow {
+  readonly brandId: string;
+  readonly brandName: string;
+  readonly unitsSold: bigint;
+  readonly revenueMinor: bigint;
+  readonly grossProfitMinor: bigint;
+  readonly salesCount: bigint;
+  readonly productCount: bigint;
 }
 
 /** Days of demand cover the reorder engine targets holding in stock. */
 const REORDER_COVER_DAYS = 30;
 
+/**
+ * Below this many units sold across the whole analysis window, the read models
+ * flag `earlySignal` — the shop simply has not traded enough for the ranking to
+ * be settled, so the UI shows an "early signal, limited history" banner instead
+ * of presenting sparse output as if it were a confident trend.
+ */
+const EARLY_SIGNAL_UNIT_FLOOR = 10;
+
+/** Statuses that mean an open demand line is no longer actively unmet. */
+const CLOSED_DEMAND_STATUSES = [
+  "converted_to_sale",
+  "not_interested",
+  "closed",
+] as const;
+
 /** The source module does not exist yet — the client renders this as "Coming soon". */
 function comingSoon(message: string) {
-  return { availability: "unavailable", reason: "source_not_built", message } as const;
+  return {
+    availability: "unavailable",
+    reason: "source_not_built",
+    message,
+  } as const;
 }
 
 /** The source module exists but has nothing to report from in this context. */
@@ -207,10 +330,7 @@ function redacted(message: string) {
   return { availability: "redacted", message } as const;
 }
 
-function availableMoney(
-  valueMinor: number,
-  meta: string,
-): DashboardMoneyValue {
+function availableMoney(valueMinor: number, meta: string): DashboardMoneyValue {
   return { availability: "available", valueMinor, meta };
 }
 
@@ -267,7 +387,9 @@ export class DashboardService {
       permissions.has(PERMISSIONS.INVENTORY_VIEW_COST) &&
       permissions.has(PERMISSIONS.REPORTS_VIEW_FINANCIAL);
     const canViewPurchases = permissions.has(PERMISSIONS.PURCHASES_VIEW);
-    const canViewFinancial = permissions.has(PERMISSIONS.REPORTS_VIEW_FINANCIAL);
+    const canViewFinancial = permissions.has(
+      PERMISSIONS.REPORTS_VIEW_FINANCIAL,
+    );
     const canViewSales = permissions.has(PERMISSIONS.SALES_VIEW);
     const canViewDigital = permissions.has(PERMISSIONS.EXTERNAL_SERVICES_VIEW);
     const canViewDemand =
@@ -327,9 +449,7 @@ export class DashboardService {
       canViewSales
         ? this.safe<DashboardRecentSales>(
             () => this.recentSalesSection(context),
-            temporarilyUnavailable(
-              "Recent sales are temporarily unavailable.",
-            ),
+            temporarilyUnavailable("Recent sales are temporarily unavailable."),
           )
         : Promise.resolve<DashboardRecentSales>(
             redacted("Recent sales require sales.view."),
@@ -407,8 +527,12 @@ export class DashboardService {
     readonly inventory: InventoryAggregate | null;
     readonly openPurchaseOrders: number | null;
   }): DashboardSnapshot["attention"] {
-    const { canViewInventory, canViewPurchases, inventory, openPurchaseOrders } =
-      input;
+    const {
+      canViewInventory,
+      canViewPurchases,
+      inventory,
+      openPurchaseOrders,
+    } = input;
     if (!canViewInventory && !canViewPurchases) {
       return redacted(
         "Stock and Purchasing attention requires source-module access.",
@@ -476,7 +600,10 @@ export class DashboardService {
       availability: "available",
       data: {
         sentToday: availableMoney(sentToday, "Settled principal sent"),
-        receivedToday: availableMoney(receivedToday, "Settled principal received"),
+        receivedToday: availableMoney(
+          receivedToday,
+          "Settled principal received",
+        ),
         customerFeesToday: availableMoney(
           commission.totals.grossFeeMinor,
           "Fees charged to customers",
@@ -570,7 +697,10 @@ export class DashboardService {
             meta: "Recorded landed cost only",
             message: `${uncosted.toLocaleString("en-PK")} suggested item${uncosted === 1 ? " has" : "s have"} no recorded cost and is excluded.`,
           }
-        : availableMoney(reorder.totalEstCostMinor, "Recommended reorder spend");
+        : availableMoney(
+            reorder.totalEstCostMinor,
+            "Recommended reorder spend",
+          );
     return {
       availability: "available",
       data: {
@@ -706,7 +836,10 @@ export class DashboardService {
       "returns",
     );
     const netSalesMinor = salesRevenueMinor - returnsMinor;
-    const cogsMinor = safeNonnegativeInteger(sales._sum.cogsMinor ?? 0n, "sales COGS");
+    const cogsMinor = safeNonnegativeInteger(
+      sales._sum.cogsMinor ?? 0n,
+      "sales COGS",
+    );
     const grossProfitMinor = salesRevenueMinor - cogsMinor;
     const serviceProfitMinor = safeSignedInteger(
       external._sum.serviceProfitMinor ?? 0n,
@@ -893,8 +1026,13 @@ export class DashboardService {
       context.allowedLocationIds,
     );
 
-    const [rows, demand] = await Promise.all([
-      this.prisma.client.$queryRaw<readonly ReorderRawRow[]>(Prisma.sql`
+    // A single tenant/branch-scoped aggregate. Open matched demand is joined in
+    // as its own CTE (not fetched separately) so that a variant whose only
+    // signal is an unmet customer request — no stock, no prior sale — still
+    // surfaces as a candidate. Excluding it was the reason a brand-new shop with
+    // one customer request saw an empty reorder screen.
+    const rows = await this.prisma.client.$queryRaw<readonly ReorderRawRow[]>(
+      Prisma.sql`
         WITH batch_stock AS (
           SELECT b.product_variant_id AS variant_id,
                  SUM(b.quantity_on_hand)::bigint AS on_hand,
@@ -926,6 +1064,21 @@ export class DashboardService {
              AND s.business_date >= ${windowStart}::date
              AND s.business_date <= ${businessDate}::date
            GROUP BY sl.product_variant_id
+        ), demand_open AS (
+          SELECT di.matched_product_variant_id AS variant_id,
+                 COUNT(*)::bigint AS open_count
+            FROM demand_request_items di
+            JOIN demand_requests dr ON dr.id = di.demand_request_id
+                                   AND dr.organization_id = di.organization_id
+                                   AND dr.branch_id = di.branch_id
+           WHERE di.organization_id = ${context.organizationId}::uuid
+             AND di.branch_id = ${context.branchId}::uuid
+             AND di.matched_product_variant_id IS NOT NULL
+             AND dr.converted_target_id IS NULL
+             AND dr.status::text NOT IN (${Prisma.join([
+               ...CLOSED_DEMAND_STATUSES,
+             ])})
+           GROUP BY di.matched_product_variant_id
         )
         SELECT v.id AS "productVariantId",
                v.name AS "name",
@@ -939,48 +1092,43 @@ export class DashboardService {
                COALESCE(bs.costed_value, 0)::bigint AS "costedValueMinor",
                COALESCE(sw.units_sold, 0)::bigint AS "windowUnitsSold",
                COALESCE(sw.revenue, 0)::bigint AS "windowRevenueMinor",
-               COALESCE(sw.profit, 0)::bigint AS "windowProfitMinor"
+               COALESCE(sw.profit, 0)::bigint AS "windowProfitMinor",
+               COALESCE(dm.open_count, 0)::bigint AS "demandOpenCount"
           FROM product_variants v
           LEFT JOIN batch_stock bs ON bs.variant_id = v.id
           LEFT JOIN sales_window sw ON sw.variant_id = v.id
+          LEFT JOIN demand_open dm ON dm.variant_id = v.id
          WHERE v.organization_id = ${context.organizationId}::uuid
            AND v.is_active = TRUE
            AND v.tracking_type::text = 'quantity'
-           AND (bs.variant_id IS NOT NULL OR sw.variant_id IS NOT NULL)
-      `),
-      this.prisma.client.demandRequestItem.groupBy({
-        by: ["matchedProductVariantId"],
-        where: {
-          organizationId: context.organizationId,
-          branchId: context.branchId,
-          matchedProductVariantId: { not: null },
-          demandRequest: {
-            convertedTargetId: null,
-            status: { notIn: ["converted_to_sale", "closed", "not_interested"] },
-          },
-        },
-        _count: { _all: true },
-      }),
-    ]);
+           AND (bs.variant_id IS NOT NULL
+                OR sw.variant_id IS NOT NULL
+                OR dm.variant_id IS NOT NULL)
+      `,
+    );
 
-    const demandByVariant = new Map<string, number>();
-    for (const item of demand) {
-      if (item.matchedProductVariantId === null) continue;
-      demandByVariant.set(item.matchedProductVariantId, item._count._all);
-    }
-
+    let variantsWithSales = 0;
+    let variantsWithStock = 0;
+    let variantsWithDemand = 0;
+    let totalWindowUnitsSold = 0;
     const suggestions: ReorderSuggestion[] = [];
     for (const row of rows) {
       const availableUnits = safeNonnegativeInteger(
         row.availableUnits,
         "available units",
       );
-      const onHandUnits = safeNonnegativeInteger(row.onHandUnits, "on-hand units");
+      const onHandUnits = safeNonnegativeInteger(
+        row.onHandUnits,
+        "on-hand units",
+      );
       const reservedUnits = safeNonnegativeInteger(
         row.reservedUnits,
         "reserved units",
       );
-      const costedUnits = safeNonnegativeInteger(row.costedUnits, "costed units");
+      const costedUnits = safeNonnegativeInteger(
+        row.costedUnits,
+        "costed units",
+      );
       const costedValueMinor = safeNonnegativeInteger(
         row.costedValueMinor,
         "costed value",
@@ -998,7 +1146,15 @@ export class DashboardService {
         row.casePackSize !== null && row.casePackSize > 0
           ? row.casePackSize
           : null;
-      const demandOpenCount = demandByVariant.get(row.productVariantId) ?? 0;
+      const demandOpenCount = safeNonnegativeInteger(
+        row.demandOpenCount,
+        "open demand count",
+      );
+
+      if (windowUnitsSold > 0) variantsWithSales += 1;
+      if (onHandUnits > 0) variantsWithStock += 1;
+      if (demandOpenCount > 0) variantsWithDemand += 1;
+      totalWindowUnitsSold += windowUnitsSold;
 
       const dailyVelocity = windowUnitsSold / windowDays;
       const coverTarget = Math.ceil(dailyVelocity * REORDER_COVER_DAYS);
@@ -1033,7 +1189,11 @@ export class DashboardService {
       const coverDaysRemaining =
         dailyVelocity > 0 ? Math.floor(availableUnits / dailyVelocity) : null;
       const confidence: ReorderConfidence =
-        windowUnitsSold >= 10 ? "high" : windowUnitsSold >= 3 ? "medium" : "low";
+        windowUnitsSold >= 10
+          ? "high"
+          : windowUnitsSold >= 3
+            ? "medium"
+            : "low";
       const urgency =
         coverDaysRemaining === null
           ? availableUnits === 0
@@ -1083,14 +1243,262 @@ export class DashboardService {
       (item) => item.unitLandedCostMinor !== null,
     ).length;
 
+    // The state is derived from real coverage, never guessed from an empty
+    // array: no candidate rows at all means the shop has no stock, sales or
+    // demand to reason about (insufficient data); candidates that simply do not
+    // need topping up are an explicit "no reorder needed", not a failure.
+    const signal: ReorderSignal =
+      ranked.length > 0
+        ? "recommendations"
+        : rows.length > 0
+          ? "no_reorder_needed"
+          : "insufficient_data";
+    const earlySignal =
+      rows.length > 0 && totalWindowUnitsSold < EARLY_SIGNAL_UNIT_FLOOR;
+
     return {
       windowDays,
       generatedAt: now.toISOString(),
       businessDate,
+      signal,
+      earlySignal,
+      analysis: {
+        analyzedVariants: rows.length,
+        variantsWithSales,
+        variantsWithStock,
+        variantsWithDemand,
+        windowUnitsSold: totalWindowUnitsSold,
+      },
       totalEstCostMinor,
       totalExpProfitMinor,
       costCoverage: { costed: costedCount, total: ranked.length },
       suggestions: ranked,
+    };
+  }
+
+  /**
+   * Products ranked by recent trading momentum, computed from real posted-sale
+   * lines and open matched demand. The recent window is compared against the
+   * immediately preceding equal-length window to expose growth. Unlike a pure
+   * revenue leaderboard this deliberately has no minimum-activity floor: a
+   * single posted order, or a single matched customer request, is enough to
+   * surface — the shop should see momentum from its very first sale.
+   *
+   * Tenant + branch scoped; each sale line carries its own tenant columns so the
+   * sale join cannot widen the scope.
+   */
+  async trendingProducts(
+    context: DashboardActorContext,
+    windowDays: number,
+    limit: number,
+  ): Promise<TrendingProductsReport> {
+    const businessDate = toBusinessDate(new Date());
+    const { from } = rollingWindow(businessDate, windowDays);
+    const previousTo = addBusinessDays(from, -1);
+    const { from: previousFrom } = rollingWindow(previousTo, windowDays);
+
+    const rows = await this.prisma.client.$queryRaw<readonly TrendingRawRow[]>(
+      Prisma.sql`
+        WITH sales_agg AS (
+          SELECT sl.product_variant_id AS variant_id,
+                 SUM(CASE WHEN s.business_date >= ${from}::date
+                          THEN sl.quantity ELSE 0 END)::bigint AS recent_units,
+                 SUM(CASE WHEN s.business_date >= ${from}::date
+                          THEN sl.line_total_minor ELSE 0 END)::bigint AS recent_revenue,
+                 SUM(CASE WHEN s.business_date >= ${from}::date
+                          THEN sl.gross_profit_minor ELSE 0 END)::bigint AS recent_profit,
+                 COUNT(DISTINCT CASE WHEN s.business_date >= ${from}::date
+                          THEN sl.sale_id END)::bigint AS recent_sales_count,
+                 SUM(CASE WHEN s.business_date < ${from}::date
+                          THEN sl.quantity ELSE 0 END)::bigint AS previous_units
+            FROM sale_lines sl
+            JOIN sales s ON s.id = sl.sale_id
+                        AND s.organization_id = sl.organization_id
+                        AND s.branch_id = sl.branch_id
+           WHERE sl.organization_id = ${context.organizationId}::uuid
+             AND sl.branch_id = ${context.branchId}::uuid
+             AND s.posted_at IS NOT NULL
+             AND s.business_date >= ${previousFrom}::date
+             AND s.business_date <= ${businessDate}::date
+           GROUP BY sl.product_variant_id
+        ), demand_open AS (
+          SELECT di.matched_product_variant_id AS variant_id,
+                 COUNT(*)::bigint AS open_count
+            FROM demand_request_items di
+            JOIN demand_requests dr ON dr.id = di.demand_request_id
+                                   AND dr.organization_id = di.organization_id
+                                   AND dr.branch_id = di.branch_id
+           WHERE di.organization_id = ${context.organizationId}::uuid
+             AND di.branch_id = ${context.branchId}::uuid
+             AND di.matched_product_variant_id IS NOT NULL
+             AND dr.converted_target_id IS NULL
+             AND dr.status::text NOT IN (${Prisma.join([
+               ...CLOSED_DEMAND_STATUSES,
+             ])})
+           GROUP BY di.matched_product_variant_id
+        )
+        SELECT v.id AS "productVariantId",
+               v.name AS "name",
+               v.sku AS "sku",
+               COALESCE(sa.recent_units, 0)::bigint AS "unitsSold",
+               COALESCE(sa.recent_revenue, 0)::bigint AS "revenueMinor",
+               COALESCE(sa.recent_profit, 0)::bigint AS "grossProfitMinor",
+               COALESCE(sa.recent_sales_count, 0)::bigint AS "salesCount",
+               COALESCE(sa.previous_units, 0)::bigint AS "previousUnitsSold",
+               COALESCE(dm.open_count, 0)::bigint AS "demandOpenCount"
+          FROM product_variants v
+          LEFT JOIN sales_agg sa ON sa.variant_id = v.id
+          LEFT JOIN demand_open dm ON dm.variant_id = v.id
+         WHERE v.organization_id = ${context.organizationId}::uuid
+           AND v.is_active = TRUE
+           AND (COALESCE(sa.recent_units, 0) > 0
+                OR COALESCE(dm.open_count, 0) > 0)
+      `,
+    );
+
+    let totalRecentUnits = 0;
+    const items = rows.map((row) => {
+      const unitsSold = safeNonnegativeInteger(row.unitsSold, "units sold");
+      const previousUnitsSold = safeNonnegativeInteger(
+        row.previousUnitsSold,
+        "previous units sold",
+      );
+      const salesCount = safeNonnegativeInteger(row.salesCount, "sales count");
+      const demandOpenCount = safeNonnegativeInteger(
+        row.demandOpenCount,
+        "open demand count",
+      );
+      totalRecentUnits += unitsSold;
+      const growthBasisPoints =
+        previousUnitsSold > 0
+          ? Math.round(
+              ((unitsSold - previousUnitsSold) / previousUnitsSold) * 10_000,
+            )
+          : null;
+      const isNew = previousUnitsSold === 0 && unitsSold > 0;
+      // Growth adds a bounded bonus so a spike cannot dwarf raw volume, and a
+      // genuinely new mover gets a small, honest momentum credit.
+      const growthContribution =
+        growthBasisPoints === null
+          ? isNew
+            ? 30
+            : 0
+          : Math.max(-100, Math.min(200, Math.round(growthBasisPoints / 100)));
+      const trendScore =
+        unitsSold * 10 +
+        salesCount * 5 +
+        demandOpenCount * 8 +
+        growthContribution;
+      return {
+        productVariantId: row.productVariantId,
+        name: row.name,
+        sku: row.sku,
+        unitsSold,
+        revenueMinor: safeNonnegativeInteger(row.revenueMinor, "recent revenue"),
+        grossProfitMinor: safeSignedInteger(
+          row.grossProfitMinor,
+          "recent gross profit",
+        ),
+        salesCount,
+        demandOpenCount,
+        previousUnitsSold,
+        growthBasisPoints,
+        isNew,
+        trendScore,
+      };
+    });
+
+    items.sort(
+      (left, right) =>
+        right.trendScore - left.trendScore ||
+        right.unitsSold - left.unitsSold ||
+        right.revenueMinor - left.revenueMinor,
+    );
+
+    return {
+      windowDays,
+      from,
+      to: businessDate,
+      previousFrom,
+      previousTo,
+      rankingBasis:
+        "Ranked by recent units sold, sales frequency, open customer demand and growth versus the previous equal-length window.",
+      earlySignal: totalRecentUnits < EARLY_SIGNAL_UNIT_FLOOR,
+      items: items.slice(0, limit),
+    };
+  }
+
+  /**
+   * Brands ranked by real posted-sales performance for a day, week or month.
+   * Aggregated from immutable posted sale lines joined up through the variant
+   * and model to the owning brand. Tenant + branch scoped; a single posted order
+   * is enough to rank its brand — there is no minimum-volume floor.
+   */
+  async topBrands(
+    context: DashboardActorContext,
+    period: FinancialSummaryPeriod,
+    limit: number,
+  ): Promise<TopBrandsReport> {
+    const { from, to } = this.periodRange(period, toBusinessDate(new Date()));
+    const rows = await this.prisma.client.$queryRaw<readonly TopBrandRawRow[]>(
+      Prisma.sql`
+        SELECT b.id AS "brandId",
+               b.name AS "brandName",
+               SUM(sl.quantity)::bigint AS "unitsSold",
+               SUM(sl.line_total_minor)::bigint AS "revenueMinor",
+               SUM(sl.gross_profit_minor)::bigint AS "grossProfitMinor",
+               COUNT(DISTINCT sl.sale_id)::bigint AS "salesCount",
+               COUNT(DISTINCT sl.product_variant_id)::bigint AS "productCount"
+          FROM sale_lines sl
+          JOIN sales s ON s.id = sl.sale_id
+                      AND s.organization_id = sl.organization_id
+                      AND s.branch_id = sl.branch_id
+          JOIN product_variants v ON v.id = sl.product_variant_id
+                                 AND v.organization_id = sl.organization_id
+          JOIN product_models pm ON pm.id = v.product_model_id
+                                AND pm.organization_id = v.organization_id
+          JOIN brands b ON b.id = pm.brand_id
+                       AND b.organization_id = pm.organization_id
+         WHERE sl.organization_id = ${context.organizationId}::uuid
+           AND sl.branch_id = ${context.branchId}::uuid
+           AND s.posted_at IS NOT NULL
+           AND s.business_date >= ${from}::date
+           AND s.business_date <= ${to}::date
+         GROUP BY b.id, b.name
+         ORDER BY "revenueMinor" DESC, "unitsSold" DESC
+         LIMIT ${limit}
+      `,
+    );
+
+    let totalUnits = 0;
+    const items = rows.map((row) => {
+      const unitsSold = safeNonnegativeInteger(row.unitsSold, "brand units");
+      totalUnits += unitsSold;
+      return {
+        brandId: row.brandId,
+        brandName: row.brandName,
+        unitsSold,
+        revenueMinor: safeNonnegativeInteger(row.revenueMinor, "brand revenue"),
+        grossProfitMinor: safeSignedInteger(
+          row.grossProfitMinor,
+          "brand gross profit",
+        ),
+        salesCount: safeNonnegativeInteger(row.salesCount, "brand sales count"),
+        productCount: safeNonnegativeInteger(
+          row.productCount,
+          "brand product count",
+        ),
+      };
+    });
+
+    return {
+      period,
+      from,
+      to,
+      rankingBasis:
+        "Ranked by posted sales revenue, then units sold, with sales frequency and distinct products sold per brand.",
+      earlySignal: totalUnits < EARLY_SIGNAL_UNIT_FLOOR,
+      items,
     };
   }
 
@@ -1114,7 +1522,9 @@ export class DashboardService {
     const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
     return {
       from: parseBusinessDate(`${anchor.slice(0, 7)}-01`),
-      to: parseBusinessDate(`${anchor.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`),
+      to: parseBusinessDate(
+        `${anchor.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`,
+      ),
     };
   }
 

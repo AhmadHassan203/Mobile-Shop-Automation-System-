@@ -5,6 +5,8 @@ export interface IntelligenceCapabilities {
   readonly canDecide: boolean;
   readonly canCreatePurchaseOrders: boolean;
   readonly canViewInventory: boolean;
+  /** Trending products and top brands expose revenue, so they need this grant. */
+  readonly canViewFinancialReports: boolean;
 }
 
 export type RecommendationDecision =
@@ -19,6 +21,9 @@ export function intelligenceCapabilities(
     canDecide: granted.includes(PERMISSIONS.RECOMMENDATIONS_DECIDE),
     canCreatePurchaseOrders: granted.includes(PERMISSIONS.PURCHASES_CREATE),
     canViewInventory: granted.includes(PERMISSIONS.INVENTORY_VIEW),
+    canViewFinancialReports: granted.includes(
+      PERMISSIONS.REPORTS_VIEW_FINANCIAL,
+    ),
   };
 }
 

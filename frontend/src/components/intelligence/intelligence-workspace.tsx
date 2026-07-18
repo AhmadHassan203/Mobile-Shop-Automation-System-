@@ -2,7 +2,7 @@
 
 import { formatMoney, toMinor } from "@mobileshop/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useState, type JSX } from "react";
+import { useState, type JSX, type ReactNode } from "react";
 import {
   CatalogErrorState,
   CatalogForbiddenState,
@@ -15,21 +15,32 @@ import {
   ShieldCheckIcon,
 } from "@/components/ui/icons";
 import { toApiError } from "@/lib/api/client";
-import type { ReorderReport, ReorderSuggestion } from "@/lib/api/reports";
+import type {
+  ReorderReport,
+  ReorderSuggestion,
+  TopBrandsReport,
+  TrendingProductRow,
+  TrendingProductsReport,
+} from "@/lib/api/reports";
 import { currentAuthQueryOptions } from "@/lib/query/auth-query";
-import { reorderSuggestionsQueryOptions } from "@/lib/query/reports-query";
+import {
+  reorderSuggestionsQueryOptions,
+  topBrandsQueryOptions,
+  trendingProductsQueryOptions,
+} from "@/lib/query/reports-query";
 import {
   intelligenceCapabilities,
   nextRecommendationExpanded,
   type IntelligenceCapabilities,
 } from "./intelligence-state";
 
-const CONFIDENCE_STYLE: Readonly<Record<ReorderSuggestion["confidence"], string>> =
-  Object.freeze({
-    high: "border-positive/30 bg-positive-soft text-positive",
-    medium: "border-warning/30 bg-warning-soft text-warning",
-    low: "border-line bg-surface-subtle text-ink-muted",
-  });
+const CONFIDENCE_STYLE: Readonly<
+  Record<ReorderSuggestion["confidence"], string>
+> = Object.freeze({
+  high: "border-positive/30 bg-positive-soft text-positive",
+  medium: "border-warning/30 bg-warning-soft text-warning",
+  low: "border-line bg-surface-subtle text-ink-muted",
+});
 
 function money(valueMinor: number, currency: string): string {
   return formatMoney(toMinor(valueMinor, "intelligence value"), currency);
@@ -152,9 +163,9 @@ function PlanSummary({
         </dl>
         <div className="mt-3 flex items-start gap-2.5 rounded-control border border-dashed border-info/30 bg-info-soft px-3 py-2.5 text-xs leading-5 text-info">
           <ShieldCheckIcon className="mt-0.5 size-4 shrink-0" />
-          Totals cover only the ranked suggestions below and exclude
-          uncosted items. A configured purchase budget and liquidity buffer are
-          not modelled yet, so no investable ceiling is enforced here.
+          Totals cover only the ranked suggestions below and exclude uncosted
+          items. A configured purchase budget and liquidity buffer are not
+          modelled yet, so no investable ceiling is enforced here.
         </div>
       </div>
     </section>
@@ -245,19 +256,19 @@ function SuggestionDetail({
         </div>
       ) : null}
       <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
-        {(["Accept", "− Reduce qty", "＋ Increase", "Defer", "Reject"] as const).map(
-          (label) => (
-            <button
-              className={decisionClass}
-              disabled
-              key={label}
-              title={decisionTitle}
-              type="button"
-            >
-              {label}
-            </button>
-          ),
-        )}
+        {(
+          ["Accept", "− Reduce qty", "＋ Increase", "Defer", "Reject"] as const
+        ).map((label) => (
+          <button
+            className={decisionClass}
+            disabled
+            key={label}
+            title={decisionTitle}
+            type="button"
+          >
+            {label}
+          </button>
+        ))}
         <button
           className={decisionClass}
           disabled
@@ -414,6 +425,237 @@ function RecommendationsTable({
   );
 }
 
+/**
+ * The engine flags `earlySignal` when the shop has barely traded in the window.
+ * We surface that honestly rather than presenting sparse output as a settled
+ * trend, or hiding it entirely.
+ */
+function EarlySignalBanner({
+  message,
+}: {
+  readonly message?: string;
+}): JSX.Element {
+  return (
+    <div className="flex items-start gap-2.5 rounded-control border border-warning/25 bg-warning-soft px-3 py-2.5 text-xs leading-5 text-warning">
+      <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
+      <p>
+        <strong>Early signal — based on limited transaction history.</strong>{" "}
+        {message ??
+          "The shop has traded very little in this window, so treat these figures as provisional, not a settled trend."}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * An empty reorder result is never blank: the engine's explicit `signal`
+ * distinguishes a brand-new shop with no evidence (insufficient_data) from a
+ * healthy shop where nothing needs topping up (no_reorder_needed).
+ */
+function ReorderEmptyState({
+  report,
+}: {
+  readonly report: ReorderReport;
+}): JSX.Element {
+  const insufficient = report.signal === "insufficient_data";
+  return (
+    <div className="px-5 py-12 text-center">
+      <span className="mx-auto grid size-12 place-items-center rounded-full bg-accent-soft text-accent">
+        <IntelligenceIcon className="size-6" />
+      </span>
+      <h3 className="mt-3 font-bold text-ink">
+        {insufficient ? "Not enough data yet" : "Everything looks well stocked"}
+      </h3>
+      <p className="mx-auto mt-1 max-w-xl text-sm leading-6 text-ink-muted">
+        {insufficient
+          ? "No posted sales, stock or open demand to analyse yet. Record a sale, a purchase or a demand and reorder suggestions will appear — the engine invents nothing without evidence."
+          : `Analysed ${report.analysis.analyzedVariants.toLocaleString("en-PK")} quantity-tracked product${report.analysis.analyzedVariants === 1 ? "" : "s"}; none need reordering right now from sales velocity, open demand or their reorder point.`}
+      </p>
+    </div>
+  );
+}
+
+function SectionShell({
+  title,
+  meta,
+  children,
+}: {
+  readonly title: string;
+  readonly meta: string;
+  readonly children: JSX.Element;
+}): JSX.Element {
+  return (
+    <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-5">
+        <h2 className="font-bold text-ink">{title}</h2>
+        <span className="text-xs text-ink-muted">{meta}</span>
+      </div>
+      <div className="space-y-3 p-4 sm:p-5">{children}</div>
+    </section>
+  );
+}
+
+function EmptyNote({
+  children,
+}: {
+  readonly children: ReactNode;
+}): JSX.Element {
+  return <p className="py-6 text-center text-sm text-ink-muted">{children}</p>;
+}
+
+function growthLabel(row: TrendingProductRow): string {
+  if (row.isNew) return "NEW";
+  if (row.growthBasisPoints === null) return "—";
+  const pct = Math.round(row.growthBasisPoints / 100);
+  return `${pct >= 0 ? "+" : ""}${pct.toLocaleString("en-PK")}%`;
+}
+
+function TrendingProductsSection({
+  report,
+  currency,
+}: {
+  readonly report: TrendingProductsReport;
+  readonly currency: string;
+}): JSX.Element {
+  return (
+    <SectionShell
+      meta={`Last ${report.windowDays}d vs previous ${report.windowDays}d`}
+      title="Trending products"
+    >
+      <>
+        {report.earlySignal ? <EarlySignalBanner /> : null}
+        {report.items.length === 0 ? (
+          <EmptyNote>
+            No product has sold in this window yet. Record a sale and momentum
+            will appear here.
+          </EmptyNote>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-160 text-left text-sm">
+              <thead className="text-[0.6875rem] font-bold uppercase tracking-wide text-ink-muted">
+                <tr>
+                  <th className="px-3 py-2">#</th>
+                  <th className="px-3 py-2">Product</th>
+                  <th className="px-3 py-2 text-right">Units</th>
+                  <th className="px-3 py-2 text-right">Revenue</th>
+                  <th className="px-3 py-2 text-right">Unmet</th>
+                  <th className="px-3 py-2 text-right">Growth</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line-subtle">
+                {report.items.map((row, index) => (
+                  <tr
+                    className="hover:bg-surface-subtle"
+                    key={row.productVariantId}
+                  >
+                    <td className="px-3 py-2 font-mono text-ink-muted">
+                      {index + 1}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className="block font-semibold text-ink">
+                        {row.name}
+                      </span>
+                      <span className="block font-mono text-[0.6875rem] text-ink-muted">
+                        {row.sku}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-ink">
+                      {row.unitsSold.toLocaleString("en-PK")}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-ink">
+                      {money(row.revenueMinor, currency)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-ink-subtle">
+                      {row.demandOpenCount.toLocaleString("en-PK")}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <span
+                        className={`font-mono text-xs font-semibold ${
+                          row.isNew
+                            ? "text-accent"
+                            : row.growthBasisPoints !== null &&
+                                row.growthBasisPoints < 0
+                              ? "text-negative"
+                              : "text-positive"
+                        }`}
+                      >
+                        {growthLabel(row)}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </>
+    </SectionShell>
+  );
+}
+
+function TopBrandsSection({
+  report,
+  currency,
+}: {
+  readonly report: TopBrandsReport;
+  readonly currency: string;
+}): JSX.Element {
+  return (
+    <SectionShell
+      meta={`This ${report.period} · by posted-sales revenue`}
+      title="Top brands"
+    >
+      <>
+        {report.earlySignal ? <EarlySignalBanner /> : null}
+        {report.items.length === 0 ? (
+          <EmptyNote>
+            No brand has recorded a sale this {report.period} yet.
+          </EmptyNote>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-160 text-left text-sm">
+              <thead className="text-[0.6875rem] font-bold uppercase tracking-wide text-ink-muted">
+                <tr>
+                  <th className="px-3 py-2">#</th>
+                  <th className="px-3 py-2">Brand</th>
+                  <th className="px-3 py-2 text-right">Units</th>
+                  <th className="px-3 py-2 text-right">Revenue</th>
+                  <th className="px-3 py-2 text-right">Gross profit</th>
+                  <th className="px-3 py-2 text-right">Products</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line-subtle">
+                {report.items.map((row, index) => (
+                  <tr className="hover:bg-surface-subtle" key={row.brandId}>
+                    <td className="px-3 py-2 font-mono text-ink-muted">
+                      {index + 1}
+                    </td>
+                    <td className="px-3 py-2 font-semibold text-ink">
+                      {row.brandName}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-ink">
+                      {row.unitsSold.toLocaleString("en-PK")}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-ink">
+                      {money(row.revenueMinor, currency)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-positive">
+                      {money(row.grossProfitMinor, currency)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-ink-subtle">
+                      {row.productCount.toLocaleString("en-PK")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </>
+    </SectionShell>
+  );
+}
+
 export function IntelligenceWorkspace(): JSX.Element {
   const auth = useQuery(currentAuthQueryOptions);
   const permissions = auth.data?.permissions;
@@ -423,6 +665,16 @@ export function IntelligenceWorkspace(): JSX.Element {
       { windowDays: 30, limit: 20 },
       auth.data !== undefined && capabilities.canView,
     ),
+  );
+  const financialEnabled =
+    auth.data !== undefined &&
+    capabilities.canView &&
+    capabilities.canViewFinancialReports;
+  const trending = useQuery(
+    trendingProductsQueryOptions({ windowDays: 30, limit: 8 }, financialEnabled),
+  );
+  const topBrands = useQuery(
+    topBrandsQueryOptions({ period: "month", limit: 8 }, financialEnabled),
   );
 
   if (auth.data === undefined && auth.isPending) return <IntelligenceLoading />;
@@ -477,6 +729,10 @@ export function IntelligenceWorkspace(): JSX.Element {
       <>
         <PlanSummary currency={currency} report={report} />
 
+        {report.earlySignal ? (
+          <EarlySignalBanner message="Reorder quantities rest on only a few recent sales — treat them as test orders until more history builds." />
+        ) : null}
+
         <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-5">
             <h2 className="font-bold text-ink">Recommendations</h2>
@@ -486,19 +742,7 @@ export function IntelligenceWorkspace(): JSX.Element {
             </span>
           </div>
           {report.suggestions.length === 0 ? (
-            <div className="px-5 py-12 text-center">
-              <span className="mx-auto grid size-12 place-items-center rounded-full bg-accent-soft text-accent">
-                <IntelligenceIcon className="size-6" />
-              </span>
-              <h3 className="mt-3 font-bold text-ink">
-                No reorder suggestions right now
-              </h3>
-              <p className="mx-auto mt-1 max-w-xl text-sm leading-6 text-ink-muted">
-                No quantity-tracked product currently needs reordering from
-                posted-sales velocity, open demand or its reorder point. The
-                engine invents nothing when there is no evidence.
-              </p>
-            </div>
+            <ReorderEmptyState report={report} />
           ) : (
             <RecommendationsTable
               capabilities={capabilities}
@@ -575,6 +819,45 @@ export function IntelligenceWorkspace(): JSX.Element {
       </div>
 
       {body}
+
+      {capabilities.canViewFinancialReports ? (
+        <>
+          {trending.data !== undefined ? (
+            <TrendingProductsSection
+              currency={currency}
+              report={trending.data}
+            />
+          ) : trending.isPending ? (
+            <div className="h-56 animate-pulse rounded-card bg-line-subtle" />
+          ) : (
+            <SectionShell meta="unavailable" title="Trending products">
+              <EmptyNote>
+                Trending products could not be loaded right now.
+              </EmptyNote>
+            </SectionShell>
+          )}
+
+          {topBrands.data !== undefined ? (
+            <TopBrandsSection currency={currency} report={topBrands.data} />
+          ) : topBrands.isPending ? (
+            <div className="h-56 animate-pulse rounded-card bg-line-subtle" />
+          ) : (
+            <SectionShell meta="unavailable" title="Top brands">
+              <EmptyNote>Top brands could not be loaded right now.</EmptyNote>
+            </SectionShell>
+          )}
+        </>
+      ) : (
+        <SectionShell
+          meta="reports.view_financial required"
+          title="Trending products & top brands"
+        >
+          <EmptyNote>
+            Trending products and top brands reveal revenue, so they need the
+            reports.view_financial permission.
+          </EmptyNote>
+        </SectionShell>
+      )}
     </div>
   );
 }

@@ -19,6 +19,7 @@ describe("intelligence workspace state", () => {
       canDecide: true,
       canCreatePurchaseOrders: false,
       canViewInventory: true,
+      canViewFinancialReports: false,
     });
   });
 

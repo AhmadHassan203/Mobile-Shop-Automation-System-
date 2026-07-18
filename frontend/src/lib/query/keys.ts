@@ -89,4 +89,10 @@ export const queryKeys = Object.freeze({
   reorderSuggestionsRoot: ["reports", "reorder-suggestions"] as const,
   reorderSuggestions: (query: object) =>
     ["reports", "reorder-suggestions", query] as const,
+  reportsTrendingProductsRoot: ["reports", "trending-products"] as const,
+  reportsTrendingProducts: (query: object) =>
+    ["reports", "trending-products", query] as const,
+  reportsTopBrandsRoot: ["reports", "top-brands"] as const,
+  reportsTopBrands: (query: object) =>
+    ["reports", "top-brands", query] as const,
 });

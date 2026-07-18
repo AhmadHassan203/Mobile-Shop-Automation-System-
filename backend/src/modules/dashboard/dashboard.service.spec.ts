@@ -6,7 +6,10 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../../database/prisma.service";
 import type { CashPosition, CashService } from "../cash/cash.service";
-import type { DemandService, DemandTopUnmetItem } from "../demand/demand.service";
+import type {
+  DemandService,
+  DemandTopUnmetItem,
+} from "../demand/demand.service";
 import type {
   ExternalBalancesResult,
   ExternalCommissionResult,
@@ -140,6 +143,15 @@ const REORDER_REPORT: ReorderReport = {
   windowDays: 30,
   generatedAt: "2026-07-17T06:00:00.000Z",
   businessDate: "2026-07-17",
+  signal: "recommendations",
+  earlySignal: false,
+  analysis: {
+    analyzedVariants: 1,
+    variantsWithSales: 1,
+    variantsWithStock: 1,
+    variantsWithDemand: 0,
+    windowUnitsSold: 12,
+  },
   totalEstCostMinor: 150_000,
   totalExpProfitMinor: 90_000,
   costCoverage: { costed: 1, total: 1 },
@@ -150,6 +162,15 @@ const EMPTY_REORDER: ReorderReport = {
   windowDays: 30,
   generatedAt: "2026-07-17T06:00:00.000Z",
   businessDate: "2026-07-17",
+  signal: "insufficient_data",
+  earlySignal: false,
+  analysis: {
+    analyzedVariants: 0,
+    variantsWithSales: 0,
+    variantsWithStock: 0,
+    variantsWithDemand: 0,
+    windowUnitsSold: 0,
+  },
   totalEstCostMinor: 0,
   totalExpProfitMinor: 0,
   costCoverage: { costed: 0, total: 0 },
@@ -259,7 +280,11 @@ function saleRow(
         : overrides.invoiceNumber,
     customer:
       overrides.customer === undefined
-        ? { id: "10000000-0000-4000-8000-0000000000ee", name: "Acme", phone: null }
+        ? {
+            id: "10000000-0000-4000-8000-0000000000ee",
+            name: "Acme",
+            phone: null,
+          }
         : overrides.customer,
     lineCount: 1,
     unitCount: 1,
@@ -316,14 +341,22 @@ interface CreateServiceOverrides {
  * are spied to keep snapshot() coordination free of a live database.
  */
 function createService(overrides: CreateServiceOverrides = {}) {
-  const queryRaw = vi.fn().mockResolvedValue(overrides.inventoryRows ?? [INVENTORY_ROW]);
+  const queryRaw = vi
+    .fn()
+    .mockResolvedValue(overrides.inventoryRows ?? [INVENTORY_ROW]);
   const count = vi.fn().mockResolvedValue(overrides.openPurchaseOrders ?? 2);
-  const list = vi.fn().mockResolvedValue(overrides.sales ?? salesPage([saleRow()]));
+  const list = vi
+    .fn()
+    .mockResolvedValue(overrides.sales ?? salesPage([saleRow()]));
   const balances = vi.fn().mockResolvedValue(overrides.balances ?? BALANCES);
-  const commission = vi.fn().mockResolvedValue(overrides.commission ?? COMMISSION);
+  const commission = vi
+    .fn()
+    .mockResolvedValue(overrides.commission ?? COMMISSION);
   const position = vi
     .fn()
-    .mockResolvedValue("position" in overrides ? overrides.position : CASH_POSITION);
+    .mockResolvedValue(
+      "position" in overrides ? overrides.position : CASH_POSITION,
+    );
   const topUnmet = vi.fn().mockResolvedValue(overrides.topUnmet ?? TOP_UNMET);
 
   const prisma = {
@@ -336,7 +369,9 @@ function createService(overrides: CreateServiceOverrides = {}) {
     { position } as unknown as CashService,
     { topUnmet } as unknown as DemandService,
   );
-  vi.spyOn(service, "summary").mockResolvedValue(overrides.summary ?? DAY_SUMMARY);
+  vi.spyOn(service, "summary").mockResolvedValue(
+    overrides.summary ?? DAY_SUMMARY,
+  );
   vi.spyOn(service, "reorderSuggestions").mockResolvedValue(
     overrides.reorder ?? REORDER_REPORT,
   );
@@ -518,7 +553,12 @@ describe("DashboardService.snapshot (live read model)", () => {
         waitingQuantity: 3,
         href: "/demand",
       },
-      { key: "wording:pixel 9", name: "Pixel 9", waitingQuantity: 1, href: "/demand" },
+      {
+        key: "wording:pixel 9",
+        name: "Pixel 9",
+        waitingQuantity: 1,
+        href: "/demand",
+      },
     ]);
     // One suggested item is uncosted, so the budget is a partial value.
     expect(data.recommendedBudget).toMatchObject({
@@ -550,7 +590,10 @@ describe("DashboardService.snapshot (live read model)", () => {
       valueMinor: 0,
       meta: "Posted sales revenue today",
     });
-    expect(snapshot.recentSales).toEqual({ availability: "available", items: [] });
+    expect(snapshot.recentSales).toEqual({
+      availability: "available",
+      items: [],
+    });
     expect(snapshot.digitalServices.availability).toBe("available");
     if (snapshot.digitalServices.availability === "available") {
       expect(snapshot.digitalServices.data.sentToday).toMatchObject({
@@ -618,7 +661,9 @@ describe("DashboardService.snapshot (live read model)", () => {
 
   it("does not query or leak source data when source permissions are absent", async () => {
     const { service, mocks } = createService();
-    const snapshot = await service.snapshot(context([PERMISSIONS.REPORTS_VIEW]));
+    const snapshot = await service.snapshot(
+      context([PERMISSIONS.REPORTS_VIEW]),
+    );
 
     expect(mocks.queryRaw).not.toHaveBeenCalled();
     expect(mocks.count).not.toHaveBeenCalled();
@@ -695,7 +740,12 @@ describe("DashboardService.snapshot (live read model)", () => {
   it("fails closed when database aggregates violate the public invariants", async () => {
     const { service } = createService({
       inventoryRows: [
-        { ...INVENTORY_ROW, onHandUnits: 1n, reservedUnits: 2n, availableUnits: 0n },
+        {
+          ...INVENTORY_ROW,
+          onHandUnits: 1n,
+          reservedUnits: 2n,
+          availableUnits: 0n,
+        },
       ],
     });
 
@@ -754,10 +804,13 @@ describe("DashboardService.summary", () => {
       returns: 8_000n,
     });
 
-    const summary = await service.summary(context([PERMISSIONS.REPORTS_VIEW_FINANCIAL]), {
-      period: "day",
-      date: "2026-07-17",
-    });
+    const summary = await service.summary(
+      context([PERMISSIONS.REPORTS_VIEW_FINANCIAL]),
+      {
+        period: "day",
+        date: "2026-07-17",
+      },
+    );
 
     expect(summary).toEqual({
       period: "day",
@@ -790,11 +843,17 @@ describe("DashboardService.summary", () => {
     });
 
     // 2026-07-17 is a Friday: the ISO week runs Mon 13th .. Sun 19th.
-    const week = await service.summary(context([PERMISSIONS.REPORTS_VIEW_FINANCIAL]), {
-      period: "week",
-      date: "2026-07-17",
+    const week = await service.summary(
+      context([PERMISSIONS.REPORTS_VIEW_FINANCIAL]),
+      {
+        period: "week",
+        date: "2026-07-17",
+      },
+    );
+    expect({ from: week.from, to: week.to }).toEqual({
+      from: "2026-07-13",
+      to: "2026-07-19",
     });
-    expect({ from: week.from, to: week.to }).toEqual({ from: "2026-07-13", to: "2026-07-19" });
 
     const saleWhere = sale.aggregate.mock.calls[0]?.[0]?.where as {
       organizationId: string;
@@ -803,19 +862,33 @@ describe("DashboardService.summary", () => {
     };
     expect(saleWhere.organizationId).toBe(IDS.organization);
     expect(saleWhere.branchId).toBe(IDS.branch);
-    expect(saleWhere.businessDate.gte).toEqual(new Date("2026-07-13T00:00:00.000Z"));
-    expect(saleWhere.businessDate.lte).toEqual(new Date("2026-07-19T00:00:00.000Z"));
+    expect(saleWhere.businessDate.gte).toEqual(
+      new Date("2026-07-13T00:00:00.000Z"),
+    );
+    expect(saleWhere.businessDate.lte).toEqual(
+      new Date("2026-07-19T00:00:00.000Z"),
+    );
 
-    const month = await service.summary(context([PERMISSIONS.REPORTS_VIEW_FINANCIAL]), {
-      period: "month",
-      date: "2026-07-17",
+    const month = await service.summary(
+      context([PERMISSIONS.REPORTS_VIEW_FINANCIAL]),
+      {
+        period: "month",
+        date: "2026-07-17",
+      },
+    );
+    expect({ from: month.from, to: month.to }).toEqual({
+      from: "2026-07-01",
+      to: "2026-07-31",
     });
-    expect({ from: month.from, to: month.to }).toEqual({ from: "2026-07-01", to: "2026-07-31" });
     const expenseWhere = expense.aggregate.mock.calls[1]?.[0]?.where as {
       businessDate: { gte: Date; lte: Date };
     };
-    expect(expenseWhere.businessDate.gte).toEqual(new Date("2026-07-01T00:00:00.000Z"));
-    expect(expenseWhere.businessDate.lte).toEqual(new Date("2026-07-31T00:00:00.000Z"));
+    expect(expenseWhere.businessDate.gte).toEqual(
+      new Date("2026-07-01T00:00:00.000Z"),
+    );
+    expect(expenseWhere.businessDate.lte).toEqual(
+      new Date("2026-07-31T00:00:00.000Z"),
+    );
   });
 });
 
@@ -871,8 +944,12 @@ describe("DashboardService.salesTrend (Asia/Karachi business date)", () => {
     const where = groupBy.mock.calls[0]?.[0]?.where as {
       businessDate: { gte: Date; lte: Date };
     };
-    expect(where.businessDate.gte).toEqual(new Date("2026-07-17T00:00:00.000Z"));
-    expect(where.businessDate.lte).toEqual(new Date("2026-07-17T00:00:00.000Z"));
+    expect(where.businessDate.gte).toEqual(
+      new Date("2026-07-17T00:00:00.000Z"),
+    );
+    expect(where.businessDate.lte).toEqual(
+      new Date("2026-07-17T00:00:00.000Z"),
+    );
   });
 
   it("builds a contiguous forward window that never shifts backward under UTC", async () => {
@@ -899,7 +976,9 @@ describe("DashboardService.salesTrend (Asia/Karachi business date)", () => {
     expect(trend.points).toHaveLength(7);
     expect(trend.points[0]?.businessDate).toBe("2026-07-11");
     expect(trend.points[6]?.businessDate).toBe("2026-07-17");
-    expect(trend.points.find((point) => point.businessDate === "2026-07-15")).toEqual({
+    expect(
+      trend.points.find((point) => point.businessDate === "2026-07-15"),
+    ).toEqual({
       businessDate: "2026-07-15",
       salesRevenueMinor: 120_000,
       cogsMinor: 70_000,
@@ -1114,21 +1193,19 @@ interface ReorderRawFixture {
   readonly windowUnitsSold: bigint;
   readonly windowRevenueMinor: bigint;
   readonly windowProfitMinor: bigint;
+  readonly demandOpenCount: bigint;
 }
 
-function reorderServiceWith(
-  rawRows: readonly ReorderRawFixture[],
-  demandRows: readonly {
-    matchedProductVariantId: string | null;
-    _count: { _all: number };
-  }[],
-) {
+// The reorder engine now derives open matched demand inside its single scoped
+// raw aggregate (a `demand_open` CTE), so it no longer issues a separate
+// `demandRequestItem.groupBy`. The fixture supplies `demandOpenCount` on the raw
+// row and the mock only needs `$queryRaw`.
+function reorderServiceWith(rawRows: readonly ReorderRawFixture[]) {
   const queryRaw = vi.fn().mockResolvedValue(rawRows);
-  const groupBy = vi.fn().mockResolvedValue(demandRows);
   const prisma = {
-    client: { $queryRaw: queryRaw, demandRequestItem: { groupBy } },
+    client: { $queryRaw: queryRaw },
   } as unknown as PrismaService;
-  return { service: dashboardService(prisma), queryRaw, groupBy };
+  return { service: dashboardService(prisma), queryRaw };
 }
 
 describe("DashboardService.reorderSuggestions (scoping and money cross-check)", () => {
@@ -1139,26 +1216,24 @@ describe("DashboardService.reorderSuggestions (scoping and money cross-check)", 
   it("binds tenant/branch/window and returns money exactly derived from the fixture", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-17T06:00:00.000Z"));
-    const { service, queryRaw, groupBy } = reorderServiceWith(
-      [
-        {
-          productVariantId: VARIANT_A,
-          name: "Reorder Phone",
-          sku: "RP-1",
-          reorderPoint: null,
-          casePackSize: null,
-          onHandUnits: 0n,
-          reservedUnits: 0n,
-          availableUnits: 0n,
-          costedUnits: 10n,
-          costedValueMinor: 50_000n, // unit landed cost = 5,000
-          windowUnitsSold: 30n, // 30 sold over a 30-day window -> velocity 1/day
-          windowRevenueMinor: 300_000n,
-          windowProfitMinor: 90_000n, // unit profit = 3,000
-        },
-      ],
-      [{ matchedProductVariantId: VARIANT_A, _count: { _all: 2 } }],
-    );
+    const { service, queryRaw } = reorderServiceWith([
+      {
+        productVariantId: VARIANT_A,
+        name: "Reorder Phone",
+        sku: "RP-1",
+        reorderPoint: null,
+        casePackSize: null,
+        onHandUnits: 0n,
+        reservedUnits: 0n,
+        availableUnits: 0n,
+        costedUnits: 10n,
+        costedValueMinor: 50_000n, // unit landed cost = 5,000
+        windowUnitsSold: 30n, // 30 sold over a 30-day window -> velocity 1/day
+        windowRevenueMinor: 300_000n,
+        windowProfitMinor: 90_000n, // unit profit = 3,000
+        demandOpenCount: 2n, // open matched demand, joined in the raw aggregate
+      },
+    ]);
 
     const report = await service.reorderSuggestions(
       context([PERMISSIONS.RECOMMENDATIONS_VIEW]),
@@ -1183,17 +1258,12 @@ describe("DashboardService.reorderSuggestions (scoping and money cross-check)", 
     expect(report.totalExpProfitMinor).toBe(90_000);
     expect(report.costCoverage).toEqual({ costed: 1, total: 1 });
 
-    // Tenant + branch bound into the raw aggregate and the demand group-by.
+    // Tenant + branch + window are bound into the single scoped raw aggregate,
+    // which now includes the open-demand CTE (no separate group-by is issued).
     const sql = queryRaw.mock.calls[0]?.[0] as { readonly values: unknown[] };
     expect(sql.values).toContain(IDS.organization);
     expect(sql.values).toContain(IDS.branch);
     expect(sql.values).toContain("2026-07-17");
     expect(sql.values).not.toContain(TENANT_B.organization);
-    const demandWhere = groupBy.mock.calls[0]?.[0]?.where as {
-      organizationId: string;
-      branchId: string;
-    };
-    expect(demandWhere.organizationId).toBe(IDS.organization);
-    expect(demandWhere.branchId).toBe(IDS.branch);
   });
 });

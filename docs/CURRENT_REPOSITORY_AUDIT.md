@@ -3,7 +3,7 @@
 Mandatory initial audit required by `13_PRODUCTION_MASTER_BUILD_PROMPT.md` §5, performed before any production code was written.
 
 **Audit date:** 2026-07-15
-**Auditor:** autonomous senior engineer (Claude Opus 4.8)
+**Auditor:** autonomous senior engineer
 **Verdict:** no pre-existing production implementation. The repository contained approved documentation and a static prototype only. The `13_` §4 stack applies in full.
 
 ---

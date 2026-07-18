@@ -1,6 +1,6 @@
 # Handoff — `all-modules-sprint` (breadth-first module sprint)
 
-_Last updated by Claude. Branch `all-modules-sprint`, pushed to `origin/all-modules-sprint`._
+_Branch `all-modules-sprint`, pushed to `origin/all-modules-sprint`._
 
 > **SPRINT 2 — Dashboard + Finance command centre COMPLETE (browser-verified, reconciled).**
 > The Dashboard and the Finance & Cash page are now genuinely live — no misleading "pending"/"not built" placeholders remain for sources that exist.

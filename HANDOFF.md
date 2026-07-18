@@ -1,7 +1,7 @@
 # MobileShop OS — Session Handoff
 
 **Written:** 2026-07-16 03:35 PKT
-**For:** the next Claude/Codex session continuing this build.
+**For:** the next session continuing this build.
 **Authoritative companions:** `BUILD_STATUS.md` (verified state), `docs/API_MODULE_MAP.md`
 (endpoint design + status). Read both. This file only adds what they do not say.
 

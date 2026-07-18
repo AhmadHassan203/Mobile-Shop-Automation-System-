@@ -1,52 +1,104 @@
+# =========================================================
 # Dependencies
+# =========================================================
 node_modules/
 .pnpm-store/
 
-# Secrets — never commit real credentials (Rule 23: secrets do not enter Git)
+# =========================================================
+# Secrets — never commit real credentials
+# Rule 23: secrets do not enter Git
+# =========================================================
 .env
 .env.*
 !.env.example
+!**/.env.example
+
 *.pem
 *.key
 !**/fixtures/**/*.key
 
+# =========================================================
 # Build output
+# =========================================================
 dist/
 build/
 .next/
 out/
+
 *.tsbuildinfo
 
+# =========================================================
 # Prisma generated client
+# Source of truth: database/prisma/schema.prisma
+# =========================================================
 database/generated/
-database/node_modules/
 
+# =========================================================
+# Framework and tooling caches
+# =========================================================
+.cache/
+.turbo/
+.swc/
+.eslintcache
+*.cache
+
+# =========================================================
+# Runtime-generated files
+# =========================================================
+.runtime/
+
+# =========================================================
 # Test output
+# =========================================================
 coverage/
 test-results/
 playwright-report/
 blob-report/
 .playwright/
 
+# =========================================================
 # Logs
+# =========================================================
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 pnpm-debug.log*
 logs/
 
-# Local backups / dumps (may contain business data)
+# =========================================================
+# Local backups and database dumps
+# These may contain real business data
+# =========================================================
 backups/
 *.dump
 *.sql.gz
 
-# Generated artifacts / temp files
+# Do not ignore normal .sql files because:
+# scripts/provision-database.sql must remain tracked.
+
+# =========================================================
+# Generated artifacts and temporary files
+# =========================================================
 .artifacts/
+tmp/
+temp/
 tmp-*.txt
 
-# OS / editor
+# =========================================================
+# Local-only tool settings (ignored)
+# =========================================================
+.claude/settings.local.json
+CLAUDE.local.md
+
+# =========================================================
+# OS and editor files
+# =========================================================
 .DS_Store
 Thumbs.db
+desktop.ini
+
 .idea/
+
 .vscode/*
 !.vscode/extensions.json
-.claude/settings.local.json

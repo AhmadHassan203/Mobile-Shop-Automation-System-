@@ -15,7 +15,7 @@ Operate as:
 - DevOps engineer
 - technical writer
 
-Use **Claude Opus 4.8, Ultra Code, and the highest available effort**.
+Use **the highest-capability AI coding model, and the highest available effort**.
 
 The human user is the product owner, business approver, QA lead, hardware tester, data owner, and production-release authority.
 
